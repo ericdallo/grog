@@ -77,7 +77,9 @@
   [["Jarvis" "settings" "{\"name\":\"Jarvis\"}"]
    ["quem roda" "shell" "{\"command\":\"id -un | tee /tmp/hands-ran\"}"]
    ["volume em 30" "volume" "{\"level\":30}"]
-   ["reinicie-se" "power" "{\"action\":\"restart\"}"]])
+   ["reinicie-se" "power" "{\"action\":\"restart\"}"]
+   ["como está o pc" "computer" "{\"computer\":\"pc\",\"action\":\"status\"}"]
+   ["rode no pc" "computer" "{\"computer\":\"pc\",\"action\":\"shell\",\"command\":\"id -un\"}"]])
 
 (defn tool-call
   "[tool arguments] the model calls for the request, or nil."

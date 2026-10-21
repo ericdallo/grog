@@ -23,6 +23,9 @@ let
   # How an update goes (`grog updater`, as root), for grog to read.
   updateStatus = "/run/grog-update/status.json";
 
+  # Where grog listens for a computer to pair (brain/src/grog/config.clj).
+  pairingPort = cfg.settings.computers.pairing.port or 8485;
+
   models = pkgs.callPackage ../packages/voice-models.nix { };
   voiceConfigFile = json.generate "grog-voice.json" (lib.recursiveUpdate
     {
@@ -100,6 +103,16 @@ in
       description = ''
         The revision of grog that `package` was built from: what grog says
         it is, and what an update compares with the latest grog pushed.
+      '';
+    };
+
+    computers.openFirewall = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Whether to open the port where grog listens for a computer to pair
+        (`settings.computers.pairing.port`): it only listens while someone
+        at grog lets one, for a few minutes.
       '';
     };
 
@@ -316,12 +329,15 @@ in
     (lib.mkIf cfg.enable {
       environment.systemPackages = [ cfg.package ];
       environment.variables.GROG_URL = grogUrl;
+      networking.firewall.allowedTCPPorts = lib.mkIf cfg.computers.openFirewall [ pairingPort ];
 
       systemd.services.grog = {
         description = "grog, the home voice assistant";
         wantedBy = [ "multi-user.target" ];
         wants = [ "network-online.target" ];
         after = [ "network-online.target" ];
+        # ssh and ssh-keygen, for the computers it acts on (grog.computers).
+        path = [ pkgs.openssh ];
         environment = lib.mkIf (cfg.revision != null) { GROG_REVISION = cfg.revision; };
 
         serviceConfig = {

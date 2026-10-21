@@ -224,7 +224,8 @@
       nil
 
       (and (not timed-out) (not (zero? exit)))
-      (throw (ex-info (format "nobody is there to allow it on %s: there's no session to ask in" host)
+      (throw (ex-info (format "nobody is there to allow it on %s: it can't ask anyone (no session, or no notify-send)"
+                              host)
                       {:type ::nobody}))
 
       :else
@@ -321,7 +322,12 @@
   []
   (let [home (System/getProperty "user.home")
         env (session-env #(System/getenv %) #(str/trim (str (:output (hands/run-command ["id" "-u"] 5000)))))]
-    {:run (fn [command timeout-ms] (hands/run-command command timeout-ms env))
+    ;; A program that isn't there fails like it would in a shell.
+    {:run (fn [command timeout-ms]
+            (try (hands/run-command command timeout-ms env)
+                 (catch java.io.IOException _
+                   {:exit 127 :output (str (if (string? command) "bash" (first command)) ": not found")
+                    :timed-out false :truncated false})))
      :policy #(read-policy (policy-file))
      :host (hostname)
      :user (System/getProperty "user.name")

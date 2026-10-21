@@ -45,6 +45,12 @@
           services.grog.skin.package = lib.mkDefault packages.grog-skin;
         };
 
+      # A computer grog acts on, once paired with it: see body/README.md.
+      nixosModules.computer = { pkgs, ... }: {
+        imports = [ ./body/modules/computer.nix ];
+        services.grog.computer.package = lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.grog;
+      };
+
       # grognix, a PC dedicated to grog: see body/README.md.
       nixosModules.grognix = {
         imports = [ disko.nixosModules.disko self.nixosModules.default ./body/grognix ];

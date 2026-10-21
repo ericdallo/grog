@@ -6,6 +6,7 @@ any machine, and grognix, a PC set up just for it.
 ```
 packages/        how grog, grog-voice and grog-skin are built, and the speech models
 modules/grog.nix services.grog, for any NixOS machine
+modules/computer.nix  services.grog.computer, for a computer grog acts on
 grognix/         grognix
 install/         the grognix installer
 tests/           VM tests (make check-vm)
@@ -124,6 +125,28 @@ there, once someone asks for an update.
 
 By hand, on grognix: `sudo nix flake update --flake /etc/nixos`, then
 `sudo nixos-rebuild switch`.
+
+## Computers
+
+grog can act on your other computers ([Computers](../brain/README.md#computers)).
+On a NixOS one, with grog's flake as an input:
+
+```nix
+imports = [ grog.nixosModules.computer ];
+services.grog.computer = {
+  enable = true;
+  user = "alice"; # who grog acts as there
+};
+```
+
+That turns its SSH server on, installs grog, and lets alice suspend it and
+turn it off from anywhere, through polkit (`power = false` doesn't). Then
+let a computer pair at grog (Add a computer, on its screen), and as alice,
+run `grog pair grognix.local`. On other Linux machines, start an SSH server
+and install grog (`nix profile install github:ericdallo/grog`) first.
+
+grog listens for it on port 8485, opened in its firewall
+(`services.grog.computers.openFirewall`), only while it lets one pair.
 
 ## Audio
 
