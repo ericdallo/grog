@@ -10,6 +10,18 @@ export const ERROR_MS = 6_000;
 export const CAPTIONS_MS = 20_000;
 // The steps of the last turn fade after this long.
 export const STALE_MS = 45_000;
+// Right after grog starts, a voice that hasn't said anything yet may be on its
+// way.
+export const VOICE_GRACE_MS = 60_000;
+// Thinking this long, it's still thinking.
+export const STILL_MS = 8_000;
+// How long grog is pleased once a turn went well.
+export const PLEASED_MS = 2_500;
+// Nobody talked to grog for this long: it dozes.
+export const DOZING_MS = 30 * 60_000;
+// Night, in grog's time zone: from 22:00 to 7:00.
+const NIGHT_FROM = 22;
+const NIGHT_TO = 7;
 
 const TOOLS = {
   web_search: { label: "Searching the web", short: "Web", icon: "web" },
@@ -88,7 +100,9 @@ export function mode(state, now) {
         ? { mode: "speaking", label: "Speaking", detail: "" }
         : { mode: "answering", label: "Answering", detail: "" };
     }
-    return { mode: "thinking", label: "Thinking", detail: "" };
+    return now - step.at >= STILL_MS
+      ? { mode: "still", label: "Still thinking", detail: "" }
+      : { mode: "thinking", label: "Thinking", detail: "" };
   }
   if (voice === "speaking") return { mode: "speaking", label: "Speaking", detail: "" };
   if (voice === "answering") {
@@ -102,53 +116,109 @@ export function mode(state, now) {
     return { mode: "error", label: "Something went wrong", detail: state.turn?.error ?? "it couldn't answer" };
   }
   const name = state.name ?? "";
+  const waking = { mode: "loading", label: "Waking up", detail: "loading its ears and voice" };
   switch (voice) {
     case "hearing":
       return { mode: "hearing", label: "Hearing you", detail: "" };
     case "awake":
       return { mode: "awake", label: "Go ahead", detail: "listening, no need to call" };
+    case "asked":
+      return { mode: "asked", label: "Your turn", detail: "it asked something: just answer" };
     case "loading":
-      return { mode: "loading", label: "Waking up", detail: "loading its ears and voice" };
+      return waking;
     case "no-mic":
       return { mode: "no-mic", label: "No microphone", detail: "plug one in" };
-    case "listening":
-    case "error":
-      return { mode: "idle", label: "Listening", detail: name ? `say “${name}”` : "" };
-    default:
-      // A voice that stopped saying; or none yet: there may be none.
-      return { mode: "idle", label: "Ready", detail: state.voice ? "its voice isn't running" : "" };
   }
+  if (state.auth === "none") return { mode: "login", label: "Needs a login", detail: "grog login, or an API key" };
+  if (voice === "listening" || voice === "error") {
+    return { mode: "idle", label: "Listening", detail: name ? `say “${name}”` : "" };
+  }
+  // A voice that stopped saying...
+  if (state.voice) return { mode: "deaf", label: "Can't hear", detail: "its voice isn't running" };
+  // ...or none yet, right after grog started: it may be on its way. Or there's none.
+  return now - state.startedAt < VOICE_GRACE_MS ? waking : { mode: "idle", label: "Ready", detail: "" };
 }
 
 /**
- * What the block of color shows of what grog is doing (a mode()): {kind,
- * icon}, kind being mic, waves, dots, lines, tool (with its icon), eq,
- * loading, failed, no-mic or offline.
+ * grog's face for what it's doing (a mode()): {state, icon}, its state one of
+ * its poses (skin.css), its pupil turned into `icon` when there's one.
+ * Listening, it's pleased just after a turn that went well, dozes once nobody
+ * talked to it for a long while, and is sleepy at `night`.
  */
-export function glyph(m) {
+export function face(m, state, now, night = false) {
   switch (m?.mode) {
-    case "hearing":
-    case "awake":
-      return { kind: "waves" };
-    case "thinking":
-      return { kind: "dots" };
+    case "idle":
+      return { state: resting(state, now, night), icon: null };
     case "answering":
-      return { kind: "lines" };
+      return { state: "writing", icon: null };
     case "tool":
-      return { kind: "tool", icon: m.icon ?? "tool" };
-    case "speaking":
-      return { kind: "eq" };
-    case "loading":
-      return { kind: "loading" };
-    case "error":
-      return { kind: "failed" };
+      return { state: "tool", icon: m.icon ?? "tool" };
     case "no-mic":
-      return { kind: "no-mic" };
-    case "offline":
-      return { kind: "offline" };
+      return { state: "no-mic", icon: "no-mic" };
+    case "login":
+      return { state: "login", icon: "key" };
     default:
-      return { kind: "mic" };
+      return { state: m?.mode ?? "offline", icon: null };
   }
+}
+
+function resting(state, now, night) {
+  if (pleased(state, now)) return "pleased";
+  const since = idleSince(state);
+  if (since !== null && now - since >= DOZING_MS) return "dozing";
+  return night ? "sleepy" : "idle";
+}
+
+/**
+ * Whether the last turn went well and is over just now: said, when
+ * grog-voice said it, or else done.
+ */
+function pleased(state, now) {
+  const turn = state?.turn;
+  if (!turn?.doneAt || turn.ok === false) return false;
+  const end = turn.steps?.some((s) => s.step === "speaking") ? turn.spokenAt : turn.doneAt;
+  return now >= end && now - end < PLEASED_MS;
+}
+
+/** Since when nobody talked to grog, as far as it knows, or null. */
+function idleSince(state) {
+  const turn = state?.turn;
+  const times = [state?.startedAt, turn?.doneAt, turn?.spokenAt, state?.voice?.since].filter(Number.isFinite);
+  return times.length ? Math.max(...times) : null;
+}
+
+// Faces with the eye closed: asleep, or waking up.
+const SHUT = ["offline", "loading"];
+// Called, or waiting for what's said next...
+const CALLED = ["hearing", "awake", "asked"];
+// ...and back to rest without a turn: for nothing.
+const RESTING = ["idle", "sleepy", "dozing"];
+// What comes once it got what was said.
+const ON_IT = ["thinking", "still", "writing", "speaking"];
+
+/**
+ * What the face does on the way from state `from` to `to` (face()'s), their
+ * pupils turned into `fromIcon` and `toIcon`: wake (its eye opens), swap (its
+ * pupil and an icon change behind a blink), pop (called), flinch (it failed),
+ * hop (it went well), nod (it got what was said), never-mind (called for
+ * nothing), or null.
+ */
+export function reaction(from, to, fromIcon = null, toIcon = null) {
+  if (!from || (from === to && fromIcon === toIcon)) return null;
+  if (SHUT.includes(to)) return null;
+  if (SHUT.includes(from)) return "wake";
+  if (fromIcon !== toIcon) return "swap";
+  if (to === "awake") return "pop";
+  if (to === "error") return "flinch";
+  if (to === "pleased") return "hop";
+  if (from === "hearing" && ON_IT.includes(to)) return "nod";
+  if (CALLED.includes(from) && RESTING.includes(to)) return "never-mind";
+  return null;
+}
+
+/** Whether `hour` (0 to 23, in grog's time zone) is at night. */
+export function isNight(hour) {
+  return hour >= NIGHT_FROM || hour < NIGHT_TO;
 }
 
 /** Seconds, as the skin says them: 1.8 s. */
@@ -267,12 +337,13 @@ export function recent(state) {
 /**
  * Formats for grog's time zone (an IANA name), or this browser's without
  * one or with one it doesn't know: {clock: 14:05, date: Saturday, October
- * 17}, in English like the rest of the skin.
+ * 17, hour: 14}, in English like the rest of the skin.
  */
 export function timeFormats(timezone) {
   const make = (timeZone) => ({
     clock: new Intl.DateTimeFormat("en", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
     date: new Intl.DateTimeFormat("en", { timeZone, weekday: "long", month: "long", day: "numeric" }),
+    hour: new Intl.DateTimeFormat("en", { timeZone, hour: "numeric", hourCycle: "h23" }),
   });
   try {
     return make(timezone || undefined);

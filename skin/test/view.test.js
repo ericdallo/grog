@@ -6,21 +6,27 @@ import {
   CAPTIONS_MS,
   capitalize,
   captions,
+  DOZING_MS,
   duration,
   elapsed,
   ERROR_MS,
-  glyph,
+  face,
+  isNight,
   level,
   mode,
   pipeline,
+  PLEASED_MS,
+  reaction,
   recent,
   seconds,
   STALE_MS,
   stale,
+  STILL_MS,
   timeFormats,
   tool,
   usage,
   usd,
+  VOICE_GRACE_MS,
   VOICE_STALE_MS,
   wordChanges,
 } from "../web/view.js";
@@ -57,20 +63,47 @@ describe("what grog is doing", () => {
     const voice = (s) => state({ voice: { state: s, since: NOW, seen: NOW, conversation: "voice" } });
     assert.deepEqual(mode(voice("hearing"), NOW), { mode: "hearing", label: "Hearing you", detail: "" });
     assert.deepEqual(mode(voice("awake"), NOW), { mode: "awake", label: "Go ahead", detail: "listening, no need to call" });
+    assert.deepEqual(mode(voice("asked"), NOW), {
+      mode: "asked",
+      label: "Your turn",
+      detail: "it asked something: just answer",
+    });
     assert.equal(mode(voice("loading"), NOW).mode, "loading");
     assert.equal(mode(voice("no-mic"), NOW).mode, "no-mic");
   });
 
-  it("is ready without a voice, or one that stopped saying", () => {
+  it("is ready without a voice, once grog has been up a while", () => {
     assert.deepEqual(mode(state({ voice: null }), NOW), { mode: "idle", label: "Ready", detail: "" });
+    assert.equal(mode(state({ voice: null, startedAt: NOW - VOICE_GRACE_MS }), NOW).label, "Ready");
+  });
+
+  it("is waking up right after grog started, before its voice says anything", () => {
+    assert.deepEqual(mode(state({ voice: null, startedAt: NOW - 5000 }), NOW), {
+      mode: "loading",
+      label: "Waking up",
+      detail: "loading its ears and voice",
+    });
+  });
+
+  it("can't hear once its voice stopped saying", () => {
     const stale = state({ voice: { state: "hearing", since: 0, seen: NOW - VOICE_STALE_MS - 1 } });
-    assert.deepEqual(mode(stale, NOW), { mode: "idle", label: "Ready", detail: "its voice isn't running" });
+    assert.deepEqual(mode(stale, NOW), { mode: "deaf", label: "Can't hear", detail: "its voice isn't running" });
+  });
+
+  it("needs a login without credentials, but still hears who calls it", () => {
+    assert.deepEqual(mode(state({ auth: "none" }), NOW), {
+      mode: "login",
+      label: "Needs a login",
+      detail: "grog login, or an API key",
+    });
+    const hearing = { state: "hearing", since: NOW, seen: NOW, conversation: "voice" };
+    assert.equal(mode(state({ auth: "none", voice: hearing }), NOW).mode, "hearing");
   });
 
   it("thinks, uses its tools, answers and speaks", () => {
     const at = (steps, voice = "answering") =>
       mode(state({ turn: turn(steps), voice: { state: voice, since: NOW, seen: NOW } }), NOW);
-    assert.deepEqual(at([["thinking", 1]]), { mode: "thinking", label: "Thinking", detail: "" });
+    assert.deepEqual(at([["thinking", NOW - 1000]]), { mode: "thinking", label: "Thinking", detail: "" });
     assert.deepEqual(at([["thinking", 1], ["tool", 2, "web_search"]]), {
       mode: "tool",
       label: "Searching the web",
@@ -79,6 +112,12 @@ describe("what grog is doing", () => {
     });
     assert.equal(at([["thinking", 1], ["answering", 2]]).mode, "answering");
     assert.equal(at([["thinking", 1], ["answering", 2], ["speaking", 3]], "speaking").mode, "speaking");
+  });
+
+  it("is still thinking after a while", () => {
+    const thinking = (ago) => mode(state({ turn: turn([["thinking", NOW - ago]]) }), NOW);
+    assert.equal(thinking(STILL_MS - 1).mode, "thinking");
+    assert.deepEqual(thinking(STILL_MS), { mode: "still", label: "Still thinking", detail: "" });
   });
 
   it("keeps speaking once the answer is all there", () => {
@@ -143,18 +182,78 @@ describe("the turn under way", () => {
   });
 });
 
-describe("what its block of color shows", () => {
-  it("a sign of what grog is doing", () => {
-    const modes = ["idle", "hearing", "awake", "thinking", "answering", "speaking", "loading", "error", "no-mic", "offline"];
-    assert.deepEqual(
-      modes.map((m) => glyph({ mode: m }).kind),
-      ["mic", "waves", "waves", "dots", "lines", "eq", "loading", "failed", "no-mic", "offline"],
-    );
+describe("its face", () => {
+  const idle = { mode: "idle" };
+
+  it("as what grog does, its pupil an icon for a tool, no mic or no login", () => {
+    assert.deepEqual(face({ mode: "thinking" }, state(), NOW), { state: "thinking", icon: null });
+    assert.deepEqual(face({ mode: "answering" }, state(), NOW), { state: "writing", icon: null });
+    const volume = mode(state({ turn: turn([["tool", NOW, "volume"]]) }), NOW);
+    assert.deepEqual(face(volume, state(), NOW), { state: "tool", icon: "volume" });
+    assert.deepEqual(face({ mode: "tool" }, state(), NOW), { state: "tool", icon: "tool" });
+    assert.deepEqual(face({ mode: "no-mic" }, state(), NOW), { state: "no-mic", icon: "no-mic" });
+    assert.deepEqual(face({ mode: "login" }, state(), NOW), { state: "login", icon: "key" });
+    assert.deepEqual(face(mode(null, NOW), null, NOW), { state: "offline", icon: null });
   });
 
-  it("the tool at work", () => {
-    assert.deepEqual(glyph(mode(state({ turn: turn([["tool", 1, "volume"]]) }), NOW)), { kind: "tool", icon: "volume" });
-    assert.deepEqual(glyph({ mode: "tool" }), { kind: "tool", icon: "tool" });
+  it("listening, at rest, or sleepy at night", () => {
+    assert.equal(face(idle, state(), NOW).state, "idle");
+    assert.equal(face(idle, state(), NOW, true).state, "sleepy");
+  });
+
+  it("pleased just after a typed turn went well", () => {
+    const done = turn([["thinking", NOW - 3000]], { conversation: "default", doneAt: NOW - 1000, ok: true });
+    assert.equal(face(idle, state({ turn: done }), NOW).state, "pleased");
+    assert.equal(face(idle, state({ turn: done }), NOW, true).state, "pleased", "at night too");
+    assert.equal(face(idle, state({ turn: done }), NOW - 1000 + PLEASED_MS).state, "idle", "for a moment");
+    assert.equal(face(idle, state({ turn: { ...done, ok: false } }), NOW).state, "idle", "not when it failed");
+  });
+
+  it("pleased once a voice turn is said, not when it was done", () => {
+    const said = turn([["thinking", NOW - 9000], ["answering", NOW - 8000], ["speaking", NOW - 7500]], {
+      doneAt: NOW - 7000,
+      ok: true,
+    });
+    assert.equal(face(idle, state({ turn: { ...said, doneAt: NOW - 500 } }), NOW).state, "idle", "not said yet");
+    assert.equal(face(idle, state({ turn: { ...said, spokenAt: NOW - 500 } }), NOW).state, "pleased");
+  });
+
+  it("dozing once nobody talked to it for a long while", () => {
+    const listening = { state: "listening", since: NOW - DOZING_MS, seen: NOW, conversation: "voice" };
+    const quiet = state({ startedAt: NOW - DOZING_MS - 10_000, voice: listening });
+    assert.equal(face(idle, quiet, NOW).state, "dozing");
+    assert.equal(face(idle, quiet, NOW, true).state, "dozing", "at night too");
+    const done = turn([["thinking", NOW - 70_000]], { doneAt: NOW - 60_000, ok: true });
+    assert.equal(face(idle, { ...quiet, turn: done }, NOW).state, "idle", "not soon after a turn");
+    assert.equal(face(idle, state({ voice: null }), NOW).state, "idle", "nor when it doesn't know");
+  });
+});
+
+describe("what its face does on the way to the next", () => {
+  it("wakes up, swaps its pupil and an icon behind a blink, and reacts", () => {
+    const cases = [
+      [null, "idle", null, null, null],
+      ["idle", "idle", null, null, null],
+      ["idle", "offline", null, null, null],
+      ["offline", "loading", null, null, null],
+      ["loading", "idle", null, null, "wake"],
+      ["offline", "login", null, "key", "wake"],
+      ["thinking", "tool", null, "web", "swap"],
+      ["tool", "tool", "web", "volume", "swap"],
+      ["tool", "thinking", "web", null, "swap"],
+      ["idle", "no-mic", null, "no-mic", "swap"],
+      ["hearing", "awake", null, null, "pop"],
+      ["thinking", "error", null, null, "flinch"],
+      ["speaking", "pleased", null, null, "hop"],
+      ["hearing", "thinking", null, null, "nod"],
+      ["hearing", "idle", null, null, "never-mind"],
+      ["asked", "sleepy", null, null, "never-mind"],
+      ["awake", "hearing", null, null, null],
+      ["pleased", "idle", null, null, null],
+    ];
+    for (const [from, to, fromIcon, toIcon, want] of cases) {
+      assert.equal(reaction(from, to, fromIcon, toIcon), want, `${from} to ${to}`);
+    }
   });
 });
 
@@ -424,6 +523,13 @@ describe("words and numbers", () => {
     const here = new Intl.DateTimeFormat().resolvedOptions().timeZone;
     assert.equal(timeFormats(undefined).clock.resolvedOptions().timeZone, here, "the browser's without one");
     assert.equal(timeFormats("Nowhere/Atlantis").clock.resolvedOptions().timeZone, here, "or one it doesn't know");
+  });
+
+  it("night, from 22:00 to 7:00 in grog's time zone", () => {
+    assert.deepEqual([21, 22, 0, 6, 7, 12].map(isNight), [false, true, true, true, false, false]);
+    const at = Date.UTC(2026, 9, 17, 0, 5);
+    assert.equal(Number(timeFormats("UTC").hour.format(at)), 0);
+    assert.equal(Number(timeFormats("America/Sao_Paulo").hour.format(at)), 21);
   });
 
   it("dollars and durations", () => {

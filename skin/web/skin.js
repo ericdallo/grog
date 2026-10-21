@@ -3,12 +3,15 @@
 // view.js; this only draws it. With ?kiosk (the fullscreen window), there's
 // no mouse pointer.
 
+import { Face } from "./face.js";
+import { ICONS } from "./icons.js";
 import {
   account,
   activeTurn,
   captions,
   elapsed,
-  glyph,
+  face,
+  isNight,
   mode,
   pipeline,
   recent,
@@ -23,41 +26,14 @@ const EVENTS = ["snapshot", "voice", "turn", "tool", "text", "done", "failed", "
 // The skin moves a little this often, so that nothing marks the screen.
 const DRIFT_MS = 5 * 60_000;
 
-const ICONS = {
-  web: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.5 3.6 5.3 3.6 8.5s-1.2 6-3.6 8.5c-2.4-2.5-3.6-5.3-3.6-8.5S9.6 6 12 3.5z"/>',
-  volume: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4.5 4.5 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/>',
-  machine: '<rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M10 3.5V7M14 3.5V7M10 17v3.5M14 17v3.5M3.5 10H7M3.5 14H7M17 10h3.5M17 14h3.5"/>',
-  shell: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10l3 2.5L7 15M12.5 15H17"/>',
-  memory: '<path d="M7 4h10v16l-5-3.5L7 20z"/>',
-  settings: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
-  tool: '<path d="M14.5 5.5a4 4 0 0 0-5 5L4 16l4 4 5.5-5.5a4 4 0 0 0 5-5l-2.5 2.5-2.5-.5-.5-2.5z"/>',
-  voice: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
-  thinking: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18"/>',
-  answering: '<path d="M4 6.5h16M4 11.5h16M4 16.5h10"/>',
-  speaking: '<path d="M5 10v4M9 7v10M13 4v16M17 8v8M21 11v2"/>',
-  done: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
-  failed: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
-  "no-mic": '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M4 4l16 16"/>',
-  offline: '<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>',
-};
-
-// A mic, with sound around it while it hears.
-const WAVES = `<svg viewBox="0 0 64 48" class="wide waves" aria-hidden="true">
-  <rect x="27" y="7" width="10" height="20" rx="5"/><path d="M21 21a11 11 0 0 0 22 0M32 32v7M26 39h12"/>
-  <path class="w" d="M17 14a12 12 0 0 0 0 16M47 14a12 12 0 0 1 0 16"/>
-  <path class="w" d="M10 9a20 20 0 0 0 0 26M54 9a20 20 0 0 1 0 26"/>
-</svg>`;
-// Lines of an answer, being written.
-const LINES = `<svg viewBox="0 0 24 24" class="lines" aria-hidden="true">
-  <path class="w" d="M4 6.5h16"/><path class="w" d="M4 11.5h16"/><path class="w" d="M4 16.5h10"/>
-</svg>`;
-
 const $ = (id) => document.getElementById(id);
 const els = Object.fromEntries(
-  ["name", "model", "account", "clock", "date", "glyph", "label", "detail", "timer"]
+  ["name", "model", "account", "clock", "date", "avatar", "label", "detail", "timer"]
     .concat(["captions", "question", "answer", "pipeline", "recent", "usage"])
     .map((id) => [id, $(id)]),
 );
+// grog's face, in its block.
+const eye = new Face(els.avatar);
 
 let state = null;
 let offline = true;
@@ -69,6 +45,8 @@ let skew = 0;
 let formats = { timezone: undefined, ...timeFormats(undefined) };
 // Draws the time of the turn under way, finer, while there's one.
 let fine = null;
+// The hour on the clock, to know when a new one starts.
+let hourShown = null;
 const drawn = {};
 
 const now = () => Date.now() + skew;
@@ -102,47 +80,16 @@ function once(key, data, draw) {
   draw(data);
 }
 
-/** Bars of a voice, each at its own pace. */
-function equalizer(n = 5) {
-  const eq = el("span", "eq");
-  for (let i = 0; i < n; i++) {
-    const bar = el("b");
-    bar.style.setProperty("--t", `${(0.3 + Math.random() * 0.4).toFixed(2)}s`);
-    bar.style.setProperty("--d", `${(-Math.random()).toFixed(2)}s`);
-    eq.append(bar);
-  }
-  return eq;
-}
-
-function drawGlyph(g) {
-  switch (g.kind) {
-    case "waves":
-      els.glyph.innerHTML = WAVES;
-      break;
-    case "dots":
-      els.glyph.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
-      break;
-    case "lines":
-      els.glyph.innerHTML = LINES;
-      break;
-    case "tool":
-    case "loading":
-      els.glyph.innerHTML = `<span class="ring"></span>${icon(g.kind === "tool" ? g.icon : "voice")}`;
-      break;
-    case "eq":
-      els.glyph.replaceChildren(equalizer());
-      break;
-    default:
-      els.glyph.innerHTML = icon(g.kind === "mic" ? "voice" : g.kind);
-  }
-}
-
+/** What grog does, by its color and its words, and its face, by day or by night. */
 function drawMode(t) {
   const m = mode(offline ? null : state, t);
   if (document.body.dataset.mode !== m.mode) document.body.dataset.mode = m.mode;
+  const night = isNight(Number(format("hour", t)));
+  document.body.classList.toggle("night", night);
   setText(els.label, m.label);
   setText(els.detail, m.detail ?? "");
-  once("glyph", glyph(m), drawGlyph);
+  const f = face(m, offline ? null : state, t, night);
+  eye.set(f.state, f.icon);
   setText(els.timer, offline ? "" : elapsed(state, t));
 }
 
@@ -154,6 +101,10 @@ function drawBrand(t) {
   setText(els.account, state ? account(state) : "");
   setText(els.clock, format("clock", t));
   setText(els.date, format("date", t));
+  // On the hour, grog looks at the clock.
+  const hour = format("hour", t);
+  if (hourShown !== null && hour !== hourShown) eye.lookAtClock();
+  hourShown = hour;
 }
 
 /**
