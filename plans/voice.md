@@ -449,6 +449,12 @@ The samples' page is the lab's `samples/index.html` (in
   Chatterbox's "radio" sample keeps every word too (24 and 6 layers), with
   its timbre (169 to 182 Hz, Chatterbox's 188): that voice at Pocket's
   speed, not heard yet.
+- On the station itself, with turbo, nixpkgs' torch 2.11 and the
+  `pocket_tts` package (in bursts, 3 s apart): the 6-layer clone of
+  "deep-calm" at RTF 0.63 on 1 thread, 0.50 on 2, 0.54 on 4, its first
+  audio in 0.10 to 0.16 s; of Chatterbox's "radio", 0.47 on 2 threads.
+  Twice as slow as on the 386H with PyPI's torch 2.14, but real time with
+  room to spare, as it streams.
 
 ## Where to go from here
 
