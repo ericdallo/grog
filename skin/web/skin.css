@@ -543,7 +543,8 @@ ol {
   scrollbar-width: none;
 }
 
-.chat::-webkit-scrollbar {
+.chat::-webkit-scrollbar,
+.sheet::-webkit-scrollbar {
   display: none;
 }
 
@@ -825,6 +826,9 @@ ol {
   flex-direction: column;
   min-width: 0;
   padding: 6vmin 6vmin 5.5vmin;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
   background: var(--bg);
   opacity: 0;
   transform: translateX(3vmin);

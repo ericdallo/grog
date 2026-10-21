@@ -648,6 +648,8 @@ els.avatar.addEventListener("click", () => {
 els["open-actions"].innerHTML = icon("menu");
 els["close-actions"].innerHTML = icon("close");
 els["open-actions"].addEventListener("click", openSheet);
+// Scrolling the actions is touching them: they stay open.
+els.sheet.addEventListener("scroll", () => sheetOpen && touched(), { passive: true });
 els["close-actions"].addEventListener("click", closeSheet);
 els.items.addEventListener("click", (e) => {
   const button = e.target.closest("button[data-action]");
