@@ -63,7 +63,7 @@ in
       '';
       description = ''
         Settings rendered to JSON (lowerCamelCase keys) and deep-merged over
-        the app defaults (brain/src/grog/config.clj, documented in README.md),
+        the app defaults (brain/src/grog/config.clj, documented in brain/README.md),
         checked when the service starts. Never put API keys here: they would
         end up in the world-readable Nix store. `settings.nrepl.enable` lets any local
         user run code as the service: only turn it on for machines you alone
@@ -142,7 +142,7 @@ in
         description = ''
           Settings rendered to JSON (lowerCamelCase keys) and merged over
           grog-voice's defaults (voice/grog_voice/config.py, documented in
-          README.md). `grogUrl` points at services.grog on this machine,
+          voice/README.md). `grogUrl` points at services.grog on this machine,
           `stt.model` and `tts.voice` come from the options above.
         '';
       };

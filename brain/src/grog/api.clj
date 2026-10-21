@@ -1,5 +1,5 @@
 (ns grog.api
-  "grog's HTTP API (README.md, HTTP API), answered by `route`. JSON keys are
+  "grog's HTTP API (brain/README.md, HTTP API), answered by `route`. JSON keys are
   in lowerCamelCase, both ways. The Host must be one of
   `server.allowedHosts`, and POST and DELETE take Content-Type:
   application/json: web pages can't use grog (see `refusal`)."
