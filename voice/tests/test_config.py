@@ -5,20 +5,25 @@ import unittest
 
 from grog_voice import config
 
+PARAKEET_INT8 = ("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt")
+
 
 class ConfigTest(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
         self.model = os.path.join(self.dir.name, "parakeet")
-        os.mkdir(self.model)
         self.voice = os.path.join(self.dir.name, "voice.onnx")
         self.supertonic = os.path.join(self.dir.name, "supertonic-3")
         self.style = os.path.join(self.dir.name, "mine.json")
-        files = [self.voice, self.voice + ".json", self.style] + [
-            os.path.join(self.supertonic, f)
-            for f in config.SUPERTONIC_FILES + ("voice_styles/M1.json", "voice_styles/F2.json")
-        ]
+        files = (
+            [self.voice, self.voice + ".json", self.style]
+            + [os.path.join(self.model, f) for f in PARAKEET_INT8]
+            + [
+                os.path.join(self.supertonic, f)
+                for f in config.SUPERTONIC_FILES + ("voice_styles/M1.json", "voice_styles/F2.json")
+            ]
+        )
         for path in files:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             open(path, "w").close()
@@ -47,11 +52,36 @@ class ConfigTest(unittest.TestCase):
         )
         self.assertEqual(
             [
-                "stt.model: expected a Parakeet model directory, got nothing",
+                "stt.model: expected a Parakeet model directory (encoder, decoder and joiner, .int8.onnx or "
+                ".onnx, and tokens.txt), got nothing",
                 "tts.model: expected a Supertonic model directory (onnx/ and voice_styles/, "
                 "as in Supertone/supertonic-3), got nothing",
             ],
             config.problems(settings),
+        )
+
+    def test_speech_to_text_int8_or_fp32(self):
+        def problems(model):
+            return config.problems(
+                config.deep_merge(
+                    config.DEFAULTS, {"stt": {"model": model}, "tts": {"model": self.supertonic}}
+                )
+            )
+
+        fp32 = os.path.join(self.dir.name, "fp32")
+        os.mkdir(fp32)
+        for f in ("encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"):
+            open(os.path.join(fp32, f), "w").close()
+        self.assertEqual([], problems(self.model))
+        self.assertEqual([], problems(fp32))
+        os.remove(os.path.join(fp32, "joiner.onnx"))
+        self.assertEqual(
+            [
+                "stt.model: expected a Parakeet model directory (encoder, decoder and joiner, .int8.onnx or "
+                f".onnx, and tokens.txt), got {json.dumps(fp32)}"
+            ],
+            problems(fp32),
+            "a graph missing",
         )
 
     def test_file_merges_over_the_defaults(self):

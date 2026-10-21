@@ -115,13 +115,24 @@ in
         '';
       };
 
+      sttPrecision = lib.mkOption {
+        type = lib.types.enum [ "int8" "fp32" ];
+        default = "int8";
+        description = ''
+          Speech to text: Parakeet in int8, or in fp32, which hears more
+          (from afar, through a poor mic) for ~1.3 GB more RAM per Parakeet:
+          grog-voice runs two, with partials. With AVX2, fp32 on 4 threads
+          (`settings.stt.threads`) is about as fast as int8 on 2.
+        '';
+      };
+
       sttModel = lib.mkOption {
         type = lib.types.path;
-        default = models.parakeet;
-        defaultText = lib.literalMD "Parakeet TDT 0.6B v3, int8 (`body/packages/voice-models.nix`)";
+        default = if cfg.voice.sttPrecision == "fp32" then models.parakeetFp32 else models.parakeet;
+        defaultText = lib.literalMD "Parakeet TDT 0.6B v3, in `sttPrecision` (`body/packages/voice-models.nix`)";
         description = ''
           Speech to text: the directory of a Parakeet TDT model for
-          sherpa-onnx (int8). The default knows 25 European languages.
+          sherpa-onnx, int8 or fp32. The default knows 25 European languages.
         '';
       };
 

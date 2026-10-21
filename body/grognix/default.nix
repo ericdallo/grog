@@ -126,9 +126,9 @@
     alsa.enable = true;
     pulse.enable = true;
     # grog speaks and listens through USB audio whenever some is plugged in,
-    # like a speakerphone (which cancels its own echo), rather than through
-    # Bluetooth or the built-in audio. A device picked in GNOME's sound
-    # settings (or `wpctl set-default`) still comes first.
+    # most likely plugged in for it, rather than through Bluetooth or the
+    # built-in audio. A device picked in GNOME's sound settings (or `wpctl
+    # set-default`) still comes first.
     wireplumber.extraConfig."50-grognix-usb-audio"."monitor.alsa.rules" = [{
       matches = [
         { "node.name" = "~alsa_output.usb-.*"; }

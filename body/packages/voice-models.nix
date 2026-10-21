@@ -2,15 +2,16 @@
 { lib, fetchurl, fetchzip, runCommand }:
 
 let
-  # Supertone/supertonic-3 at revision `rev`: the files grog-voice reads, laid
-  # out as there.
-  supertonicModel = { rev, files }:
-    runCommand "supertonic-3" { } (lib.concatLines ([ "mkdir -p $out/onnx $out/voice_styles" ]
-      ++ lib.mapAttrsToList
-      (path: hash: "ln -s ${fetchurl {
-        url = "https://huggingface.co/Supertone/supertonic-3/resolve/${rev}/${path}";
-        inherit hash;
-      }} $out/${path}")
+  # Files of a Hugging Face repo at revision `rev`, laid out as there.
+  huggingFaceFiles = { name, repo, rev, files }:
+    runCommand name { } (lib.concatLines (lib.mapAttrsToList
+      (path: hash: ''
+        mkdir -p "$(dirname "$out/${path}")"
+        ln -s ${fetchurl {
+          url = "https://huggingface.co/${repo}/resolve/${rev}/${path}";
+          inherit hash;
+        }} "$out/${path}"
+      '')
       files));
 
   # A voice from rhasspy/piper-voices at revision `rev`: its .onnx, with the
@@ -42,9 +43,27 @@ in
     hash = "sha256-3zMIAaTYBJZB8rXgaxHZdgBqBbrrLLN7USLH+JNTaDY=";
   };
 
+  # The same in fp32, ~2.5 GB: it hears more, for twice the memory
+  # (services.grog.voice.sttPrecision = "fp32").
+  parakeetFp32 = huggingFaceFiles {
+    name = "parakeet-tdt-0.6b-v3";
+    repo = "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3";
+    rev = "1a468a35cbba69418f126de829e75261dea4a4e4";
+    files = {
+      "encoder.onnx" = "sha256-Pu185CS/gzmtCSM1M8aH4tvQfnTM9QJ7XnNEAZ6jc7A=";
+      # The encoder's weights, which encoder.onnx finds next to it.
+      "encoder.weights" = "sha256-OvP1GvXy0B279a9H1Cx5YqLCBfEQBCVLtPK5eYYvOag=";
+      "decoder.onnx" = "sha256-1ZPNsOVx9aRX7CIZr5loy/aw6BmOj3g5tAqHVFk79ow=";
+      "joiner.onnx" = "sha256-ubC8+IrFcZAuaaZTYiPtLZSIXpgbhQRUEPFAPVMSGmM=";
+      "tokens.txt" = "sha256-1YVEZ56kvGrFY9H1Ret9R0vWz6Rn8KbiwdwcfTfjw10=";
+    };
+  };
+
   # Text to speech: Supertonic 3 (Supertone, OpenRAIL-M: see its LICENSE),
   # its graphs in fp32 and its ten voices. 31 languages.
-  supertonic = supertonicModel {
+  supertonic = huggingFaceFiles {
+    name = "supertonic-3";
+    repo = "Supertone/supertonic-3";
     rev = "3cadd1ee6394adea1bd021217a0e650ede09a323";
     files = {
       "onnx/duration_predictor.onnx" = "sha256-w+uRQU1f+KeiObf+njTn4r+KgUDYN1/7FHGLHGOTJds=";

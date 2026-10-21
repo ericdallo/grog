@@ -2,6 +2,8 @@
 Supertonic or Piper. Their libraries load lazily, so the rest runs (and is
 tested) without them."""
 
+import os
+
 from . import supertonic
 from .audio import peak_dbfs, stt_gain_db
 
@@ -26,20 +28,31 @@ class SileroVad:
         self.vad.reset()
 
 
+def parakeet_files(model_dir):
+    """The files of the Parakeet TDT export for sherpa-onnx in `model_dir`
+    (encoder, decoder, joiner and tokens): its int8 graphs, or else its fp32
+    ones, or None when neither is all there."""
+    for graphs in (".int8.onnx", ".onnx"):
+        files = {part: os.path.join(model_dir, part + graphs) for part in ("encoder", "decoder", "joiner")}
+        files["tokens"] = os.path.join(model_dir, "tokens.txt")
+        if all(os.path.isfile(f) for f in files.values()):
+            return files
+    return None
+
+
 class Parakeet:
-    """Speech to text with Parakeet TDT 0.6B v3 (int8, sherpa-onnx): 25
-    European languages, told apart from the audio. On grognix's Celeron N5095
+    """Speech to text with Parakeet TDT 0.6B v3 (sherpa-onnx): 25 European
+    languages, told apart from the audio. In int8, on grognix's Celeron N5095
     (2 threads), 0.5 s for 0.8 s of audio, 1.3 s for 2.5 s: far more accurate
-    than Whisper base there, and about as fast."""
+    than Whisper base there, and about as fast. In fp32 it hears more (from
+    afar, say), for twice the memory: on a Core Ultra 7 155H, 0.20 s for a
+    few seconds of speech with 4 threads, as fast as int8 with 2."""
 
     def __init__(self, model_dir, threads):
         import sherpa_onnx
 
         self.recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
-            encoder=f"{model_dir}/encoder.int8.onnx",
-            decoder=f"{model_dir}/decoder.int8.onnx",
-            joiner=f"{model_dir}/joiner.int8.onnx",
-            tokens=f"{model_dir}/tokens.txt",
+            **parakeet_files(model_dir),
             num_threads=threads,
             model_type="nemo_transducer",
             provider="cpu",

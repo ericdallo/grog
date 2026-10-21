@@ -6,6 +6,7 @@ import os
 import re
 
 from . import supertonic
+from .speech import parakeet_files
 
 # The text to speech engines (tts.engine).
 ENGINES = ("supertonic", "piper")
@@ -24,7 +25,7 @@ DEFAULTS = {
     "mic": None,
     "speaker": None,
     "stt": {
-        # Directory of a Parakeet TDT model for sherpa-onnx (int8).
+        # Directory of a Parakeet TDT model for sherpa-onnx, int8 or fp32.
         "model": None,
         # On grognix's 4 cores, 3 are slower than 2 (by 0.3 to 0.4 s for a few
         # seconds of speech), as the waiting threads of its three models spin.
@@ -129,7 +130,11 @@ CHECKS = [
     ),
     ("mic", _optional(_non_blank), "a PipeWire node name, or null"),
     ("speaker", _optional(_non_blank), "a PipeWire node name, or null"),
-    ("stt.model", lambda v: isinstance(v, str) and os.path.isdir(v), "a Parakeet model directory"),
+    (
+        "stt.model",
+        lambda v: isinstance(v, str) and parakeet_files(v) is not None,
+        "a Parakeet model directory (encoder, decoder and joiner, .int8.onnx or .onnx, and tokens.txt)",
+    ),
     ("stt.threads", lambda v: _int(v, 1), "a positive integer"),
     ("tts.engine", lambda v: v in ENGINES, '"supertonic" or "piper"'),
     ("endSilenceMs", lambda v: _int(v, 1), "a positive integer"),

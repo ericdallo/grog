@@ -1,7 +1,7 @@
 """The voice loop: waits for an utterance (see ears.py) and, when it's for
 grog ("Grog, ..."), asks grog and speaks the answer as it streams in (see
 mouth.py). Half duplex: what the mic hears while grog answers is dropped
-(until a speakerphone with echo cancellation)."""
+(hearing someone over grog's own voice would take echo cancellation)."""
 
 import logging
 import threading

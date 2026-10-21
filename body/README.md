@@ -108,17 +108,26 @@ another in GNOME's sound settings, or with `wpctl set-default <id>` as grog.
 To pin one by name, set `services.grog.voice.settings.mic` or `.speaker` in
 `machine.nix`.
 
-## Tried on
+`grog-voice listen`, as grog, shows what the mic hears and how loud. From
+where you usually talk, speech should peak between -30 and -10 dBFS, and
+never reach 0, where it clips. `wpctl set-volume @DEFAULT_SOURCE@ 80%` sets
+the mic's volume.
 
-A Bematech RC-8400 mini PC: Celeron N5095 (no AVX2), 8 GB of RAM, and no
-Wi-Fi of its own. With it:
+## Picking hardware
 
-- a TP-Link Archer T2U Nano USB dongle for Wi-Fi
-- a Focusrite Scarlett 2i2 with a Shure SV200 mic, and an EDIFIER R1010BT
-  speaker over Bluetooth, which adds about 0.3 s before grog is heard
-- a CMTECK ZM-350 USB speakerphone, the closest thing to an Echo, with the
-  echo cancellation that interrupting grog will need
-- the onboard Realtek ALC897 jacks, which just work
-
-Without AVX2, Whisper is too slow. Parakeet takes about 0.9 s and gets more
-right.
+- The mic matters most. Mics that clean up the sound themselves, as most
+  speakerphones and conference mics do, mute what they take for noise:
+  words lose their start, and grog misses its name even from up close.
+  Plain mics do better. Try one with `grog-voice listen` before settling.
+- Keep the speaker away from the mic. grog doesn't listen while it talks,
+  but the sound saying it heard its name plays while you're still talking,
+  and if it reaches the mic louder than you, it covers your words.
+- Bluetooth speakers add about 0.3 s before grog is heard.
+- A CPU with AVX2 makes speech 3 to 6 times faster. Without it, Parakeet
+  takes about 0.9 s to write down what you said, and Supertonic 0.5 s per
+  second of speech.
+- 8 GB of RAM leaves room: grog-voice takes 2 to 4 GB. With a few GB more,
+  `services.grog.voice.sttPrecision = "fp32"` hears better, from afar most
+  of all. Give it 4 threads (`services.grog.voice.settings.stt.threads = 4`)
+  to keep it as fast.
+- No Wi-Fi? A USB dongle works.

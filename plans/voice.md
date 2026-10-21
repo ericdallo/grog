@@ -12,6 +12,8 @@ said otherwise.
   graphs from `Supertone/supertonic-3`, pinned at revision
   `3cadd1ee6394adea1bd021217a0e650ede09a323`, 4 threads, 5 steps.
 - Piper stays available (`tts.engine = "piper"`, `tts.voice` = a `.onnx`).
+- It hears with Parakeet TDT 0.6B v3 in int8, or fp32 with
+  `services.grog.voice.sttPrecision` (see "The ears" below).
 - Code: `voice/grog_voice/supertonic.py` (text handling, pure), the
   `Supertonic` and `Piper` classes in `voice/grog_voice/speech.py`, the
   `tts.*` settings in `voice/grog_voice/config.py`, the models in
@@ -256,7 +258,63 @@ supertone-inc/supertonic, MIT), which grog follows:
   - OpenAI's gpt-4o-mini-tts (about US$ 0.015 a minute, an API key, which the ChatGPT subscription doesn't cover);
   - ElevenLabs, Google.
 
+## The ears: mics and speech to text
+
+Tried in October 2026 on a laptop running grog (Core Ultra 7 155H, 16 GB).
+Every take was recorded by two mics at once, then run offline through
+grog-voice's own pipeline (VAD, endpointing, Parakeet, the wake word), so
+both heard the same words. Counted: utterances starting with "Grog" that
+grog would answer. The scripts ran with grog-voice's own Python, as above.
+
+- **A USB speakerphone with its own noise suppression**: 1 of 12, missing
+  "Grog" even at 40 cm in a quiet room. 83 to 89% of what it gives is digital
+  silence, each word starts 10 to 20 dB down for its first ~50 ms, and pieces
+  in the middle go missing: Parakeet heard "Yeah" and "Well". Its level was
+  fine (peaks at -15 to -25 dBFS), and nothing brings back what it cut. It
+  did cancel its own echo.
+- **The laptop's two built-in mics** (digital, mixed to mono by PipeWire):
+  12 of 15, all of them at 1 m; the misses were at 3 m, mostly "Grog." said
+  alone. Speech peaked at -16 to -28 dBFS with the mic at 100%, 26 to 32 dB
+  over the room's noise.
+- **Lid closed**: the same at 1 m. At 3 m, ~2 dB quieter, 2 to 3 dB less
+  above 2 kHz, and one of two utterances missed there, none with it open.
+- **Mic volume**: 68% (-10 dB) against 100%, simulated by adding the gain to
+  the recordings: 8 of 10 against 9 of 10 in int8, 9 of 10 both in fp32.
+  The speech to text gain makes up for it; the VAD caught quiet words a
+  little better louder.
+- **Parakeet fp32 against int8**
+  (`csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3`): 14 of 15 against 12
+  of 15 on the laptop's mics, and 6 of 12 against 1 of 12 through the
+  speakerphone. In bursts on the Core Ultra 7, for 1.5 to 3.5 s utterances:
+  int8 0.24 s median with 2 threads, 0.14 s with 4; fp32 0.56 s with 2, 0.20
+  s with 4. Memory: +1.2 GB per Parakeet in int8, +2.5 GB in fp32, and
+  grog-voice runs two with partials. Hence `sttPrecision`, int8 by default.
+- **Echo cancellation**: PipeWire's echo-cancel module (WebRTC, the
+  canceller alone, no noise suppression or gain control), with the speaker
+  right next to the mic. grog's echo went from -13.5 to -25 dBFS on
+  average, but it clipped the mic at 0 dBFS to begin with, and when someone
+  talked over grog, their words went too. Not worth it there: grog-voice
+  stays half duplex.
+- **The listening earcon over speech**: it plays while someone talks on
+  after grog's name. Added to the recordings peaking at -1 dBFS (as the
+  speaker beside the mic gave it), the question was lost in 2 of 15
+  utterances and the name in 1 more; at -20 dBFS, no worse than without.
+  Hence: keep the speaker away from the mic.
+- **How Parakeet wrote "Grog"**: matched as "Grog", "Grogue", "Drogue",
+  "Drog" (with more after), "Groggy", "Grogu"; missed as "Droga", "Garage",
+  "Graguinho", "Grogi", "Krogi", "Group", "G". Short and alone, from 3 m, is
+  the hardest.
+
 ## Where to go from here
+
+### Ears
+
+- "Grogi" and "Krogi" (keys `KRuJ`) could count as the name: no Portuguese
+  word sounds like them. Check for false wakes first.
+- A wake word model of its own (openWakeWord, microWakeWord) for "Grog"
+  alone from afar, where speech to text struggles most.
+- Echo cancellation again, with the speaker well away from the mic: it
+  would let the earcon play over speech, and someone interrupt grog.
 
 ### A voice of grog's own
 

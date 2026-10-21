@@ -46,7 +46,9 @@ Nix fetches the models: Parakeet, and Supertonic 3 with its ten voices (F1
 to F5, M1 to M5), under OpenRAIL-M, which forbids harmful uses (its LICENSE
 comes with it). Pick others with `services.grog.voice.sttModel`, `ttsModel`
 and `ttsVoice`. `ttsEngine = "piper"` speaks with Piper's pt_BR `faber`
-voice, or the one in `ttsVoice`.
+voice, or the one in `ttsVoice`. `sttPrecision = "fp32"` runs Parakeet in
+fp32 rather than int8: it hears more, from afar most of all, for ~1.3 GB
+more RAM per Parakeet.
 
 `journalctl --user -u grog-voice` shows how long each turn took.
 
@@ -79,8 +81,8 @@ or `$GROG_VOICE_CONFIG`), merged over the defaults in
 | `conversationId` | `"voice"` | The brain's conversation its turns go to |
 | `wakeWord` | `null` | Like `"Ok computer"`, or a list of spellings. `null`: grog's name. `false`: none, everything gets an answer |
 | `mic`, `speaker` | `null` | PipeWire node names (`wpctl status -n`). `null`: the session's defaults |
-| `stt.model` | `null` | A Parakeet TDT model for sherpa-onnx. On NixOS: `sttModel` |
-| `stt.threads` | `2` | 3 is slower on grognix's 4 cores |
+| `stt.model` | `null` | A Parakeet TDT model for sherpa-onnx, int8 or fp32. On NixOS: `sttModel`, or `sttPrecision` |
+| `stt.threads` | `2` | 3 is slower on grognix's 4 cores. fp32 with 4 is as fast as int8 with 2, given AVX2 |
 | `tts.engine` | `"supertonic"` | Or `"piper"`: ~1 GB lighter and quicker to start speaking, but flatter. On NixOS: `ttsEngine` |
 | `tts.voice` | `"M1"` | Supertonic: one of its voices (F1 to F5, M1 to M5), or a voice style `.json`. Piper: a voice, `.onnx` with its `.onnx.json`. On NixOS: `ttsVoice` |
 | `tts.model` | `null` | Supertonic's directory, as in Supertone/supertonic-3 (`onnx/`, `voice_styles/`). On NixOS: `ttsModel` |
