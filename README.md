@@ -1,3 +1,5 @@
+<img src="images/logo.svg" width="160" align="right">
+
 # grog
 
 Grog is an AI home assistant, think of it as a smarter Alexa.
