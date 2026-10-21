@@ -298,7 +298,9 @@
 
 (defn ^:private watch-events
   "Watches `url`'s /v1/events (or `path`) in the background. Returns [got
-  close!], got being an atom of the events so far, as [type data]."
+  close!], got being an atom of the events so far, as [type data]. Closing
+  waits for what grog sends next (a ping, every 15 s), so `close!` doesn't:
+  stopping the server ends it."
   ([url]
    (watch-events url "/v1/events"))
   ([url path]
@@ -315,7 +317,7 @@
                                                     (recur nil))
                :else (recur type))))
          (catch java.io.IOException _ nil)))
-     [got #(.close reader)])))
+     [got #(future (.close reader))])))
 
 (defn ^:private eventually
   "Whether `pred` holds within a few seconds."
