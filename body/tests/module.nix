@@ -287,7 +287,7 @@ pkgs.testers.runNixOSTest {
         # about to do, then the answer, without the source it cited.
         assert "answer: Vou ver a previsão. messages=1 key=test-key name=ok\n" in out, out
         assert "tempo.com" not in out, out
-        assert "sounds: ack, searching" in out, out
+        assert "sounds: ack\n" in out, out
         # In the order they came: got it may come before the whole is transcribed.
         timings = re.search(r"since it ended: ([^;\n]*)", out)
         assert timings and all(

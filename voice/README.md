@@ -19,8 +19,7 @@ up to it.
    since speech to text writes it as "Groga" or "Grok" and so on. After its
    name alone, or an answer asking you something, the next thing you say
    doesn't need it.
-4. A short sound says it got it, and the brain answers, streamed. Another
-   sound means it's looking something up.
+4. A short tick says it got it, and the brain answers, streamed.
 5. [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) speaks the
    answer, a sentence at a time while the rest is still coming, in a voice
    cloned from a recording: deep-calm, a deep, calm Brazilian voice designed

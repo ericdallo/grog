@@ -4,7 +4,7 @@ import unittest
 from grog_voice import sounds
 from grog_voice.audio import peak_dbfs
 
-EARCONS = [sounds.ack, sounds.listening, sounds.searching, sounds.error]
+EARCONS = [sounds.ack, sounds.listening, sounds.error, sounds.back]
 
 
 class SoundsTest(unittest.TestCase):
@@ -20,6 +20,11 @@ class SoundsTest(unittest.TestCase):
 
     def test_each_its_own(self):
         self.assertEqual(len(EARCONS), len({earcon(16000) for earcon in EARCONS}))
+
+    def test_got_it_is_shorter_than_listening(self):
+        # They often play a moment apart: the tick that says it got it
+        # mustn't sound like another "listening".
+        self.assertLess(len(sounds.ack(16000)), len(sounds.listening(16000)) * 0.6)
 
     def test_at_any_rate(self):
         self.assertAlmostEqual(len(sounds.ack(16000)) / 16000, len(sounds.ack(22050)) / 22050, places=2)

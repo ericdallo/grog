@@ -8,7 +8,6 @@ from fakes import (
     ERROR,
     HEARD,
     LISTENING,
-    SEARCHING,
     SILENCE,
     SPEECH,
     FakeConnection,
@@ -110,11 +109,11 @@ class AnswerTest(unittest.TestCase):
         m.answer(heard("", guess="Grog, que horas", addressed=True), "que horas")
         self.assertEqual(["Grog, que horas"], m.ask.said, "the guess, when the whole came out empty")
 
-    def test_tools_have_their_sound(self):
+    def test_tools_have_no_sound(self):
         m = mouth(ask=answering(("tool", "web_search"), "Sol amanhã."))
         turn = m.answer(heard(), HEARD)
-        self.assertEqual([ACK, SEARCHING, b"Sol amanh\xc3\xa3."], played(m.player))
-        self.assertEqual((["ack", "searching"], ["web_search"]), (turn.sounds, turn.tools))
+        self.assertEqual([ACK, b"Sol amanh\xc3\xa3."], played(m.player))
+        self.assertEqual((["ack"], ["web_search"]), (turn.sounds, turn.tools))
         self.assertIn("tools: web_search", str(turn))
 
     def test_says_what_it_will_do_before_searching(self):
@@ -133,8 +132,8 @@ class AnswerTest(unittest.TestCase):
         m = mouth(ask=ask)
         turn = m.answer(heard(), HEARD)
         self.assertEqual(["Vou ver o tempo."], said_meanwhile)
-        self.assertEqual([ACK, b"Vou ver o tempo.", SEARCHING, "Amanhã faz sol.".encode()], played(m.player))
-        self.assertEqual((["ack", "searching"], ["web_search"]), (turn.sounds, turn.tools))
+        self.assertEqual([ACK, b"Vou ver o tempo.", "Amanhã faz sol.".encode()], played(m.player))
+        self.assertEqual((["ack"], ["web_search"]), (turn.sounds, turn.tools))
 
     def test_beeps_when_grog_cant_answer(self):
         m = mouth(ask=answering(GrogError("grog is down")))

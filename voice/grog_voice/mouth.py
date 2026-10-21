@@ -21,7 +21,6 @@ log = logging.getLogger("grog_voice")
 SOUNDS = {
     "ack": sounds.ack,
     "listening": sounds.listening,
-    "searching": sounds.searching,
     "error": sounds.error,
     "back": sounds.back,
 }
@@ -100,8 +99,9 @@ class Mouth:
     def answer(self, heard, command):
         """Asks grog `command` and speaks the answer as it comes, a chunk at a
         time, after an earcon saying it got it (unless that played as it
-        ended). Another when grog uses a tool, like web search, and a third
-        one when grog can't answer. Asked to stop meanwhile (see stop), it
+        ended), and another when grog can't answer. Its tools (like web
+        search) have none: the ack just played, and a sound right after it
+        would only confuse. Asked to stop meanwhile (see stop), it
         cuts it off, without a sound."""
         self.stopping.clear()
         turn = Turn(heard.speech_end, heard.seconds, heard.peak_db, heard.speculated)
@@ -129,11 +129,10 @@ class Mouth:
                         break
                     if kind == "tool":
                         turn.tools.append(value)
-                        # What grog said it would do ("Let me check..."),
-                        # said now rather than after the search.
+                        # What grog said before it ("Let me check..."), said
+                        # now rather than after the search.
                         for chunk in chunker.flush():
                             chunks.put(chunk)
-                        chunks.put(("searching", self.sound("searching")))
                         continue
                     turn.mark("first_text")
                     turn.answer += value
