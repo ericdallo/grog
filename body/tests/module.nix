@@ -279,8 +279,10 @@ pkgs.testers.runNixOSTest {
         # Whoever watches grog sees it go.
         machine.succeed("(curl -sN http://127.0.0.1:8484/v1/events > /tmp/events.log 2>&1 &)")
         out = machine.succeed("su - grog -c 'grog-voice turn ${question} --no-play'")
-        # Its name, from grog: what's after it is the question.
-        assert re.search(r"(?m)^asked: qual é a previsão do tempo para amanhã em são paulo", out.lower()), out
+        # Its name, from grog: what's after it is the question. Parakeet hears
+        # "amanhã de São Paulo" in the endpointer's cut of it, "em" in the
+        # whole file.
+        assert re.search(r"(?m)^asked: qual é a previsão do tempo para amanhã (em|de) são paulo", out.lower()), out
         # A new conversation ("voice"), answered with the API key: first what it's
         # about to do, then the answer, without the source it cited.
         assert "answer: Vou ver a previsão. messages=1 key=test-key name=ok\n" in out, out
