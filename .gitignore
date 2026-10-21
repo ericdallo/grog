@@ -1,0 +1,13 @@
+**/.clj-kondo/.cache/
+.cpcache/
+.lsp/
+.nrepl-port
+__pycache__/
+.ruff_cache/
+result
+result-*
+*.qcow2
+
+# Secrets never belong in the repo.
+*.env
+auth.json

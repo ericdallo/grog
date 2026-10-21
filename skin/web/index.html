@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title></title>
+    <link rel="stylesheet" href="skin.css" />
+    <script type="module" src="skin.js"></script>
+  </head>
+  <body data-mode="offline">
+    <div class="app">
+      <aside class="block">
+        <div class="brand">
+          <div class="name" id="name"></div>
+          <div class="meta">
+            <span class="model" id="model"></span>
+            <span class="sep">·</span>
+            <span id="account"></span>
+          </div>
+        </div>
+
+        <div class="glyph" id="glyph" aria-hidden="true"></div>
+
+        <div>
+          <div class="label" id="label"></div>
+          <div class="detail" id="detail"></div>
+          <div class="timer" id="timer"></div>
+        </div>
+      </aside>
+
+      <main class="content">
+        <div class="time">
+          <div class="clock" id="clock"></div>
+          <div class="date" id="date"></div>
+        </div>
+
+        <div class="captions" id="captions" hidden>
+          <div class="question" id="question"></div>
+          <div class="answer" id="answer"></div>
+        </div>
+
+        <ol class="pipeline" id="pipeline"></ol>
+
+        <div class="cards">
+          <section class="panel recent">
+            <h2>Recent</h2>
+            <ol id="recent"></ol>
+          </section>
+          <section class="panel usage" id="usage" hidden></section>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+{:paths ["src" "resources"]
+
+ :tasks
+ {test {:doc "Run the test suite"
+        :extra-paths ["test"]
+        :requires ([grog.test-runner :as runner])
+        :task (runner/run-tests!)}
+
+  serve {:doc "Run the server locally: bb serve [--config file.json]"
+         :requires ([grog.main :as main])
+         :task (apply main/-main "serve" *command-line-args*)}
+
+  chat {:doc "Chat with a running server: bb chat [--url URL]"
+        :requires ([grog.main :as main])
+        :task (apply main/-main "chat" *command-line-args*)}}}

@@ -1,0 +1,214 @@
+"""grog-voice's mouth: asks grog what was heard for it and speaks the answer
+as it streams in, a chunk at a time, and plays its earcons (see sounds.py)."""
+
+import logging
+import queue
+import threading
+import time
+import traceback
+from dataclasses import dataclass, field
+
+from . import sounds
+from .audio import sounded
+from .chunks import Chunker
+from .grog import GrogError
+
+log = logging.getLogger("grog_voice")
+
+# Its earcons, by name.
+SOUNDS = {
+    "ack": sounds.ack,
+    "listening": sounds.listening,
+    "searching": sounds.searching,
+    "error": sounds.error,
+}
+
+# What a turn's line says of its marks, in the order they came.
+_MARKS = {
+    "ack": "got it",
+    "transcript": "transcript",
+    "first_text": "first words",
+    "first_audio": "speaking",
+    "done": "done",
+}
+
+
+@dataclass
+class Turn:
+    """How a turn went. Its str, for the log, has timings and the tools used:
+    never what was said."""
+
+    speech_end: float
+    speech_s: float
+    peak_db: float
+    speculated: bool
+    marks: dict = field(default_factory=dict)
+    tools: list = field(default_factory=list)
+    sounds: list = field(default_factory=list)  # the earcons played, in order
+    answer: str = field(default="", repr=False)
+
+    def mark(self, name):
+        self.marks.setdefault(name, time.monotonic())
+
+    def __str__(self):
+        since = ", ".join(
+            f"{_MARKS[key]} {at - self.speech_end:.2f} s"
+            for key, at in sorted(self.marks.items(), key=lambda mark: mark[1])
+            if key in _MARKS
+        )
+        return (
+            f"turn: {self.speech_s:.1f} s of speech ({sounded(self.peak_db, self.speculated)});"
+            f" since it ended: {since}{'; tools: ' + ', '.join(self.tools) if self.tools else ''}"
+        )
+
+
+def where(e):
+    """The type of an exception and where it happened, without its message
+    (which could quote what was said)."""
+    frames = traceback.extract_tb(e.__traceback__)
+    return f"{type(e).__name__} at {frames[-1].filename}:{frames[-1].lineno}" if frames else type(e).__name__
+
+
+class Mouth:
+    """Speaks with `tts`, on players that `player` makes for a sample rate.
+    `ask(text, said)` yields grog's answer to a text as it streams (("text",
+    text) and ("tool", name)), `said` being what was said aloud as heard when
+    grog may see it (None otherwise); `tell` tells grog what it's doing, and
+    `captions` whether grog shows what's said (its skin.captions)."""
+
+    def __init__(self, *, tts, player, ask, tell=lambda state: None, captions=lambda: False):
+        self.tts, self.player, self.ask, self.tell, self.captions = tts, player, ask, tell, captions
+        self.chiming = None  # the thread playing its sounds while it listens
+
+    @property
+    def sample_rate(self):
+        return self.tts.sample_rate
+
+    def sound(self, name):
+        return SOUNDS[name](self.sample_rate)
+
+    def answer(self, heard, command):
+        """Asks grog `command` and speaks the answer as it comes, a chunk at a
+        time, after an earcon saying it got it (unless that played as it
+        ended). Another when grog uses a tool, like web search, and a third
+        one when grog can't answer."""
+        turn = Turn(heard.speech_end, heard.seconds, heard.peak_db, heard.speculated)
+        turn.marks["transcript"] = heard.transcribed
+        self.tell("answering")
+        said = heard.said if self.captions() else None
+        chunks, failure = queue.Queue(), []
+        if heard.acked is None:
+            chunks.put(("ack", self.sound("ack")))
+        else:
+            turn.marks["ack"] = heard.acked
+            turn.sounds.append("ack")
+
+        def produce():
+            chunker = Chunker()
+            try:
+                for kind, value in self.ask(command, said):
+                    if kind == "tool":
+                        turn.tools.append(value)
+                        # What grog said it would do ("Let me check..."),
+                        # said now rather than after the search.
+                        for chunk in chunker.flush():
+                            chunks.put(chunk)
+                        chunks.put(("searching", self.sound("searching")))
+                        continue
+                    turn.mark("first_text")
+                    turn.answer += value
+                    for chunk in chunker.add(value):
+                        chunks.put(chunk)
+            except Exception as e:  # GrogError, or a bug: beep rather than hang
+                failure.append(e)
+            for chunk in chunker.flush():
+                chunks.put(chunk)
+            if failure:
+                chunks.put(("error", self.sound("error")))
+            chunks.put(None)
+
+        threading.Thread(target=produce, daemon=True, name="grog").start()
+        self.quiet()
+        self._speak(chunks, turn)
+        if failure:
+            e = failure[0]
+            log.error("grog couldn't answer: %s", e if isinstance(e, GrogError) else where(e))
+            self.tell("error")
+        return turn
+
+    def chime(self, name):
+        """Plays an earcon on a thread, after the one playing if any, while it
+        listens on."""
+        before, pcm = self.chiming, self.sound(name)
+
+        def play():
+            if before is not None:
+                before.join()
+            try:
+                self._play(pcm)
+            except Exception as e:
+                log.error("playing failed: %s", where(e))
+
+        self.chiming = threading.Thread(target=play, daemon=True, name="chime")
+        self.chiming.start()
+
+    def quiet(self):
+        """Waits for the sounds it plays while listening to end."""
+        if self.chiming is not None:
+            self.chiming.join()
+            self.chiming = None
+
+    def play(self, name):
+        """Plays an earcon now, returning once it's over."""
+        self._play(self.sound(name))
+
+    def _play(self, pcm):
+        player = self.player(self.sample_rate)
+        try:
+            player.write(pcm)
+        finally:
+            player.close()
+
+    def _speak(self, chunks, turn):
+        """Plays the queue's earcons ((name, pcm)) and synthesizes its text
+        chunks as they come (None ends them), while a thread plays them. Once
+        that failed, it only waits for the end."""
+        audio, failed = queue.Queue(), threading.Event()
+
+        def play():
+            player = None
+            try:
+                while (pcm := audio.get()) is not None:
+                    player = player or self.player(self.sample_rate)
+                    player.write(pcm)
+            except Exception as e:
+                failed.set()
+                log.error("playing failed: %s", where(e))
+            finally:
+                if player is not None:
+                    player.close()
+
+        playing = threading.Thread(target=play, daemon=True, name="player")
+        playing.start()
+        try:
+            while (item := chunks.get()) is not None:
+                if failed.is_set():
+                    continue
+                if isinstance(item, tuple):
+                    name, pcm = item
+                    turn.sounds.append(name)
+                    if name == "ack":
+                        turn.mark("ack")
+                    audio.put(pcm)
+                    continue
+                for pcm in self.tts(item):
+                    if failed.is_set():
+                        break
+                    if "first_audio" not in turn.marks:
+                        turn.mark("first_audio")
+                        self.tell("speaking")
+                    audio.put(pcm)
+        finally:
+            audio.put(None)
+            playing.join()
+        turn.mark("done")

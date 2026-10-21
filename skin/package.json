@@ -1,0 +1,7 @@
+{
+  "name": "grog-skin",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "grog's skin: a page showing what grog is up to. No dependencies: tests run with `node --test`."
+}

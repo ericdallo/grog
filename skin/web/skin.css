@@ -1,0 +1,587 @@
+/* grog's skin: a block of color by what grog does (body[data-mode], see
+   view.js), with its name and what it's up to, and the rest next to it.
+   Flat: solid colors, no shadows nor gradients. Whatever moves animates
+   transform and opacity only, and only while something happens: each frame
+   costs CPU, and grog-voice needs it. Colors change at once, never through a
+   transition (a repaint per frame). Sizes in vmin: it fills any screen. */
+
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/Inter.ttf") format("truetype");
+  font-weight: 100 900;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/JetBrainsMono-Light.ttf") format("truetype");
+  font-weight: 300;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/JetBrainsMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+}
+
+:root {
+  color-scheme: dark;
+  --accent: #5aa8f7;
+  --on: #0b0f15;
+  --bg: #0b0f15;
+  --card: #141a23;
+  --ink: #eef2f7;
+  --muted: #8a95a7;
+  --line: #222b38;
+  --red: #f37272;
+  --amber: #f5b544;
+  --text: "Inter", "Cantarell", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+}
+
+body[data-mode="hearing"] { --accent: #34d3ba; }
+body[data-mode="awake"] { --accent: #4fcf82; }
+body[data-mode="thinking"],
+body[data-mode="tool"] { --accent: #9e88fa; }
+body[data-mode="answering"],
+body[data-mode="speaking"] { --accent: #5cc6f6; }
+body[data-mode="error"],
+body[data-mode="no-mic"] { --accent: var(--red); }
+body[data-mode="loading"] { --accent: #8ab4f8; }
+body[data-mode="offline"] { --accent: #2a3340; --on: #c5cdd9; }
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+.kiosk,
+.kiosk * {
+  cursor: none !important;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 36% 1fr;
+  height: 100vh;
+}
+
+/* A little elsewhere now and then (--drift, from skin.js), so that nothing
+   marks the screen; the block stays where it is. At once: a transition would
+   draw every frame of it. */
+.block > *,
+.content > * {
+  translate: var(--drift, 0 0);
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 6vmin 5.5vmin 5.5vmin;
+  background: var(--accent);
+  color: var(--on);
+}
+
+.brand .name {
+  font: 800 4.6vmin/1 var(--text);
+  letter-spacing: -0.02em;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.2vmin;
+  margin-top: 1.6vmin;
+  color: color-mix(in srgb, var(--on) 72%, transparent);
+  font-size: 2.5vmin;
+}
+
+.meta .model {
+  color: var(--on);
+  font-weight: 700;
+}
+
+.meta .model:empty + .sep {
+  display: none;
+}
+
+.glyph {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+}
+
+.glyph > * {
+  grid-area: 1 / 1;
+}
+
+.glyph > svg {
+  width: 24vmin;
+  height: 24vmin;
+  stroke-width: 1.5;
+}
+
+.glyph > svg.wide {
+  width: 32vmin;
+}
+
+.dots {
+  display: flex;
+  gap: 2.6vmin;
+}
+
+.dots i {
+  width: 4vmin;
+  height: 4vmin;
+  border-radius: 50%;
+  background: var(--on);
+}
+
+.eq {
+  display: flex;
+  align-items: center;
+  gap: 1.8vmin;
+  height: 20vmin;
+}
+
+.eq b {
+  width: 2.6vmin;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--on);
+  transform: scaleY(0.3);
+}
+
+.ring {
+  width: 32vmin;
+  height: 32vmin;
+  border: 0.6vmin dashed color-mix(in srgb, var(--on) 60%, transparent);
+  border-radius: 50%;
+}
+
+.label {
+  font: 800 5.6vmin/1.02 var(--text);
+  letter-spacing: -0.02em;
+}
+
+.detail {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 1.4vmin;
+  color: color-mix(in srgb, var(--on) 72%, transparent);
+  font-size: 2.6vmin;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.detail:empty {
+  display: none;
+}
+
+.timer {
+  min-height: 2.8vmin;
+  margin-top: 1vmin;
+  font: 400 2vmin var(--mono);
+  opacity: 0.75;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 6vmin 6vmin 5.5vmin;
+}
+
+.time {
+  display: flex;
+  align-items: baseline;
+  gap: 3vmin;
+}
+
+.clock {
+  font: 300 10vmin/0.9 var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+.date {
+  color: var(--muted);
+  font-size: 2.4vmin;
+}
+
+.captions {
+  min-height: 15vmin;
+  margin-top: 4.4vmin;
+  transition: opacity 0.6s;
+}
+
+.captions.empty {
+  opacity: 0;
+}
+
+.question {
+  color: var(--muted);
+  font-size: 2.6vmin;
+  font-style: italic;
+}
+
+.question:not(:empty)::before {
+  content: "“";
+}
+
+.question:not(:empty)::after {
+  content: "”";
+}
+
+/* What's being said to grog, as it comes: as big as an answer. */
+.captions.live .question {
+  color: var(--ink);
+  font-size: 3.5vmin;
+  font-style: normal;
+  line-height: 1.35;
+}
+
+/* Each new word fades in after the one before (--i, from skin.js). It moves
+   while someone talks, when grog-voice needs the CPU most: captions are
+   opt-in, and the words are small. */
+.question .word {
+  display: inline-block;
+  animation: word-in 0.35s ease-out calc(var(--i, 0) * 0.08s) both;
+}
+
+.answer {
+  margin-top: 1.2vmin;
+  font-size: 3.5vmin;
+  line-height: 1.35;
+}
+
+.pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1vmin;
+  margin-top: 2.4vmin;
+  transition: opacity 1.2s;
+}
+
+.pipeline.stale {
+  opacity: 0.35;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 1vmin;
+  align-items: center;
+  padding: 1vmin 1.6vmin 1vmin 1.3vmin;
+  border-radius: 1vmin;
+  background: var(--card);
+  white-space: nowrap;
+}
+
+.step .dot {
+  grid-row: 1 / 3;
+  display: grid;
+  color: var(--accent);
+}
+
+.step .dot svg {
+  width: 2.6vmin;
+  height: 2.6vmin;
+}
+
+.step .name {
+  font-size: 1.7vmin;
+  font-weight: 600;
+}
+
+.step .offset {
+  color: var(--muted);
+  font: 400 1.5vmin var(--mono);
+}
+
+.step.active {
+  background: var(--accent);
+  color: var(--on);
+}
+
+.step.active .dot,
+.step.active .offset {
+  color: var(--on);
+}
+
+.step.failed .dot {
+  color: var(--red);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2vmin;
+  margin-top: auto;
+}
+
+.panel {
+  min-width: 0;
+  padding: 2.4vmin 2.8vmin;
+  border-radius: 1.4vmin;
+  background: var(--card);
+}
+
+.panel h2 {
+  margin: 0 0 1vmin;
+  color: var(--muted);
+  font: 700 1.6vmin/1 var(--text);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.recent li {
+  display: grid;
+  grid-template-columns: 8.5vmin 3vmin 1fr auto;
+  align-items: center;
+  gap: 1.4vmin;
+  padding: 0.6vmin 0;
+  font-size: 2.1vmin;
+}
+
+.recent li + li {
+  border-top: 0.15vmin solid var(--line);
+}
+
+.recent time,
+.recent .took {
+  color: var(--muted);
+  font: 400 1.9vmin var(--mono);
+}
+
+.recent svg {
+  width: 2.6vmin;
+  height: 2.6vmin;
+  color: var(--accent);
+}
+
+.recent li.failed,
+.recent li.failed svg {
+  color: var(--red);
+}
+
+.recent li.none {
+  display: block;
+  color: var(--muted);
+}
+
+.meter {
+  display: grid;
+  grid-template-columns: 5vmin 1fr 8.5vmin;
+  align-items: center;
+  gap: 1.4vmin;
+  margin-top: 1.6vmin;
+}
+
+.meter .key {
+  color: var(--muted);
+  font: 400 2vmin var(--mono);
+}
+
+.meter .track {
+  height: 0.9vmin;
+  overflow: hidden;
+  border-radius: 0.45vmin;
+  background: var(--line);
+}
+
+.meter .fill {
+  height: 100%;
+  background: var(--accent);
+  transform-origin: 0 50%;
+}
+
+.meter .fill.warn {
+  background: var(--amber);
+}
+
+.meter .fill.high {
+  background: var(--red);
+}
+
+.meter .value {
+  font: 400 2.3vmin var(--mono);
+}
+
+.meter .reset {
+  grid-column: 2 / 4;
+  margin-top: -0.5vmin;
+  color: var(--muted);
+  font: 400 1.6vmin var(--mono);
+}
+
+.spent {
+  font: 300 6.4vmin/1 var(--mono);
+}
+
+.spent-label,
+.usage .note {
+  margin-top: 1vmin;
+  color: var(--muted);
+  font-size: 1.8vmin;
+}
+
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.45vmin;
+  height: 5vmin;
+  margin-top: 2vmin;
+}
+
+.chart i {
+  width: 0.9vmin;
+  min-height: 0.25vmin;
+  background: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.chart i:last-child {
+  background: var(--accent);
+}
+
+.waves .w + .w {
+  --d: 0.17s;
+}
+
+.dots i:nth-child(2) {
+  --d: 0.15s;
+}
+
+.dots i:nth-child(3) {
+  --d: 0.3s;
+}
+
+.lines .w:nth-child(2) {
+  --d: 0.2s;
+}
+
+.lines .w:nth-child(3) {
+  --d: 0.4s;
+}
+
+/* Still while someone talks to grog: grog-voice transcribes what they said so
+   far over and over then, and needs the CPU. Moving after its name alone,
+   while it waits for what comes next. */
+body[data-mode="awake"] .waves .w {
+  animation: fade 0.7s ease-in-out var(--d, 0s) infinite alternate;
+}
+
+body[data-mode="thinking"] .dots i {
+  animation: bounce 1s ease-in-out var(--d, 0s) infinite;
+}
+
+body[data-mode="answering"] .lines .w {
+  animation: fade 0.9s ease-in-out var(--d, 0s) infinite alternate;
+}
+
+body[data-mode="tool"] .ring {
+  animation: spin 8s linear infinite;
+}
+
+body[data-mode="loading"] .ring {
+  animation: spin 3s linear infinite;
+}
+
+body[data-mode="speaking"] .eq b {
+  animation: bar var(--t) ease-in-out var(--d) infinite alternate;
+}
+
+body[data-mode="error"] .glyph > svg {
+  animation: shake 0.5s ease-in-out 2;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0.15;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-70%);
+  }
+}
+
+@keyframes bar {
+  from {
+    transform: scaleY(0.15);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes word-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.3em);
+  }
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3%);
+  }
+  75% {
+    transform: translateX(3%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01s !important;
+    animation-iteration-count: 1 !important;
+  }
+}

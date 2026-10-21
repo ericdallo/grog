@@ -1,0 +1,98 @@
+(ns grog.machine
+  "Tools that act on the machine grog runs on, through its hands (grog.hands,
+  the `hands.socket` setting): the speaker's volume, how the machine is
+  doing, and a shell, which runs what the model asks right away."
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
+            [grog.hands :as hands]))
+
+(defn ^:private on-machine!
+  "Runs `command` through the hands: {:exit :output :timed-out :truncated}."
+  [config command]
+  (hands/ask! (get-in config [:hands :socket]) command))
+
+(def ^:private sink "@DEFAULT_AUDIO_SINK@")
+
+(defn ^:private whole
+  "`args`'s `k`, a number from `lo` to `hi`, rounded; nil when absent."
+  [args k lo hi]
+  (when (contains? args k)
+    (let [v (get args k)]
+      (if (and (number? v) (<= lo v hi))
+        (Math/round (double v))
+        (throw (ex-info (format "%s must be a number from %d to %d" (name k) lo hi) {}))))))
+
+(defn volume-command
+  "The wpctl commands doing what the `volume` tool's `args` say, then telling
+  the volume."
+  [args]
+  (let [level (whole args :level 0 100)
+        change (whole args :change -100 100)
+        mute (:mute args)]
+    (when-not (or (nil? mute) (boolean? mute))
+      (throw (ex-info "mute must be true or false" {})))
+    (str/join " && " (concat (when (some? mute)
+                               [(str "wpctl set-mute " sink " " (if mute 1 0))])
+                             (when level
+                               [(str "wpctl set-volume -l 1 " sink " " level "%")])
+                             (when change
+                               [(str "wpctl set-volume -l 1 " sink " " (abs change) "%" (if (neg? change) "-" "+"))])
+                             [(str "wpctl get-volume " sink)]))))
+
+(defn ^:private volume! [{:keys [config]} args _]
+  (let [{:keys [exit output]} (on-machine! @config (volume-command args))
+        [_ level muted] (re-find #"Volume: ([\d.]+)( \[MUTED\])?" (str output))]
+    (if (and (zero? exit) level)
+      {:level (Math/round (* 100 (Double/parseDouble level))) :muted (some? muted)}
+      (throw (ex-info (str "the volume couldn't be changed: " (str/trim (str output))) {})))))
+
+(def volume-tool
+  {:name "volume"
+   :description "The speaker's volume: tells it, or changes it when the user asks (louder, quieter, to a level, mute, unmute)."
+   :parameters {:type "object"
+                :properties {:level {:type "integer" :minimum 0 :maximum 100
+                                     :description "Set it to this percentage."}
+                             :change {:type "integer" :minimum -100 :maximum 100
+                                      :description "Raise (positive) or lower (negative) it by this many points."}
+                             :mute {:type "boolean" :description "Mute (true) or unmute (false)."}}
+                :additionalProperties false}
+   :changes? (fn [args] (boolean (some #(contains? args %) [:level :change :mute])))
+   :run volume!})
+
+(def status-script
+  (delay (slurp (io/resource "grog/system-status.sh"))))
+
+(def status-tool
+  {:name "system_status"
+   :description (str "How the machine you run on is doing: how long it's been up, its load, memory, disk "
+                     "and temperature, its network and Wi-Fi, the speaker and mic in use, the Bluetooth "
+                     "devices connected, your services, and its NixOS version and when it was last deployed.")
+   :parameters {:type "object" :properties {} :additionalProperties false}
+   :changes? (constantly false)
+   :run (fn [{:keys [config]} _ _]
+          (str/trim (str (:output (on-machine! @config @status-script)))))})
+
+(defn ^:private shell! [{:keys [config]} {:keys [command]} _]
+  (when (str/blank? command)
+    (throw (ex-info "say which command to run" {})))
+  (let [{:keys [exit output timed-out truncated]} (on-machine! @config command)]
+    (cond-> {:exit exit :output output}
+      timed-out (assoc :timed_out true)
+      truncated (assoc :truncated true))))
+
+(def shell-tool
+  {:name "shell"
+   :description (str "Runs a bash command right away on the machine you run on (NixOS), as its user, who can "
+                     "use sudo: for what your other tools don't do. Do what the user asks; only when a command "
+                     "could lose data, or cut you off (like a reboot), and they didn't clearly ask for that, "
+                     "check with them first. Changes to the system's configuration don't last there (it lives "
+                     "elsewhere, in a NixOS configuration), so prefer reading to changing, and say so.")
+   :parameters {:type "object"
+                :properties {:command {:type "string" :description "The bash command."}}
+                :required ["command"]
+                :additionalProperties false}
+   :changes? (constantly true)
+   :run shell!})
+
+(def tools
+  [volume-tool status-tool shell-tool])

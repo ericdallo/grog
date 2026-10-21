@@ -1,0 +1,202 @@
+import time
+import unittest
+
+from fakes import (
+    ACK,
+    ANSWER,
+    ERROR,
+    HEARD,
+    LISTENING,
+    SEARCHING,
+    SILENCE,
+    SPEECH,
+    FakeTts,
+    Players,
+    answering,
+    played,
+)
+
+from grog_voice.ears import Heard
+from grog_voice.grog import GrogError
+from grog_voice.mouth import Mouth, Turn
+
+
+def heard(text=HEARD, **more):
+    """What was heard: a second of speech, transcribed during the pause."""
+    now = time.monotonic()
+    pcm = SPEECH * 31 + SILENCE * 6
+    fields = {"seconds": 1.184, "speech_s": 1.0, "speech_end": now, "transcribed": now, "speculated": True}
+    return Heard(pcm=pcm, text=text, **(fields | more))
+
+
+def mouth(ask=None, captions=False, players=None):
+    """A Mouth with fakes: what it tells grog is in .told."""
+    told = []
+    m = Mouth(
+        tts=FakeTts(),
+        player=players or Players(),
+        ask=ask or answering("São dez ", "e quinze. Mais ", "alguma coisa?"),
+        tell=told.append,
+        captions=lambda: captions,
+    )
+    m.told = told
+    return m
+
+
+class TurnTest(unittest.TestCase):
+    def test_the_turn_line_says_how_much_louder_it_was_transcribed(self):
+        turn = Turn(speech_end=0.0, speech_s=1.5, peak_db=-20.4, speculated=True)
+        self.assertIn(
+            "turn: 1.5 s of speech (peak -20 dBFS, transcribed 17 dB louder during the pause);", str(turn)
+        )
+        turn = Turn(speech_end=0.0, speech_s=1.5, peak_db=-20.4, speculated=False)
+        self.assertIn("(peak -20 dBFS, transcribed 17 dB louder);", str(turn))
+        turn = Turn(speech_end=0.0, speech_s=1.5, peak_db=-2.0, speculated=True)
+        self.assertIn("(peak -2 dBFS, transcribed during the pause);", str(turn), "loud enough as is")
+        turn = Turn(speech_end=0.0, speech_s=1.5, peak_db=-2.0, speculated=False)
+        self.assertIn("(peak -2 dBFS);", str(turn))
+
+    def test_the_turn_line_has_its_timings_in_the_order_they_came(self):
+        turn = Turn(speech_end=10.0, speech_s=1.5, peak_db=-2.0, speculated=True)
+        turn.marks.update(transcript=11.2, ack=10.6, first_text=12.0, first_audio=12.4, done=15.0)
+        self.assertIn(
+            "since it ended: got it 0.60 s, transcript 1.20 s, first words 2.00 s, speaking 2.40 s,"
+            " done 5.00 s",
+            str(turn),
+        )
+
+
+class AnswerTest(unittest.TestCase):
+    def test_speaks_the_answer_as_it_streams_in(self):
+        m = mouth()
+        turn = m.answer(heard(), HEARD)
+        self.assertEqual(["São dez e quinze.", "Mais alguma coisa?"], m.tts.texts)
+        [player] = m.player.made
+        self.assertEqual(22050, player.rate)
+        self.assertEqual([ACK] + [t.encode() for t in m.tts.texts], player.written, "got it, then the answer")
+        self.assertTrue(player.closed)
+        self.assertEqual(ANSWER, turn.answer)
+        self.assertEqual(["ack"], turn.sounds)
+        # Got it and grog's first words come as they may; then speaking, then done.
+        marks = turn.marks
+        self.assertEqual({"transcript", "ack", "first_text", "first_audio", "done"}, set(marks))
+        self.assertLessEqual(marks["transcript"], marks["ack"])
+        self.assertLessEqual(max(marks["ack"], marks["first_text"]), marks["first_audio"])
+        self.assertLessEqual(marks["first_audio"], marks["done"])
+        self.assertAlmostEqual(1.184, turn.speech_s)
+        self.assertNotIn(HEARD, str(turn) + repr(turn))
+        self.assertNotIn("quinze", str(turn) + repr(turn))
+        self.assertEqual(["answering", "speaking"], m.told)
+        self.assertEqual(([HEARD], [None]), (m.ask.asked, m.ask.said))
+
+    def test_got_it_already_played_as_it_ended(self):
+        now = time.monotonic()
+        m = mouth(ask=answering("Dez e quinze."))
+        h = heard("Grog, que horas são?", speech_end=now - 0.5, acked=now - 0.4, transcribed=now - 0.1)
+        turn = m.answer(h, "que horas são?")
+        self.assertEqual([[b"Dez e quinze."]], [p.written for p in m.player.made], "not again")
+        self.assertEqual(["ack"], turn.sounds)
+        self.assertRegex(str(turn), r"since it ended: got it [\d.]+ s, transcript [\d.]+ s, first words")
+
+    def test_grog_sees_what_was_said_only_with_captions(self):
+        for captions, said in ((False, None), (True, "Grog, que horas são?")):
+            m = mouth(captions=captions, ask=answering("Dez e quinze."))
+            m.answer(heard("Grog, que horas são?"), "que horas são?")
+            self.assertEqual((["que horas são?"], [said]), (m.ask.asked, m.ask.said))
+        m = mouth(captions=True, ask=answering("Dez e quinze."))
+        m.answer(heard("", guess="Grog, que horas", addressed=True), "que horas")
+        self.assertEqual(["Grog, que horas"], m.ask.said, "the guess, when the whole came out empty")
+
+    def test_tools_have_their_sound(self):
+        m = mouth(ask=answering(("tool", "web_search"), "Sol amanhã."))
+        turn = m.answer(heard(), HEARD)
+        self.assertEqual([ACK, SEARCHING, b"Sol amanh\xc3\xa3."], played(m.player))
+        self.assertEqual((["ack", "searching"], ["web_search"]), (turn.sounds, turn.tools))
+        self.assertIn("tools: web_search", str(turn))
+
+    def test_says_what_it_will_do_before_searching(self):
+        said_meanwhile = []
+
+        def ask(text, said=None):
+            yield ("text", "Vou ver o tempo.")
+            yield ("tool", "web_search")
+            # The search takes a while: what came before it is said meanwhile.
+            deadline = time.monotonic() + 2
+            while not m.tts.texts and time.monotonic() < deadline:
+                time.sleep(0.01)
+            said_meanwhile.extend(m.tts.texts)
+            yield ("text", " Amanhã faz sol.")
+
+        m = mouth(ask=ask)
+        turn = m.answer(heard(), HEARD)
+        self.assertEqual(["Vou ver o tempo."], said_meanwhile)
+        self.assertEqual([ACK, b"Vou ver o tempo.", SEARCHING, "Amanhã faz sol.".encode()], played(m.player))
+        self.assertEqual((["ack", "searching"], ["web_search"]), (turn.sounds, turn.tools))
+
+    def test_beeps_when_grog_cant_answer(self):
+        m = mouth(ask=answering(GrogError("grog is down")))
+        with self.assertLogs("grog_voice", "ERROR") as logs:
+            turn = m.answer(heard(), HEARD)
+        self.assertEqual([], m.tts.texts)
+        self.assertEqual([ACK, ERROR], played(m.player))
+        self.assertEqual(["ack", "error"], turn.sounds)
+        self.assertEqual(["ERROR:grog_voice:grog couldn't answer: grog is down"], logs.output)
+        self.assertEqual(["answering", "error"], m.told)
+
+    def test_a_bug_while_answering_logs_no_words(self):
+        m = mouth(ask=answering(ValueError(f"bad {HEARD!r}")))
+        with self.assertLogs("grog_voice", "ERROR") as logs:
+            m.answer(heard(), HEARD)
+        [line] = logs.output
+        self.assertRegex(line, r"grog couldn't answer: ValueError at .*fakes\.py:\d+$")
+        self.assertNotIn(HEARD, line)
+        self.assertEqual([ACK, ERROR], played(m.player))
+
+    def test_speaks_what_came_before_failing(self):
+        m = mouth(ask=answering("Primeira frase. Segunda", GrogError("cut off")))
+        with self.assertLogs("grog_voice", "ERROR"):
+            m.answer(heard(), HEARD)
+        self.assertEqual(["Primeira frase.", "Segunda"], m.tts.texts)
+        self.assertEqual(ERROR, played(m.player)[-1])
+
+
+class SoundsTest(unittest.TestCase):
+    def test_chimes_play_one_after_the_other(self):
+        m = mouth()
+        m.chime("listening")
+        m.chime("ack")
+        m.quiet()
+        self.assertEqual([[LISTENING], [ACK]], [p.written for p in m.player.made])
+        self.assertTrue(all(p.closed for p in m.player.made))
+        m.play("error")
+        self.assertEqual(ERROR, played(m.player)[-1])
+
+    def test_a_player_that_failed_is_closed(self):
+        m = mouth(players=Players(failing=True))
+        with self.assertRaises(BrokenPipeError):
+            m.play("ack")
+        with self.assertLogs("grog_voice", "ERROR") as logs:
+            m.chime("listening")
+            m.quiet()
+        self.assertRegex(logs.output[0], r"playing failed: BrokenPipeError at ")
+        self.assertEqual([True, True], [p.closed for p in m.player.made])
+
+    def test_once_playing_failed_it_stops_synthesizing(self):
+        players = Players(failing=True)
+
+        def ask(text, said=None):
+            # Once the sound saying it got it failed to play.
+            players.one_closed.wait(5)
+            yield ("text", "Primeira frase. Segunda frase. ")
+            yield ("text", "Terceira.")
+
+        m = mouth(ask=ask, players=players)
+        with self.assertLogs("grog_voice", "ERROR"):
+            turn = m.answer(heard(), HEARD)
+        self.assertEqual([], m.tts.texts)
+        self.assertEqual("Primeira frase. Segunda frase. Terceira.", turn.answer, "it waited for the end")
+        self.assertTrue(all(p.closed for p in players.made))
+
+
+if __name__ == "__main__":
+    unittest.main()

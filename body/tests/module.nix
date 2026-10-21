@@ -1,0 +1,270 @@
+# The NixOS module (services.grog) in a minimal VM, against a fake OpenAI
+# (fake-llm.clj): no credentials, then an API key and a conversation through
+# the CLI, signing in to the ChatGPT subscription, what they cost, the
+# sandbox, grog-voice: its user service, and a voice turn with the real
+# models, which whoever watches grog sees go; and its skin, served.
+# Run: nix build .#checks.x86_64-linux.module -L
+{ pkgs, module }:
+
+let
+  voice = pkgs.callPackage ../packages/grog-voice.nix { };
+  models = pkgs.callPackage ../packages/voice-models.nix { };
+  # A spoken question, starting with grog's name (the wake word), in a voice
+  # other than grog's.
+  question = pkgs.runCommand "question.wav" { nativeBuildInputs = [ voice.piper pkgs.sox ]; } ''
+    echo 'Test, qual é a previsão do tempo para amanhã em São Paulo?' \
+      | piper -m ${models.jeff}/pt_BR-jeff-medium.onnx -f question.wav
+    sox question.wav -r 16000 -c 1 -b 16 $out
+  '';
+in
+pkgs.testers.runNixOSTest {
+  name = "grog-module";
+
+  nodes.machine = { pkgs, ... }: {
+    imports = [ module ];
+
+    services.grog = {
+      enable = true;
+      settings = {
+        name = "Test";
+        providers.openai = {
+          baseUrl = "http://127.0.0.1:9999";
+          subscription = {
+            baseUrl = "http://127.0.0.1:9999/codex";
+            authUrl = "http://127.0.0.1:9999";
+          };
+        };
+      };
+    };
+
+    services.grog.user = "grog";
+    services.grog.voice = {
+      enable = true;
+      settings.mic = "null-mic";
+    };
+    services.grog.hands.enable = true;
+    # Served only: no one's desktop shows it.
+    services.grog.skin = {
+      enable = true;
+      user = null;
+    };
+    # The VM has no sound card: a virtual mic, recording silence, and a virtual
+    # speaker, playing to nowhere.
+    services.pipewire = {
+      enable = true;
+      extraConfig.pipewire."90-null-devices"."context.objects" = [
+        {
+          factory = "adapter";
+          args = {
+            "factory.name" = "support.null-audio-sink";
+            "node.name" = "null-mic";
+            "media.class" = "Audio/Source/Virtual";
+            "audio.position" = "MONO";
+          };
+        }
+        {
+          factory = "adapter";
+          args = {
+            "factory.name" = "support.null-audio-sink";
+            "node.name" = "null-speaker";
+            "media.class" = "Audio/Sink";
+            "audio.position" = "FL,FR";
+          };
+        }
+      ];
+    };
+    # The speech models, twice: the service and `grog-voice turn`.
+    virtualisation.memorySize = 4096;
+    virtualisation.cores = 2;
+
+    # A login user named like the service, which the service mustn't run as.
+    # No one logs in: its systemd (PipeWire, grog-voice) starts at boot.
+    users.users.grog = {
+      isNormalUser = true;
+      linger = true;
+    };
+
+    systemd.services.fake-llm = {
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig.ExecStart = "${pkgs.babashka-unwrapped}/bin/bb ${./fake-llm.clj}";
+    };
+  };
+
+  testScript = ''
+    import json
+    import re
+
+    machine.wait_for_unit("multi-user.target")
+    machine.wait_for_unit("fake-llm.service")
+    machine.wait_for_unit("grog.service")
+    machine.wait_for_open_port(9999)
+    machine.wait_for_open_port(8484)
+
+
+    def grog(args):
+        return machine.succeed(f"su - grog -c 'grog {args}'").strip()
+
+
+    with subtest("without credentials, the answer says what's missing"):
+        out = machine.fail("su - grog -c 'grog ask hi'")
+        assert "OPENAI_API_KEY" in out, out
+
+    with subtest("with the secrets file, it answers using the key and the configured name"):
+        machine.succeed(
+            "install -D -m 600 /dev/null /etc/grog/secrets.env",
+            "echo OPENAI_API_KEY=test-key > /etc/grog/secrets.env",
+            "systemctl restart grog",
+        )
+        machine.wait_for_open_port(8484)
+        assert (out := grog("ask hi")) == "messages=1 key=test-key name=ok", out
+
+    with subtest("what the API key spent: the tokens, at the model's price"):
+        status = grog("status")
+        assert re.search(r"(?m)^Spent: +\$0\.\d{4} this month, \$0\.\d{4} today$", status), status
+        machine.succeed("stat -c %a /var/lib/grog/usage.json | grep -qx 600")
+
+    with subtest("remembers the conversation, until --new"):
+        assert (out := grog("ask and now")) == "messages=3 key=test-key name=ok", out
+        assert (out := grog("ask --new hi")) == "messages=1 key=test-key name=ok", out
+
+    with subtest("signs in to the ChatGPT subscription"):
+        machine.succeed("(su - grog -c 'grog login' > /tmp/login.log 2>&1 &)")
+        machine.wait_until_succeeds("grep -q 'state=' /tmp/login.log")
+        login_output = machine.succeed("cat /tmp/login.log")
+        assert "Sign in with your ChatGPT account" in login_output, login_output
+        match = re.search(r"state=([A-Za-z0-9_-]+)", login_output)
+        assert match, login_output
+        state = match.group(1)
+        # What the browser does after signing in.
+        machine.succeed(
+            f"curl -sf 'http://127.0.0.1:1455/auth/callback?code=test-code&state={state}' | grep -q 'Signed in to grog'"
+        )
+        machine.wait_until_succeeds("grep -q 'Signed in as grog@example.com' /tmp/login.log")
+        machine.succeed("stat -c %a /var/lib/grog/auth.json | grep -qx 600")
+        machine.wait_until_fails("ss -ltnH 'sport = :1455' | grep -q .")
+
+    with subtest("the sign-in survives a restart"):
+        # Conversations don't: they live in memory.
+        machine.succeed("systemctl restart grog")
+        machine.wait_for_open_port(8484)
+        assert "subscription, signed in as grog@example.com" in grog("status")
+
+    with subtest("the subscription takes over the API key, with web search"):
+        out = grog("ask hi")
+        assert out == "messages=1 key=test-access-token name=ok account=acct-test search=yes", out
+        assert "* gpt-6-luna" in (models := grog("models")), models
+
+    with subtest("how much of the subscription's limits is used, and when they reset"):
+        status = grog("status")
+        assert re.search(
+            r"(?m)^Usage: +5h 12% used \(resets in 2h \d+m\), 7d 40% used \(resets in 3d \d+h\)$", status
+        ), status
+
+    with subtest("signing out goes back to the API key"):
+        grog("logout")
+        assert (out := grog("ask hi")) == "messages=3 key=test-key name=ok", out
+
+    with subtest("web pages can't use it"):
+        status = machine.succeed(
+            "curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example' http://127.0.0.1:8484/v1/status"
+        )
+        assert status == "403", status
+        status = machine.succeed(
+            "curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: text/plain'"
+            " -d '{\"message\": \"hi\"}' http://127.0.0.1:8484/v1/chat"
+        )
+        assert status == "415", status
+
+    with subtest("sandboxed: its own user, the HTTP API only on localhost"):
+        machine.succeed("systemctl show -p DynamicUser grog | grep -q yes")
+        pid = machine.succeed("systemctl show -p MainPID --value grog").strip()
+        service_uid = machine.succeed(f"ps -o uid= -p {pid}").strip()
+        assert service_uid != machine.succeed("id -u grog").strip(), service_uid
+        # Java's sockets show IPv4 binds as [::ffff:127.0.0.1].
+        sockets = machine.succeed("ss -ltnH 'sport = :8484'").strip().splitlines()
+        assert sockets and all("127.0.0.1" in s for s in sockets), sockets
+
+    def voice_journal():
+        return machine.succeed("journalctl -o cat _SYSTEMD_USER_UNIT=grog-voice.service")
+
+    with subtest("grog-voice listens in grog's session"):
+        machine.wait_until_succeeds("systemctl --user -M grog@ is-active grog-voice.service")
+        machine.wait_until_succeeds("journalctl -o cat _SYSTEMD_USER_UNIT=grog-voice.service | grep -qx 'INFO listening'")
+
+    with subtest("its skin is served at its address, and nothing else"):
+        page = machine.succeed("curl -sf http://127.0.0.1:8484/")
+        assert "skin.js" in page, page
+        machine.succeed("curl -sf -o /dev/null http://127.0.0.1:8484/fonts/Inter.ttf")
+        status = machine.succeed(
+            "curl -s --path-as-is -o /dev/null -w '%{http_code}' http://127.0.0.1:8484/../../etc/passwd"
+        )
+        assert status == "404", status
+
+    with subtest("a voice turn: the wake word, speech to text, grog searching the web, text to speech"):
+        # Whoever watches grog sees it go.
+        machine.succeed("(curl -sN http://127.0.0.1:8484/v1/events > /tmp/events.log 2>&1 &)")
+        out = machine.succeed("su - grog -c 'grog-voice turn ${question} --no-play'")
+        # Its name, from grog: what's after it is the question.
+        assert re.search(r"(?m)^asked: qual é a previsão do tempo para amanhã em são paulo", out.lower()), out
+        # A new conversation ("voice"), answered with the API key: first what it's
+        # about to do, then the answer, without the source it cited.
+        assert "answer: Vou ver a previsão. messages=1 key=test-key name=ok\n" in out, out
+        assert "tempo.com" not in out, out
+        assert "sounds: ack, searching" in out, out
+        # In the order they came: got it may come before the whole is transcribed.
+        timings = re.search(r"since it ended: ([^;\n]*)", out)
+        assert timings and all(
+            re.search(rf"{mark} [\d.]+ s", timings[1]) for mark in ("got it", "transcript", "first words", "speaking")
+        ), out
+        assert "tools: web_search" in out, out
+
+    def in_order(seen, expected):
+        """Whether `expected` shows up in `seen`, in that order."""
+        rest = iter(seen)
+        return all(any(s == e for s in rest) for e in expected)
+
+    with subtest("whoever watched saw it heard, the turn's steps and tools, but nothing said"):
+        watched = machine.succeed("cat /tmp/events.log")
+        data = [json.loads(line[len("data: "):]) for line in watched.splitlines() if line.startswith("data: ")]
+        voice = [d["event"]["state"] for d in data if "state" in d.get("event", {})]
+        assert in_order(voice, ["hearing", "answering", "speaking", "listening"]), voice
+        state = data[-1]["state"]
+        steps = [s["step"] for s in state["turn"]["steps"]]
+        assert in_order(steps, ["heard", "thinking", "tool", "answering", "speaking"]), steps
+        assert state["recent"][0]["tools"] == ["web_search"], state["recent"]
+        # Captions are off: grog says what it does, not what's said.
+        assert "previsão" not in watched and "messages=" not in watched, watched
+
+    with subtest("grog-voice kept listening, saying nothing of what it heard"):
+        restarts = machine.succeed("systemctl --user -M grog@ show -p NRestarts --value grog-voice.service").strip()
+        assert restarts == "0", restarts
+        journal = voice_journal()
+        assert "previsão" not in journal and "messages=" not in journal, journal
+
+    with subtest("asked to, it changes its own settings, for good, until reset"):
+        # The model calls the settings tool, then answers.
+        assert (out := grog('ask --new "de agora em diante, seu nome é Jarvis"')) == "Pronto.", out
+        status = grog("status")
+        assert re.search(r"(?m)^Name: +Jarvis$", status) and re.search(r"(?m)^Changed: +name ", status), status
+        machine.succeed("stat -c %a /var/lib/grog/settings.json | grep -qx 600")
+        machine.succeed("systemctl restart grog")
+        machine.wait_for_open_port(8484)
+        assert re.search(r"(?m)^Name: +Jarvis$", status := grog("status")), status
+        grog("settings reset")
+        status = grog("status")
+        assert re.search(r"(?m)^Name: +Test$", status) and "Changed" not in status, status
+
+    with subtest("its hands run a shell command right away, as the speaker's user"):
+        machine.wait_until_succeeds("systemctl --user -M grog@ is-active grog-hands.service")
+        machine.wait_until_succeeds("test -S /run/grog-hands/hands.sock")
+        machine.succeed("stat -c '%a %U %G' /run/grog-hands/hands.sock | grep -qx '660 grog grog-hands'")
+        out = grog('ask --new "quem roda os comandos?"')
+        assert out.startswith("Feito: ") and '"output":"grog\\n"' in out, out
+        machine.succeed("grep -qx grog /tmp/hands-ran")
+
+    with subtest("and change the speaker's volume"):
+        assert (out := grog('ask --new "volume em 30"')) == 'Feito: {"level":30,"muted":false}', out
+        out = machine.succeed("su - grog -c 'XDG_RUNTIME_DIR=/run/user/$(id -u) wpctl get-volume @DEFAULT_AUDIO_SINK@'")
+        assert out.strip() == "Volume: 0.30", out
+  '';
+}
