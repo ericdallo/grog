@@ -59,21 +59,25 @@
                (or dropped? (> (count text) max-output-chars))])))))))
 
 (defn run-command
-  "Runs `command` with bash, without input, as this process's user, until
+  "Runs `command` (bash code, or a program and its arguments), without
+  input, as this process's user, with `env` added to its environment, until
   it exits: what it leaves running in the background goes on without the
   hands. Past `timeout-ms`, kills it and whatever it started. Returns {:exit
   :output :timed-out :truncated}."
-  [command timeout-ms]
-  (let [proc (p/process {:cmd ["bash" "-c" command] :err :out :in ""})
-        output (future (read-output proc))
-        done (deref proc timeout-ms nil)]
-    (when-not done
-      (p/destroy-tree proc))
-    (let [[text truncated?] @output]
-      {:exit (:exit @proc)
-       :output text
-       :timed-out (nil? done)
-       :truncated truncated?})))
+  ([command timeout-ms]
+   (run-command command timeout-ms nil))
+  ([command timeout-ms env]
+   (let [proc (p/process (cond-> {:cmd (if (string? command) ["bash" "-c" command] command) :err :out :in ""}
+                           env (assoc :extra-env env)))
+         output (future (read-output proc))
+         done (deref proc timeout-ms nil)]
+     (when-not done
+       (p/destroy-tree proc))
+     (let [[text truncated?] @output]
+       {:exit (:exit @proc)
+        :output text
+        :timed-out (nil? done)
+        :truncated truncated?}))))
 
 (defn ^:private send-line! [^SocketChannel ch data]
   (let [out (Channels/newOutputStream ch)]

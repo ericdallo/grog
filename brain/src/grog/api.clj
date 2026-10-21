@@ -6,10 +6,12 @@
   (:require [clojure.string :as str]
             [grog.actions :as actions]
             [grog.assistant :as assistant]
+            [grog.computers :as computers]
             [grog.config :as config]
             [grog.events :as events]
             [grog.log :as log]
             [grog.login :as login]
+            [grog.pairing :as pairing]
             [grog.provider :as provider]
             [grog.settings :as settings]
             [grog.skin :as skin]
@@ -247,7 +249,8 @@
   [ctx {:keys [request-method uri] :as req}]
   (let [config @(:config ctx)
         [_ provider login?] (re-matches #"/v1/auth/([a-z]+)(/login)?" uri)
-        [_ action-name] (re-matches #"/v1/actions/([a-z-]+)" uri)]
+        [_ action-name] (re-matches #"/v1/actions/([a-z-]+)" uri)
+        [_ computer] (re-matches #"/v1/computers/([a-z0-9][a-z0-9-]{0,31})" uri)]
     (or
      (refusal config req)
      (cond
@@ -297,6 +300,24 @@
 
        (= [:get "/v1/voice/commands"] [request-method uri])
        (voice-commands ctx req)
+
+       (= [:get "/v1/computers"] [request-method uri])
+       (api-call #(hash-map :computers (computers/summary config) :pairing (pairing/view @(:pairing ctx))))
+
+       (and computer (= :delete request-method))
+       (api-call #(computers/forget! config computer))
+
+       (= [:post "/v1/pairing"] [request-method uri])
+       (api-call #(pairing/open! ctx))
+
+       (= [:delete "/v1/pairing"] [request-method uri])
+       (api-call #(pairing/close! ctx))
+
+       (= [:post "/v1/pairing/allow"] [request-method uri])
+       (api-call #(pairing/decide! ctx true))
+
+       (= [:post "/v1/pairing/deny"] [request-method uri])
+       (api-call #(pairing/decide! ctx false))
 
        (and action-name (= :post request-method))
        (action ctx action-name req)

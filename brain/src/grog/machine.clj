@@ -41,17 +41,23 @@
                                [(str "wpctl set-volume -l 1 " sink " " (abs change) "%" (if (neg? change) "-" "+"))])
                              [(str "wpctl get-volume " sink)]))))
 
+(defn volume-of
+  "The volume `volume-command` told, from what it printed: {:level :muted},
+  or nil when it didn't."
+  [output]
+  (when-let [[_ level muted] (re-find #"Volume: ([\d.]+)( \[MUTED\])?" (str output))]
+    {:level (Math/round (* 100 (Double/parseDouble level))) :muted (some? muted)}))
+
 (defn set-volume!
   "Tells the speaker's volume, or changes it as `args` say (see
   `volume-command`), telling whoever watches grog (grog.events): {:level
   :muted}."
   [{:keys [config events]} args]
   (let [{:keys [exit output]} (on-machine! @config (volume-command args))
-        [_ level muted] (re-find #"Volume: ([\d.]+)( \[MUTED\])?" (str output))]
-    (if (and (zero? exit) level)
-      (let [volume {:level (Math/round (* 100 (Double/parseDouble level))) :muted (some? muted)}]
-        (events/publish! events (assoc volume :type :volume))
-        volume)
+        volume (volume-of output)]
+    (if (and (zero? exit) volume)
+      (do (events/publish! events (assoc volume :type :volume))
+          volume)
       (throw (ex-info (str "the volume couldn't be changed: " (str/trim (str output))) {})))))
 
 (def volume-tool

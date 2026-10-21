@@ -46,10 +46,16 @@
    ;; a file: with it and hands, grog can update itself when asked (the
    ;; NixOS module's services.grog.update). nil: it can't.
    :update {:status nil}
+   ;; The user's computers grog acts on (grog.computers): the ssh it reaches
+   ;; them with, and where it listens for one asking to pair, only while
+   ;; someone at grog lets one, for a few minutes (grog.pairing).
+   :computers {:ssh "ssh" :pairing {:host "0.0.0.0" :port 8485}}
    ;; Where grog keeps its files: the credentials of `grog login`
    ;; (auth.json), the settings changed by asking (settings.json), what it
    ;; was told to remember (memory.json), whether grog-voice's mic is on
-   ;; (voice.json) and what it consumed (usage.json).
+   ;; (voice.json), what it consumed (usage.json), and the computers paired
+   ;; with it (computers.json, its SSH key and their host keys in
+   ;; computers/).
    ;; nil: $STATE_DIRECTORY (set by systemd) or ~/.local/state/grog.
    :state-dir nil
    ;; Settings per provider (see grog.provider).
@@ -206,6 +212,9 @@
         (check config [:skin :dir] (some-fn nil? #(and (string? %) (fs/directory? %))) "a directory or null")
         (check config [:skin :captions] boolean? "true or false")
         (check config [:update :status] (some-fn nil? non-blank-string?) "a file path, or null")
+        (check config [:computers :ssh] non-blank-string? "a program, like \"ssh\"")
+        (check config [:computers :pairing :host] non-blank-string? "an address, like \"0.0.0.0\"")
+        (check config [:computers :pairing :port] port? "a port number")
         (check config [:state-dir] (some-fn nil? non-blank-string?) "a directory or null")
         (check config [:provider] non-blank-string? "a provider, like \"openai\"")
         (check config [:providers] map? "the settings of each provider")]

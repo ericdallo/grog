@@ -21,8 +21,8 @@
   those changed through the `settings` tool over `config`, what grog was told
   to remember, the conversation histories, how many turns there were (each
   turn's number), what grog is up to, for whoever watches (grog.events),
-  what it asks of grog-voice (grog.voice), and what it consumed
-  (grog.usage)."
+  what it asks of grog-voice (grog.voice), what it consumed (grog.usage),
+  and how pairing a computer goes (grog.pairing)."
   [config]
   (let [overrides (settings/load-overrides config)
         live-config (atom (settings/apply-overrides config overrides))]
@@ -39,7 +39,8 @@
      :voice (voice/new-channel config)
      :usage (atom (usage/load-days config))
      :quota (atom nil)
-     :quota-failing? (atom false)}))
+     :quota-failing? (atom false)
+     :pairing (atom nil)}))
 
 (defn publish-status!
   "Tells whoever watches (grog.events) who grog is (its revision too), how

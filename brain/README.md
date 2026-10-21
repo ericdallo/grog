@@ -28,6 +28,8 @@ grog models                # the models on offer, * marks the one in use
 grog login / grog logout   # the ChatGPT subscription (--browser: in a browser here)
 grog mic off / grog mic on # off, nothing is heard until it's on again
 grog update                # to the latest grog pushed, saying how it goes
+grog computers             # the computers it acts on (computers add, computers forget NAME)
+grog pair 192.168.15.17    # on a computer: pairs it with grog at that address
 ```
 
 It finds the server through `$GROG_URL`.
@@ -119,6 +121,38 @@ the end, and starts the service itself when grog doesn't answer. How it
 goes is in the `update.status` file, which whoever watches grog sees
 (`update` in `/v1/events`).
 
+## Computers
+
+grog can act on your other computers: tell how one is doing, show a
+notification on it, open a link or a file there, control what plays and the
+volume, lock its screen, suspend it, turn it off, wake it up (Wake-on-LAN,
+if it's wired and set up for it), or run a command. Linux ones, for now.
+
+To pair one, let it at grog: "Add a computer" on its screen, or `grog
+computers add`. For 5 minutes, grog listens on the network for it
+(`computers.pairing`). On the computer, with grog installed and an SSH
+server running, run `grog pair <grog's address>`. Both screens show a code:
+when it's the same, allow it at grog.
+
+The computer then lets grog in over SSH, with a key of grog's own (in its
+state directory), only from grog's network, and only to run `grog hands
+--stdio`. It decides what grog may do there, in `~/.config/grog/hands.json`.
+By default:
+
+```json
+{"allow": ["status", "notify", "open", "media", "volume", "lock"],
+ "ask": ["suspend", "power-off", "shell"],
+ "deny": []}
+```
+
+What's asked shows a notification there: clicking it (with dunst, the
+middle button) or its Allow button allows it, and nobody doing so in 30 s
+denies it. `grog pair --trust` allows everything. Suspending it and turning
+it off also take sudo without a password there, or polkit allowing them.
+
+`grog computers` lists them. `grog computers forget NAME` forgets one, which
+then stops letting grog in, if it can be reached.
+
 ## The prompt
 
 The system prompt is a [Selmer](https://github.com/yogthos/Selmer) template,
@@ -162,7 +196,9 @@ says which one.
 | `skin.dir` | `null` | Files of its [skin](../skin/README.md), served at `/` |
 | `skin.captions` | `false` | Whether the skin shows what's said |
 | `update.status` | `null` | Where the update service says how an update goes: with it and hands, grog can [update itself](#updating) |
-| `stateDir` | `null` | Credentials, changed settings, memory, the mic's switch and usage. `null`: `$STATE_DIRECTORY` or `~/.local/state/grog` |
+| `computers.ssh` | `"ssh"` | The ssh it reaches its [computers](#computers) with. The `ssh-keygen` next to it makes grog's key |
+| `computers.pairing.host`, `.port` | `"0.0.0.0"`, `8485` | Where it listens for a computer to pair, only while someone at grog lets one |
+| `stateDir` | `null` | Credentials, changed settings, memory, the mic's switch, usage and computers. `null`: `$STATE_DIRECTORY` or `~/.local/state/grog` |
 | `providers.openai.auth` | `"auto"` | `"subscription"` or `"api-key"` to force one |
 | `providers.openai.model` | `"gpt-6-luna"` | Model with an API key |
 | `providers.openai.subscription.model` | `"gpt-6-luna"` | Model with the subscription |
@@ -197,11 +233,19 @@ JSON keys are lowerCamelCase.
 | `POST /v1/voice` `{"state", "conversationId", "heard"}` | grog-voice saying what it's doing, and with captions what it heard. Answers `{"captions", "name"}` |
 | `GET /v1/voice/commands` | What grog-voice is asked, as server-sent events: a `snapshot` with whether its `mic` is `"on"` or `"off"`, then `mic` when that changes, `listen` (now, without its name) and `stop` (answering) |
 | `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice), `mic` `{"on"}`, `volume` (`{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `new-conversation` (forgets them all), `update` (starts [updating](#updating), unless it is: `{"started"}`), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
+| `GET /v1/computers` | `{"computers": [{"name", "user", "host", "addedAt"}], "pairing"}`: the [computers](#computers) paired with it, and how pairing one goes |
+| `DELETE /v1/computers/<name>` | Forgets it, after asking it to stop letting grog in, if it can be reached: `{"name", "unpaired"}` |
+| `POST /v1/pairing` | Lets a computer pair for 5 minutes: `{"status", "until", "addresses", "port"}` |
+| `DELETE /v1/pairing` | Stops letting one |
+| `POST /v1/pairing/allow`, `POST /v1/pairing/deny` | Allows the computer asking, or not (its `name`, `user` and `code` are in `pairing`) |
 | `GET /` | The skin, with `skin.dir` |
 | `GET /health` | `ok` |
 
 An error before the answer starts is a 502 with `{"error"}`. One in the
 middle of it ends the text with `[error] ...`, or comes as an `error` event.
+
+While pairing, grog also listens on `computers.pairing`, for the computer
+([`pairing.clj`](src/grog/pairing.clj)).
 
 ## Security
 
@@ -217,6 +261,12 @@ middle of it ends the text with `[error] ...`, or comes as an `error` event.
   actions, like restarting the machine (`POST /v1/actions/<name>`).
 - Updating runs what was pushed to grog's flake input, as root: whoever can
   push there runs code on the machine, once someone asks for an update.
+- grog only listens on the network to pair a computer, while someone at it
+  lets one, and someone there has to allow it, with the same code on both
+  screens: one in between swapping keys can't make them match. Then
+  anyone who can talk to grog, or reach it as a local user, can ask it for
+  what that computer allows, as its user. What it asks first needs someone
+  at the computer.
 - Any local user can watch `/v1/events`, which has what's said with
   `skin.captions`.
 

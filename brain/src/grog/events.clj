@@ -44,6 +44,10 @@
                :url to enter it at, its :expires-at and :help {:text :url};
                nil before any
     :usage     what it consumed (grog.usage)
+    :pairing   how pairing a computer goes, as grog.pairing/view tells:
+               {:status :until :addresses :port :at}, the computer's :name,
+               :user and the :code once one asks, the :error when it
+               failed; nil before any
     :captions  whether what's said is in it
     :now       when it was sent
 
@@ -188,6 +192,7 @@
     :update (assoc state :update (:update event))
     :login (assoc state :login (:login event))
     :usage (assoc state :usage (:usage event))
+    :pairing (assoc state :pairing (:pairing event))
     state))
 
 (defn redact

@@ -6,6 +6,7 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [grog.config :as config]
+            [grog.pairing :as pairing]
             [grog.update :as update]))
 
 (def default-url "http://127.0.0.1:8484")
@@ -309,6 +310,82 @@
                     (follow-update url (or (get-in body [:update :started-at]) 0)))))
       (catch java.io.IOException _
         (update-without-grog! url)))))
+
+(defn ^:private day
+  "The day of `ms`, here: 2026-10-20."
+  [ms]
+  (str (.toLocalDate (.atZone (java.time.Instant/ofEpochMilli ms) (java.time.ZoneId/systemDefault)))))
+
+(defn computers!
+  "Lists the computers grog acts on, paired with it."
+  [url]
+  (let [[ok? body] (call :get url "/v1/computers")]
+    (cond
+      (not ok?) (fail body)
+      (empty? (:computers body)) (do (println "No computers yet: pair one with `grog computers add`.")
+                                     true)
+      :else (do (doseq [{:keys [name user host added-at]} (:computers body)]
+                  (println (format "%-16s %s@%s, paired %s" name user host (day added-at))))
+                true))))
+
+(defn pair-command
+  "What to run on a computer to pair it with grog, as pairing `view` says."
+  [{:keys [addresses port]}]
+  (str "grog pair " (or (first addresses) "<grog's address>")
+       (when-not (= port (get-in config/defaults [:computers :pairing :port]))
+         (str " --port " port))))
+
+(defn add-computer!
+  "Lets a computer pair with grog, saying what to run on it, then asks here
+  whether to allow the one asking (someone at grog's screen may first):
+  whether one was paired."
+  [url]
+  (let [[ok? view] (call :post url "/v1/pairing")]
+    (if-not ok?
+      (fail view)
+      (do (println "grog lets a computer pair for the next 5 minutes. On it, with grog installed, run:")
+          (println)
+          (println (str "  " (pair-command view)))
+          (println)
+          (println "Waiting for it (Ctrl-C to stop)...")
+          (flush)
+          (loop [asked nil]
+            (Thread/sleep 1000)
+            (let [[ok? body] (call :get url "/v1/computers")
+                  {:keys [status name user code error]} (when ok? (:pairing body))]
+              (cond
+                (not ok?) (fail body)
+
+                (and (= "asking" status) (not= asked code))
+                (do (println (format "%s (%s) asks to pair, with the code %s." name user (pairing/spaced code)))
+                    (print "Is it the code that computer shows? Allow it? [y/N] ")
+                    (flush)
+                    (let [yes? (contains? #{"y" "yes"} (str/lower-case (str/trim (or (read-line) ""))))]
+                      ;; Someone at grog's screen may have answered first.
+                      (call :post url (if yes? "/v1/pairing/allow" "/v1/pairing/deny"))
+                      (recur code)))
+
+                (= "paired" status) (do (println (format "Paired: %s. Ask grog to act on it." name))
+                                        true)
+                (= "denied" status) (fail "It wasn't allowed.")
+                (= "expired" status) (fail "No computer asked to pair in time.")
+                (= "closed" status) (fail "Pairing was closed.")
+                (= "failed" status) (fail (str "Pairing failed: " error))
+                :else (recur asked))))))))
+
+(defn forget-computer!
+  "Forgets computer `name`, which also stops letting grog in, if it can be
+  reached."
+  [url name]
+  (let [[ok? body] (call :delete url (str "/v1/computers/" name))]
+    (cond
+      (not ok?) (fail body)
+      (:unpaired body) (do (println (format "Forgot %s: it doesn't let grog in anymore." name))
+                           true)
+      :else (do (println (format (str "Forgot %s. It couldn't be reached: on it, take grog's line out of "
+                                      "~/.ssh/authorized_keys.")
+                                 name))
+                true))))
 
 (defn models! [url]
   (let [[ok? body] (call :get url "/v1/models")]

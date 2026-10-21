@@ -14,6 +14,7 @@
                answer is out, when its caller takes them (grog.actions)}."
   (:require [cheshire.core :as json]
             [grog.actions :as actions]
+            [grog.computers :as computers]
             [grog.log :as log]
             [grog.machine :as machine]
             [grog.memory :as memory]
@@ -24,14 +25,17 @@
 (defn available
   "The tools for a turn: grog's own (its settings, memory and microphone),
   the machine's when it has hands, `power` when it can restart itself or
-  the machine, and `update` when it can update itself."
+  the machine, `update` when it can update itself, and `computer` with
+  computers paired with it."
   [config]
   (let [power (actions/tool config)
-        updating (update/tool config)]
+        updating (update/tool config)
+        computing (computers/tool config)]
     (cond-> [settings/tool memory/tool voice/tool]
       (get-in config [:hands :socket]) (into machine/tools)
       power (conj power)
-      updating (conj updating))))
+      updating (conj updating)
+      computing (conj computing))))
 
 (defn definitions
   "What the provider tells the model about `tools`."

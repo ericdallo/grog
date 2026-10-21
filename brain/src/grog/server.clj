@@ -10,6 +10,7 @@
             [grog.events :as events]
             [grog.log :as log]
             [grog.login :as login]
+            [grog.pairing :as pairing]
             [grog.provider :as provider]
             [grog.update :as update]
             [grog.usage :as usage]
@@ -94,11 +95,13 @@
               (nrepl/start-server! (select-keys (:nrepl config) [:host :port])))}))
 
 (defn stop!
-  "Stops what `start!` started, and the sign-ins in progress (grog.login)."
+  "Stops what `start!` started, the sign-ins in progress (grog.login), and
+  listening for a computer to pair (grog.pairing)."
   [{:keys [ctx server nrepl background]}]
   (run! future-cancel background)
   (when nrepl
     (nrepl/stop-server! nrepl))
+  (pairing/stop! ctx)
   (http/server-stop! server)
   (login/unwatch! ctx)
   (login/stop-all!)
