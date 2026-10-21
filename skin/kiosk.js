@@ -66,7 +66,7 @@ function makeView() {
   // Without one (a VM's screen, say), WebKit's GPU path shows nothing: the
   // CPU draws it all then, which costs more.
   if (!hasGpu()) view.get_settings().set_hardware_acceleration_policy(WebKit.HardwareAccelerationPolicy.NEVER);
-  view.set_background_color(new Gdk.RGBA({ red: 0.043, green: 0.059, blue: 0.082, alpha: 1 }));
+  view.set_background_color(new Gdk.RGBA({ red: 0.184, green: 0.208, blue: 0.259, alpha: 1 }));
   // grog's page only: nothing it links to opens.
   view.connect("decide-policy", (_view, decision, type) => {
     const navigation =
