@@ -62,9 +62,11 @@ this month. The spending is an estimate, at the prices in
 Some settings change when you ask: its `name` (and so its wake word),
 `language`, `location`, `timezone`, the model and its reasoning effort.
 "From now on your name is Jarvis", "I live in Campinas", "switch to
-gpt-6-astra", "think harder". A new model gets a quick test first, and is
-refused if it doesn't answer. These stay in `settings.json`, in the state
-directory, until `grog settings reset`.
+gpt-6-astra", "think harder". Without a `location`, it asks which city you
+live in the first time an answer needs it, like the weather, and keeps
+that. A new model gets a quick test first, and is refused if it doesn't
+answer. These stay in `settings.json`, in the state directory, until `grog
+settings reset`.
 
 It also remembers things when asked ("the trash goes out on Tuesdays",
 "answer more briefly"): up to 50 short notes in `memory.json`, part of every
@@ -182,7 +184,7 @@ says which one.
 | `name` | `"grog"` | What it calls itself, and its wake word |
 | `language` | `null` | Like `"English"`. `null`: whatever you speak |
 | `timezone` | `null` | Like `"America/Sao_Paulo"`. `null`: the system's |
-| `location` | `null` | `{ city; region; country; }`, for the prompt and web search |
+| `location` | `null` | `{ city; region; country; }`, for the prompt and web search. `null`: it asks when it needs it |
 | `systemPrompt` | `null` | Replaces the prompt template |
 | `systemPromptFile` | `null` | The same, from a file read on every question |
 | `instructions` | `null` | Added to the prompt |

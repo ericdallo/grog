@@ -204,7 +204,8 @@
   {:name "settings"
    :description (str "Your settings, which you change when the user asks you to: your name (also the word "
                      "you answer to), the language you always answer in, where the home is and its time "
-                     "zone, the AI model you run on, and how much you think before answering. Changes are "
+                     "zone, the AI model you run on, and how much you think before answering. Save where the "
+                     "home is whenever the user tells you, even if they don't ask you to. Changes are "
                      "kept, and take effect from the user's next message; a new model is tried first. With "
                      "no arguments, it tells the current ones and the models on offer. How the user wants "
                      "you to answer goes in your memory instead.")

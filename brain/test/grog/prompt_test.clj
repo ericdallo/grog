@@ -28,6 +28,7 @@
                 "\n"
                 "Context:\n"
                 "- It is now Thursday, October 15, 2026, 09:05 (America/Sao_Paulo time zone).\n"
+                "- You don't know where the home is. When an answer depends on it, like the weather, ask the user which city they live in, saying you'll save it. When they say it, save it with the settings tool before searching the web, since nothing can be saved after a search until their next message.\n"
                 "- You run on the AI model gpt-6-luna.")
            (prompt/system-prompt config/defaults now))))
 
@@ -42,6 +43,7 @@
       (is (str/includes? p "\n- Always answer in Brazilian Portuguese.\n"))
       (is (not (str/includes? p "the language the user speaks")))
       (is (str/includes? p "\n- The home is in São Paulo, SP, BR.\n- You run on the AI model gpt-6-luna.\n\nCall the user boss."))
+      (is (not (str/includes? p "where the home is")))
       (is (str/ends-with? p "boss."))))
 
   (testing "the model in use"
@@ -53,11 +55,13 @@
   (testing "web search disabled isn't mentioned, but tools still are"
     (let [p (prompt/system-prompt (assoc-in config/defaults [:providers :openai :web-search :enable] false) now)]
       (is (not (str/includes? p "web search")))
-      (is (str/includes? p "\n- Whenever you use a tool, always say first, in a few words,")))))
+      (is (not (str/includes? p "searching the web")))
+      (is (str/includes? p "\n- Whenever you use a tool, always say first, in a few words,"))
+      (is (str/includes? p "they live in, saying you'll save it. When they say it, save it with the settings tool.\n")))))
 
 (deftest what-it-remembers
   (is (str/ends-with? (prompt/system-prompt config/defaults now {:memory ["A Ana é minha esposa." "O lixo passa terça."]})
-                      (str "(America/Sao_Paulo time zone).\n"
+                      (str "until their next message.\n"
                            "- You run on the AI model gpt-6-luna.\n"
                            "\n"
                            "What you were asked to remember (follow what it says about how to answer):\n"
