@@ -46,6 +46,9 @@ class WakeWordsTest(unittest.TestCase):
         self.assertEqual("", wake.match("Drog."))
         for text in ["Droga, esqueci.", "O troco tá aqui.", "Truco!", "Troca o canal.", "Broca nova."]:
             self.assertIsNone(wake.match(text), text)
+        # Nor when its last consonant isn't voiced like Grog's.
+        for text in ["Truque de mágica.", "O truque é esse.", "Troquei o pneu.", "Troque de canal."]:
+            self.assertIsNone(wake.match(text), text)
 
     def test_just_the_wake_word(self):
         wake = WakeWords(["Grog"])

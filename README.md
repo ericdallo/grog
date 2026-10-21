@@ -179,12 +179,12 @@ bills, which is the authority, but close.
 3. Only what starts with the wake word gets an answer, like "Grog, will it
    rain tomorrow?": by default grog's name (its `name` setting). It's matched
    by how it sounds, as speech-to-text hears unusual names as other words
-   ("Groga", "Grogue", from afar "Drog"), while it keeps "Droga" or "Bro"
-   apart. Up to two words may come first ("Ei, Grog"). Its name gets a sound
-   saying it listens as soon as it's heard, while you go on (some 1 to 2 s
-   into it on grognix), or alone at a pause ("Grog... will it rain?"). After
-   its name alone, the next thing said (within 8 s) needs no wake word, like
-   the reply to a question grog asks ("Shall I?").
+   ("Groga", "Grogue", "Grok", from afar "Drog"), while it keeps "Droga",
+   "truque" or "Bro" apart. Up to two words may come first ("Ei, Grog"). Its
+   name gets a sound saying it listens as soon as it's heard, while you go on
+   (some 1 to 2 s into it on grognix), or alone at a pause ("Grog... will it
+   rain?"). After its name alone, the next thing said (within 8 s) needs no
+   wake word, like the reply to a question grog asks ("Shall I?").
 4. A quiet sound says it got it: as soon as you stop, when it already heard
    its name, or else once it's transcribed. Then grog answers (`POST
    /v1/chat`, in the `voice` conversation), streamed. Another sound says when

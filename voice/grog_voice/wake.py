@@ -1,7 +1,7 @@
 """Wake words: is an utterance addressed to grog? Matched on its transcript by
 how words sound rather than how they're spelled: speech-to-text hears an
 unusual name like "Grog" as "Groga", "Grogue" or "Crog", and from afar as
-"Drog" or "Drogue", while "Droga" or "Bro" are other words.
+"Drog" or "Drogue", while "Droga", "truque" or "Bro" are other words.
 """
 
 import re
@@ -61,20 +61,32 @@ def sound(word):
 _PLOSIVES = "KPT"
 
 
-def _alike(key, target, word):
+def _voiced_end(word):
+    """Whether the last consonant of a word is voiced: the "g" of "Drogue", not
+    the "qu" of "truque"."""
+    return re.sub(r"[aeiouyh]+$", "", _plain(word))[-1:] in "bdgjvz"
+
+
+def _alike(key, word, target):
+    """Whether `word`, sounding like `key`, may be a word of a wake phrase:
+    `target`, how that one sounds and whether its last consonant is voiced."""
+    target, voiced = target
     if key == target:
         return True
-    # A final consonant may get lost too: "Gro".
+    # A final consonant may get lost too, after another one: "Calim" for
+    # "Kalimba". Not "Gro" for "Grog": that's also "cru" or "crê".
     if len(target) >= 3 and target[-1].isupper() and key == target[:-1]:
         return True
     # Another plosive first: "Drog" for "Grog". Unless it ends in a, o or u, as
-    # Portuguese words that sound like that mostly do: "droga", "troco", "truco".
+    # Portuguese words that sound like that mostly do ("droga", "troco",
+    # "truco"), or its last consonant isn't voiced alike ("truque", "troquei").
     return (
         len(target) >= 3
         and target[0] in _PLOSIVES
         and key[:1] in _PLOSIVES
         and key[1:] == target[1:]
         and _plain(word)[-1:] not in "aou"
+        and _voiced_end(word) == voiced
     )
 
 
@@ -82,8 +94,8 @@ class WakeWords:
     """Wake phrases (one word or more each, like "Grog" or "Ok computer")."""
 
     def __init__(self, phrases):
-        self.phrases = [[sound(w) for w in re.findall(r"[^\W_]+", p)] for p in phrases]
-        self.phrases = [p for p in self.phrases if p and all(p)]
+        self.phrases = [[(sound(w), _voiced_end(w)) for w in re.findall(r"[^\W_]+", p)] for p in phrases]
+        self.phrases = [p for p in self.phrases if p and all(key for key, _ in p)]
 
     def match(self, text):
         """The command in `text` after a wake phrase near its start ("" when
@@ -93,6 +105,6 @@ class WakeWords:
         for phrase in self.phrases:
             n = len(phrase)
             for start in range(min(MAX_LEADING_WORDS, len(words) - n) + 1):
-                if all(_alike(keys[start + i], phrase[i], words[start + i].group()) for i in range(n)):
+                if all(_alike(keys[start + i], words[start + i].group(), phrase[i]) for i in range(n)):
                     return text[words[start + n - 1].end() :].lstrip(" ,.;:!?…-–—").strip()
         return None
