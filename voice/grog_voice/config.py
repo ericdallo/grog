@@ -5,14 +5,18 @@ import json
 import os
 import re
 
-from . import supertonic
+from . import pocket, supertonic
 from .speech import parakeet_files
 
 # The text to speech engines (tts.engine).
-ENGINES = ("supertonic", "piper")
+ENGINES = ("pocket", "supertonic", "piper")
+# The voice of each without a tts.voice: Pocket's is a voice its model has
+# (body/packages/voice-models.nix); Piper's voices are files, and it has none.
+VOICES = {"pocket": "deep-calm", "supertonic": "M1"}
 # How fast each speaks without a tts.speed: Supertonic's M1 is slow on its own
 # (~140 words a minute), and the user liked it at 1.4 (~200); Piper's voices
-# speak at a normal pace.
+# speak at a normal pace. Pocket TTS has no speed: its voices speak at the
+# pace of the recording they were cloned from.
 SPEEDS = {"supertonic": 1.4, "piper": 1.0}
 
 DEFAULTS = {
@@ -36,15 +40,18 @@ DEFAULTS = {
         "threads": 2,
     },
     "tts": {
-        # "supertonic" (Supertonic 3) or "piper".
-        "engine": "supertonic",
+        # "pocket" (Pocket TTS, in a cloned voice), "supertonic" (Supertonic 3)
+        # or "piper".
+        "engine": "pocket",
+        # Pocket: one of its model's voices (voices/), or a voice file (.npz).
         # Supertonic: one of its voices (F1 to F5, M1 to M5), or a voice style
         # file (.json). Piper: a voice, its .onnx file with the .onnx.json next
-        # to it.
-        "voice": "M1",
+        # to it. null: the engine's (see VOICES).
+        "voice": None,
         # How fast it speaks: 1 is the voice's own pace, 1.2 a fifth faster.
-        # null: the engine's (see SPEEDS).
+        # null: the engine's (see SPEEDS); Pocket's only.
         "speed": None,
+        # Pocket: its directory, as voice/tools/export_pocket.py makes it.
         # Supertonic: its directory, as in Supertone/supertonic-3 (onnx/ and
         # voice_styles/).
         "model": None,
@@ -54,8 +61,8 @@ DEFAULTS = {
         # Supertonic: steps of its flow. Fewer are faster, and worse: with 3 it
         # drops words.
         "steps": 5,
-        # Supertonic: CPU threads. On grognix's 4 cores, 4 are the fastest: it
-        # doesn't listen while it talks.
+        # Pocket and Supertonic: CPU threads. On grognix's 4 cores, 4 are the
+        # fastest: it doesn't listen while it talks.
         "threads": 4,
     },
     # Silence after speech that ends an utterance.
@@ -143,8 +150,7 @@ CHECKS = [
         "a Parakeet model directory (encoder, decoder and joiner, .int8.onnx or .onnx, and tokens.txt)",
     ),
     ("stt.threads", lambda v: _int(v, 1), "a positive integer"),
-    ("tts.engine", lambda v: v in ENGINES, '"supertonic" or "piper"'),
-    ("tts.speed", lambda v: v is None or (_number(v) and 0.5 <= v <= 2), "a number from 0.5 to 2, or null"),
+    ("tts.engine", lambda v: v in ENGINES, '"pocket", "supertonic" or "piper"'),
     ("endSilenceMs", lambda v: _int(v, 1), "a positive integer"),
     ("speculateMs", lambda v: _int(v, 0), "an integer, 0 or more"),
     ("partialMs", lambda v: _int(v, 0), "an integer, 0 or more"),
@@ -163,6 +169,16 @@ SUPERTONIC_FILES = tuple(
         "unicode_indexer.json",
     )
 )
+
+
+# What a Pocket TTS model directory holds (see speech.Pocket), its voices
+# aside.
+POCKET_FILES = ("flow_lm.onnx", "mimi_decoder.onnx", "tokenizer.model", "pocket.json")
+
+
+def voice(tts):
+    """The voice the `tts` settings pick: theirs, or the engine's (VOICES)."""
+    return VOICES.get(tts["engine"]) if tts["voice"] is None else tts["voice"]
 
 
 def _piper_voice(v):
@@ -185,19 +201,59 @@ def _supertonic_voice(v, model):
     )
 
 
+def _pocket_model(v):
+    return isinstance(v, str) and all(os.path.isfile(os.path.join(v, f)) for f in POCKET_FILES)
+
+
+def _pocket_voice(v, model):
+    """A voice file, or one of `model`'s voices (when it's a model at all: if
+    not, that's what's wrong)."""
+    if not _non_blank(v):
+        return False
+    if v.endswith(".npz"):
+        return os.path.isfile(v)
+    return not _pocket_model(model) or v in pocket.voices(model)
+
+
+def _speed(v):
+    return v is None or (_number(v) and 0.5 <= v <= 2)
+
+
 def _tts_checks(settings):
-    """The checks of the settings of the text to speech engine in use."""
+    """The checks of the settings of the text to speech engine in use, in
+    the order of DEFAULTS."""
     engine, model = _get(settings, "tts.engine"), _get(settings, "tts.model")
+    default = VOICES.get(engine)
+    speed = ("tts.speed", _speed, "a number from 0.5 to 2, or null")
+    threads = ("tts.threads", lambda v: _int(v, 1), "a positive integer")
     if engine == "piper":
-        return [("tts.voice", _piper_voice, "a Piper voice (.onnx, with its .onnx.json next to it)")]
+        return [("tts.voice", _piper_voice, "a Piper voice (.onnx, with its .onnx.json next to it)"), speed]
+    if engine == "pocket":
+        names = ", ".join(pocket.voices(model)) if _pocket_model(model) else "in its voices/"
+        return [
+            (
+                "tts.voice",
+                lambda v: _pocket_voice(default if v is None else v, model),
+                f"one of its model's voices ({names}), or a voice file (.npz)",
+            ),
+            ("tts.speed", lambda v: v is None, "null: Pocket TTS speaks at its voice's own pace"),
+            (
+                "tts.model",
+                _pocket_model,
+                "a Pocket TTS model directory (flow_lm.onnx, mimi_decoder.onnx, tokenizer.model and "
+                "pocket.json, as voice/tools/export_pocket.py makes them)",
+            ),
+            threads,
+        ]
     if engine != "supertonic":
         return []
     return [
         (
             "tts.voice",
-            lambda v: _supertonic_voice(v, model),
+            lambda v: _supertonic_voice(default if v is None else v, model),
             "one of Supertonic's voices (F1 to F5, M1 to M5), or a voice style file (.json)",
         ),
+        speed,
         (
             "tts.model",
             _supertonic_model,
@@ -205,7 +261,7 @@ def _tts_checks(settings):
         ),
         ("tts.language", lambda v: v in supertonic.LANGUAGES, 'a language Supertonic reads, like "pt"'),
         ("tts.steps", lambda v: _int(v, 1), "a positive integer"),
-        ("tts.threads", lambda v: _int(v, 1), "a positive integer"),
+        threads,
     ]
 
 

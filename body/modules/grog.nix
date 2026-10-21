@@ -34,7 +34,7 @@ let
       tts = {
         engine = cfg.voice.ttsEngine;
         voice = cfg.voice.ttsVoice;
-      } // lib.optionalAttrs (cfg.voice.ttsEngine == "supertonic") {
+      } // lib.optionalAttrs (cfg.voice.ttsEngine != "piper") {
         model = "${cfg.voice.ttsModel}";
       };
     }
@@ -199,30 +199,47 @@ in
       };
 
       ttsEngine = lib.mkOption {
-        type = lib.types.enum [ "supertonic" "piper" ];
-        default = "supertonic";
+        type = lib.types.enum [ "pocket" "supertonic" "piper" ];
+        default = "pocket";
         description = ''
-          Text to speech: Supertonic 3, or Piper, lighter (~1 GB less) and
-          faster to start speaking, but flatter.
+          Text to speech: Pocket TTS, in a voice cloned from a recording
+          (Portuguese only), its speech playing as it's made; Supertonic 3,
+          in 31 languages, ~3 times as fast, a sentence at a time; or Piper,
+          lighter (~1 GB less) and faster to start speaking than Supertonic,
+          but flatter. Pocket TTS takes 0.2 s per second of speech on a Core
+          Ultra 7 155H, and wasn't measured on slower CPUs, where it may not
+          keep up: grognix's runs Supertonic.
         '';
       };
 
       ttsModel = lib.mkOption {
         type = lib.types.path;
-        default = models.supertonic;
-        defaultText = lib.literalMD "Supertonic 3, its graphs and its ten voices (`body/packages/voice-models.nix`)";
+        default = if cfg.voice.ttsEngine == "supertonic" then models.supertonic else models.pocket;
+        defaultText = lib.literalMD ''
+          Pocket TTS's Portuguese model, with its voice `deep-calm`; with
+          Supertonic, Supertonic 3, its graphs and its ten voices
+          (`body/packages/voice-models.nix`)'';
         description = ''
-          Supertonic's directory, laid out as Supertone/supertonic-3 on
-          Hugging Face (`onnx/`, `voice_styles/`).
+          Pocket TTS: its directory, as `voice/tools/export_pocket.py` makes
+          it. Supertonic: its directory, laid out as Supertone/supertonic-3
+          on Hugging Face (`onnx/`, `voice_styles/`). Piper has none.
         '';
       };
 
       ttsVoice = lib.mkOption {
         type = lib.types.str;
-        default = if cfg.voice.ttsEngine == "piper" then "${models.faber}/pt_BR-faber-medium.onnx" else "M1";
-        defaultText = lib.literalMD ''`"M1"`; with Piper, its pt_BR `faber` voice, medium quality (`body/packages/voice-models.nix`)'';
+        default = {
+          pocket = "deep-calm";
+          supertonic = "M1";
+          piper = "${models.faber}/pt_BR-faber-medium.onnx";
+        }.${cfg.voice.ttsEngine};
+        defaultText = lib.literalMD ''
+          `"deep-calm"`; with Supertonic, `"M1"`; with Piper, its pt_BR
+          `faber` voice, medium quality (`body/packages/voice-models.nix`)'';
         example = "F2";
         description = ''
+          Pocket TTS: one of its model's voices (in its `voices/`), or a
+          voice file (`.npz`, made by `voice/tools/export_pocket.py`).
           Supertonic: one of its voices (F1 to F5, M1 to M5), or a voice
           style file (`.json`). Piper: a voice, its `.onnx` file with the
           `.onnx.json` next to it (https://huggingface.co/rhasspy/piper-voices).

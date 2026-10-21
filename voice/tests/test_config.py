@@ -16,12 +16,18 @@ class ConfigTest(unittest.TestCase):
         self.voice = os.path.join(self.dir.name, "voice.onnx")
         self.supertonic = os.path.join(self.dir.name, "supertonic-3")
         self.style = os.path.join(self.dir.name, "mine.json")
+        self.pocket = os.path.join(self.dir.name, "pocket")
+        self.clone = os.path.join(self.dir.name, "mine.npz")
         files = (
-            [self.voice, self.voice + ".json", self.style]
+            [self.voice, self.voice + ".json", self.style, self.clone]
             + [os.path.join(self.model, f) for f in PARAKEET_INT8]
             + [
                 os.path.join(self.supertonic, f)
                 for f in config.SUPERTONIC_FILES + ("voice_styles/M1.json", "voice_styles/F2.json")
+            ]
+            + [
+                os.path.join(self.pocket, f)
+                for f in config.POCKET_FILES + ("voices/deep-calm.npz", "voices/radio.npz")
             ]
         )
         for path in files:
@@ -41,8 +47,8 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(300, settings["partialMs"])
         self.assertEqual(
             {
-                "engine": "supertonic",
-                "voice": "M1",
+                "engine": "pocket",
+                "voice": None,
                 "speed": None,
                 "model": None,
                 "language": "pt",
@@ -51,12 +57,13 @@ class ConfigTest(unittest.TestCase):
             },
             settings["tts"],
         )
+        self.assertEqual("deep-calm", config.voice(settings["tts"]))
         self.assertEqual(
             [
                 "stt.model: expected a Parakeet model directory (encoder, decoder and joiner, .int8.onnx or "
                 ".onnx, and tokens.txt), got nothing",
-                "tts.model: expected a Supertonic model directory (onnx/ and voice_styles/, "
-                "as in Supertone/supertonic-3), got nothing",
+                "tts.model: expected a Pocket TTS model directory (flow_lm.onnx, mimi_decoder.onnx, "
+                "tokenizer.model and pocket.json, as voice/tools/export_pocket.py makes them), got nothing",
             ],
             config.problems(settings),
         )
@@ -64,9 +71,7 @@ class ConfigTest(unittest.TestCase):
     def test_speech_to_text_int8_or_fp32(self):
         def problems(model):
             return config.problems(
-                config.deep_merge(
-                    config.DEFAULTS, {"stt": {"model": model}, "tts": {"model": self.supertonic}}
-                )
+                config.deep_merge(config.DEFAULTS, {"stt": {"model": model}, "tts": {"model": self.pocket}})
             )
 
         fp32 = os.path.join(self.dir.name, "fp32")
@@ -90,7 +95,7 @@ class ConfigTest(unittest.TestCase):
             json.dumps(
                 {
                     "stt": {"model": self.model},
-                    "tts": {"model": self.supertonic},
+                    "tts": {"model": self.pocket},
                     "mic": "my-mic",
                     "endSilenceMs": 800,
                 }
@@ -99,7 +104,7 @@ class ConfigTest(unittest.TestCase):
         settings = config.load(path)
         self.assertEqual([], config.problems(settings))
         self.assertEqual(2, settings["stt"]["threads"])
-        self.assertEqual("M1", settings["tts"]["voice"])
+        self.assertEqual("pocket", settings["tts"]["engine"])
         self.assertEqual("my-mic", settings["mic"])
         self.assertEqual(800, settings["endSilenceMs"])
         self.assertIsNone(config.DEFAULTS["mic"], "the defaults stay untouched")
@@ -140,7 +145,31 @@ class ConfigTest(unittest.TestCase):
                 config.deep_merge(config.DEFAULTS, {"stt": {"model": self.model}, "tts": tts})
             )
 
-        model = {"model": self.supertonic}
+        pocket = {"model": self.pocket}
+        self.assertEqual(
+            [], problems({**pocket, "voice": "radio", "threads": 6, "steps": 0, "language": "xx"})
+        )
+        self.assertEqual([], problems({**pocket, "voice": self.clone}), "a voice of its own")
+        self.assertEqual(
+            [
+                "tts.voice: expected one of its model's voices (deep-calm, radio), or a voice file (.npz), "
+                'got "M1"',
+                "tts.threads: expected a positive integer, got 0",
+            ],
+            problems({**pocket, "voice": "M1", "threads": 0}),
+        )
+        self.assertEqual(
+            [
+                "tts.voice: expected one of its model's voices (in its voices/), or a voice file (.npz), "
+                f"got {json.dumps(os.path.join(self.dir.name, 'missing.npz'))}",
+                "tts.model: expected a Pocket TTS model directory (flow_lm.onnx, mimi_decoder.onnx, "
+                "tokenizer.model and pocket.json, as voice/tools/export_pocket.py makes them), "
+                f"got {json.dumps(self.supertonic)}",
+            ],
+            problems({"model": self.supertonic, "voice": os.path.join(self.dir.name, "missing.npz")}),
+        )
+        model = {"engine": "supertonic", "model": self.supertonic}
+        self.assertEqual([], problems(model), "M1, its own default")
         self.assertEqual([], problems({**model, "voice": "F2", "language": "en", "steps": 3, "threads": 2}))
         self.assertEqual([], problems({**model, "voice": self.style}), "a voice style of its own")
         self.assertEqual(
@@ -158,20 +187,24 @@ class ConfigTest(unittest.TestCase):
             [], problems({"engine": "piper", "voice": self.voice, "language": "xx"}), "its own only"
         )
         self.assertEqual(
-            ['tts.voice: expected a Piper voice (.onnx, with its .onnx.json next to it), got "M1"'],
+            ["tts.voice: expected a Piper voice (.onnx, with its .onnx.json next to it), got nothing"],
             problems({"engine": "piper"}),
         )
         self.assertEqual(
-            ['tts.engine: expected "supertonic" or "piper", got "espeak"'], problems({"engine": "espeak"})
+            ['tts.engine: expected "pocket", "supertonic" or "piper", got "espeak"'],
+            problems({"engine": "espeak"}),
         )
 
-    def test_speed_for_both_engines(self):
+    def test_speed(self):
         def problems(tts):
             return config.problems(
                 config.deep_merge(config.DEFAULTS, {"stt": {"model": self.model}, "tts": tts})
             )
 
-        for engine in ({"model": self.supertonic}, {"engine": "piper", "voice": self.voice}):
+        for engine in (
+            {"engine": "supertonic", "model": self.supertonic},
+            {"engine": "piper", "voice": self.voice},
+        ):
             for ok in (None, 0.5, 1, 1.25, 2):
                 self.assertEqual([], problems({**engine, "speed": ok}), ok)
             for bad in (0, 0.4, 2.5, "1.2", True):
@@ -180,12 +213,17 @@ class ConfigTest(unittest.TestCase):
                     problems({**engine, "speed": bad}),
                     bad,
                 )
+        self.assertEqual([], problems({"model": self.pocket, "speed": None}))
+        self.assertEqual(
+            ["tts.speed: expected null: Pocket TTS speaks at its voice's own pace, got 1.2"],
+            problems({"model": self.pocket, "speed": 1.2}),
+        )
 
     def test_wake_words(self):
         def problems(wake_word):
             settings = config.deep_merge(
                 config.DEFAULTS,
-                {"stt": {"model": self.model}, "tts": {"model": self.supertonic}, "wakeWord": wake_word},
+                {"stt": {"model": self.model}, "tts": {"model": self.pocket}, "wakeWord": wake_word},
             )
             return config.problems(settings)
 

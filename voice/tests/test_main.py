@@ -18,25 +18,32 @@ class TextToSpeechTest(unittest.TestCase):
     def test_the_engine_the_settings_pick(self):
         made = []
         engines = {
-            "supertonic": lambda *args: made.append(("supertonic", *args)),
-            "piper": lambda *args: made.append(("piper", *args)),
+            name: lambda *args, name=name: made.append((name, *args))
+            for name in ("pocket", "supertonic", "piper")
         }
         tts = config.deep_merge(config.DEFAULTS, {"tts": {"model": "/m"}})["tts"]
         text_to_speech(tts, engines)
+        text_to_speech({**tts, "voice": "radio", "threads": 6}, engines)
+        text_to_speech({**tts, "voice": "/voices/mine.npz"}, engines)
+        supertonic = {**tts, "engine": "supertonic"}
+        text_to_speech(supertonic, engines)
         mine = {"voice": "/voices/mine.json", "language": "en", "steps": 3, "speed": 1.3}
-        text_to_speech({**tts, **mine}, engines)
+        text_to_speech({**supertonic, **mine}, engines)
         piper = {**tts, "engine": "piper", "voice": "/voices/faber.onnx"}
         text_to_speech(piper, engines)
         text_to_speech({**piper, "speed": 0.9}, engines)
         self.assertEqual(
             [
+                ("pocket", "/m", "/m/voices/deep-calm.npz", 4),
+                ("pocket", "/m", "/m/voices/radio.npz", 6),
+                ("pocket", "/m", "/voices/mine.npz", 4),
                 ("supertonic", "/m", "/m/voice_styles/M1.json", "pt", 5, 4, 1.4),
                 ("supertonic", "/m", "/voices/mine.json", "en", 3, 4, 1.3),
                 ("piper", "/voices/faber.onnx", 1.0),
                 ("piper", "/voices/faber.onnx", 0.9),
             ],
             made,
-            "each engine at its own speed, unless set",
+            "each engine with its own voice and at its own speed, unless set",
         )
 
 

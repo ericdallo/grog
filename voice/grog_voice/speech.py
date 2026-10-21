@@ -1,10 +1,10 @@
 """The models: Silero VAD, Parakeet speech-to-text, and text-to-speech with
-Supertonic or Piper. Their libraries load lazily, so the rest runs (and is
-tested) without them."""
+Pocket TTS, Supertonic or Piper. Their libraries load lazily, so the rest
+runs (and is tested) without them."""
 
 import os
 
-from . import supertonic
+from . import pocket, supertonic
 from .audio import peak_dbfs, stt_gain_db
 
 # Supertonic's speech is brought up to peak there (-1 dBFS), by at most that
@@ -88,6 +88,84 @@ class Piper:
         """Yields the 16-bit mono audio of `text`, a sentence at a time."""
         for chunk in self.voice.synthesize(text, syn_config=self.config):
             yield chunk.audio_int16_bytes
+
+
+class Pocket:
+    """Text to speech with Pocket TTS (Kyutai, CC-BY-4.0) in a cloned voice,
+    kept loaded, on OpenVINO's CPU plugin, from the ONNX graphs that
+    voice/tools/export_pocket.py made of it: its speech streams out 80 ms
+    at a time as it's made. On a Core Ultra 7 155H, 0.2 s per second of
+    speech with 4 threads (0.17 with 6), its first sound in 0.05 s.
+    `model` has the graphs (flow_lm.onnx,
+    mimi_decoder.onnx), tokenizer.model and pocket.json (how to run them);
+    `voice`, a voice's file (see pocket.voice_file)."""
+
+    def __init__(self, model, voice, threads):
+        import json
+
+        import numpy as np
+        import openvino as ov
+        import sentencepiece
+
+        with open(f"{model}/pocket.json", encoding="utf-8") as f:
+            self.rules = json.load(f)
+        self.sample_rate = self.rules["sample_rate"]
+        self.tokenizer = sentencepiece.SentencePieceProcessor(model_file=f"{model}/tokenizer.model")
+        with np.load(voice) as v:
+            self.voice, self.gain = v["cache"], 10 ** (float(v["gain_db"]) / 20)
+        core, config = ov.Core(), {"INFERENCE_NUM_THREADS": threads, "PERFORMANCE_HINT": "LATENCY"}
+        self.flow, self.mimi = (
+            core.compile_model(f"{model}/{name}.onnx", "CPU", config) for name in ("flow_lm", "mimi_decoder")
+        )
+
+    def __call__(self, text):
+        """Yields the 16-bit mono audio of `text` as it's made, in pieces of
+        80 ms (long texts are read in parts, see pocket.pieces). Numbers are
+        spelled out in Portuguese, for a model that reads it."""
+        if self.rules.get("language") == "pt":
+            text = pocket.spell_numbers(text)
+        for part in pocket.pieces(text, self._tokens, self.rules["max_tokens"]):
+            said, guess = pocket.prepare(part, self.rules)
+            if said:
+                yield from self._synthesize(said, guess)
+
+    def _tokens(self, text):
+        return len(self.tokenizer.encode(text))
+
+    def _synthesize(self, text, guess):
+        import numpy as np
+
+        rules = self.rules
+        tokens = np.array([self.tokenizer.encode(text)], dtype=np.int64)
+        no_tokens, no_noise = np.zeros((1, 0), dtype=np.int64), np.zeros((1, 32), dtype=np.float32)
+        # The text first, into the voice's cache, then a latent at a time from
+        # "speech starts" (NaN): the same text sounds the same.
+        cache = self.flow(
+            {
+                "tokens": tokens,
+                "latent": np.zeros((1, 0, 32), np.float32),
+                "noise": no_noise,
+                "cache": self.voice,
+            }
+        )["cache_out"]
+        latent = np.full((1, 1, 32), np.nan, dtype=np.float32)
+        rng, std = np.random.default_rng(0), rules["temperature"] ** 0.5
+        after = rules["frames_after_eos"] if rules["frames_after_eos"] is not None else guess + 2
+        ending = pocket.Ending(rules["min_frames_before_eos"], after)
+        state = np.zeros(rules["mimi_state"], dtype=np.float32)
+        fade_in = np.linspace(0, 1, self.sample_rate // 200, dtype=np.float32)
+        for frame in range(pocket.max_frames(tokens.shape[1], rules)):
+            noise = (rng.standard_normal((1, 32)) * std).astype(np.float32)
+            out = self.flow({"tokens": no_tokens, "latent": latent, "noise": noise, "cache": cache})
+            if ending(frame, float(np.asarray(out["eos"]).reshape(-1)[0]) > rules["eos_threshold"]):
+                break
+            latent, cache = np.asarray(out["latent_out"])[None], out["cache_out"]
+            offset = np.array([frame * rules["mimi_steps_per_frame"]], dtype=np.int64)
+            out = self.mimi({"latent": latent, "state": state, "offset": offset})
+            audio, state = np.asarray(out["audio"]).reshape(-1) * self.gain, out["state_out"]
+            if frame == 0:  # a fresh decoder starts with a click
+                audio[: len(fade_in)] *= fade_in
+            yield (np.clip(audio, -1, 1) * 32767).astype(np.int16).tobytes()
 
 
 class Supertonic:

@@ -173,7 +173,10 @@ the mic's volume.
 - Bluetooth speakers add about 0.3 s before grog is heard.
 - A CPU with AVX2 makes speech 3 to 6 times faster. Without it, Parakeet
   takes about 0.9 s to write down what you said, and Supertonic 0.5 s per
-  second of speech.
+  second of speech. grognix speaks with Supertonic: grog's default voice,
+  Pocket TTS's deep-calm, was only measured on a Core Ultra 7 155H (0.2 s
+  per second of speech). On a CPU as fast, set
+  `services.grog.voice.ttsEngine = "pocket"` in `machine.nix`.
 - 8 GB of RAM leaves room: grog-voice takes 2 to 4 GB. With a few GB more,
   `services.grog.voice.sttPrecision = "fp32"` hears better, from afar most
   of all. Give it 4 threads (`services.grog.voice.settings.stt.threads = 4`)

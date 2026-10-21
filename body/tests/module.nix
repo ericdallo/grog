@@ -105,7 +105,7 @@ pkgs.testers.runNixOSTest {
         }
       ];
     };
-    # The speech models, twice: the service and `grog-voice turn`, Supertonic
+    # The speech models, twice: the service and `grog-voice turn`, Pocket TTS
     # taking ~1 GB each.
     virtualisation.memorySize = 6144;
     virtualisation.cores = 2;

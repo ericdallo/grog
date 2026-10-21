@@ -26,10 +26,13 @@ python3Packages.buildPythonApplication {
 
   dependencies = with python3Packages; [
     numpy
-    # Runs Supertonic: twice as fast as ONNX Runtime on grognix's CPU.
+    # Runs Pocket TTS and Supertonic: twice as fast as ONNX Runtime on
+    # grognix's CPU.
     openvino
     piper
     pysilero-vad
+    # Pocket TTS's tokenizer.
+    sentencepiece
     sherpa-onnx
   ];
   # nixpkgs' openvino and sherpa-onnx install no package metadata
@@ -39,7 +42,7 @@ python3Packages.buildPythonApplication {
   # The unit tests need none of the models.
   nativeCheckInputs = [ python3Packages.unittestCheckHook ];
   unittestFlags = [ "-s" "tests" "-v" ];
-  pythonImportsCheck = [ "grog_voice" "openvino" "piper" "pysilero_vad" "sherpa_onnx" ];
+  pythonImportsCheck = [ "grog_voice" "openvino" "piper" "pysilero_vad" "sentencepiece" "sherpa_onnx" ];
 
   makeWrapperArgs = [
     # pw-cat records and plays.

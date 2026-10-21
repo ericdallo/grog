@@ -106,8 +106,14 @@
     # Its voice, hands and skin run in grog's session.
     user = "grog";
     # Hands-free, through the default mic and speaker of grog's session
-    # (GNOME's sound settings, or wpctl).
-    voice.enable = true;
+    # (GNOME's sound settings, or wpctl). In Supertonic's voice: Pocket TTS,
+    # the module's, wasn't measured on the Celeron N5095 grognix is made for,
+    # where Supertonic takes 8 times as long as on the Core Ultra 7 Pocket
+    # TTS was measured on (machine.nix may still pick it).
+    voice = {
+      enable = true;
+      ttsEngine = lib.mkDefault "supertonic";
+    };
     # The volume, how the machine is doing, restarting it or grog, and a
     # shell (as grog, with sudo without a password).
     hands.enable = true;

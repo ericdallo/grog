@@ -2,17 +2,30 @@
 { lib, fetchurl, fetchzip, runCommand }:
 
 let
-  # Files of a Hugging Face repo at revision `rev`, laid out as there.
-  huggingFaceFiles = { name, repo, rev, files }:
+  # Files, each fetched from `url path`, laid out as their paths say.
+  fetchFiles = { name, url, files }:
     runCommand name { } (lib.concatLines (lib.mapAttrsToList
       (path: hash: ''
         mkdir -p "$(dirname "$out/${path}")"
         ln -s ${fetchurl {
-          url = "https://huggingface.co/${repo}/resolve/${rev}/${path}";
+          url = url path;
           inherit hash;
         }} "$out/${path}"
       '')
       files));
+
+  # Files of a Hugging Face repo at revision `rev`, laid out as there.
+  huggingFaceFiles = { name, repo, rev, files }: fetchFiles {
+    inherit name files;
+    url = path: "https://huggingface.co/${repo}/resolve/${rev}/${path}";
+  };
+
+  # Assets of a GitHub release, which has no directories: each is named as
+  # its path's last part.
+  gitHubReleaseFiles = { name, repo, tag, files }: fetchFiles {
+    inherit name files;
+    url = path: "https://github.com/${repo}/releases/download/${tag}/${baseNameOf path}";
+  };
 
   # A voice from rhasspy/piper-voices at revision `rev`: its .onnx, with the
   # .onnx.json next to it, where Piper finds it.
@@ -59,8 +72,27 @@ in
     };
   };
 
-  # Text to speech: Supertonic 3 (Supertone, OpenRAIL-M: see its LICENSE),
-  # its graphs in fp32 and its ten voices. 31 languages.
+  # Text to speech: Pocket TTS (Kyutai, CC-BY-4.0: see its README.md), its
+  # Portuguese model (6 layers, voice cloning weights), as
+  # voice/tools/export_pocket.py converts it to ONNX, and its voice
+  # deep-calm, cloned from a voice designed with Qwen3-TTS (no one's own).
+  pocket = gitHubReleaseFiles {
+    name = "pocket-tts-pt";
+    repo = "ericdallo/grog";
+    tag = "pocket-tts-pt-v1";
+    files = {
+      "flow_lm.onnx" = "sha256-1QFKsfmkRG56pX/HdrQbMIGX8Qn/bDMKyzw9ICNtIUA=";
+      "mimi_decoder.onnx" = "sha256-YTMQqPr8p/zsy5XGDmBTamsiuzKrBfiXIF9c29T7cb4=";
+      "tokenizer.model" = "sha256-OqUTCcVfEUdxwVaq64b2/DJZkTZKo8OK90rs8cvQ+t4=";
+      "pocket.json" = "sha256-AS7czsh6ZhYYAPyARz/uDZuMLM0RFKry3AradApirfM=";
+      "README.md" = "sha256-X8A6jS6QXP87fuc9LvbjD0KlzP83zz4Pecp/5kpAypU=";
+      "voices/deep-calm.npz" = "sha256-s89iPbjiwpnQH1jZjrPquOmK51CI+5uI32Sfc5vxqUk=";
+    };
+  };
+
+  # Supertonic 3 (Supertone, OpenRAIL-M: see its LICENSE), its graphs in
+  # fp32 and its ten voices. 31 languages, and ~3 times as fast as Pocket
+  # TTS on a Core Ultra 7 155H.
   supertonic = huggingFaceFiles {
     name = "supertonic-3";
     repo = "Supertone/supertonic-3";

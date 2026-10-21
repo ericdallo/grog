@@ -93,17 +93,21 @@ def reporter(settings):
 
 def text_to_speech(tts, engines=None):
     """The text to speech engine the `tts` settings pick, loaded. `engines`:
-    its classes by name (speech.Supertonic and speech.Piper by default)."""
-    from . import supertonic
+    its classes by name (speech.Pocket, speech.Supertonic and speech.Piper by
+    default)."""
+    from . import pocket, supertonic
 
     if engines is None:
-        from .speech import Piper, Supertonic
+        from .speech import Piper, Pocket, Supertonic
 
-        engines = {"supertonic": Supertonic, "piper": Piper}
-    speed = config.SPEEDS[tts["engine"]] if tts["speed"] is None else tts["speed"]
-    if tts["engine"] == "piper":
-        return engines["piper"](tts["voice"], speed)
-    style = supertonic.voice_style(tts["model"], tts["voice"])
+        engines = {"pocket": Pocket, "supertonic": Supertonic, "piper": Piper}
+    engine, voice = tts["engine"], config.voice(tts)
+    if engine == "pocket":
+        return engines["pocket"](tts["model"], pocket.voice_file(tts["model"], voice), tts["threads"])
+    speed = config.SPEEDS[engine] if tts["speed"] is None else tts["speed"]
+    if engine == "piper":
+        return engines["piper"](voice, speed)
+    style = supertonic.voice_style(tts["model"], voice)
     return engines["supertonic"](tts["model"], style, tts["language"], tts["steps"], tts["threads"], speed)
 
 

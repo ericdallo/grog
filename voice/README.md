@@ -21,12 +21,17 @@ up to it.
    doesn't need it.
 4. A short sound says it got it, and the brain answers, streamed. Another
    sound means it's looking something up.
-5. [Supertonic 3](https://huggingface.co/Supertone/supertonic-3) speaks the
-   answer in its voice M1, a sentence at a time, while the rest is still
-   coming. It runs on [OpenVINO](https://github.com/openvinotoolkit/openvino),
-   twice as fast as ONNX Runtime on grognix's CPU.
-   [Piper](https://github.com/OHF-Voice/piper1-gpl) can speak instead
-   (`tts.engine`): lighter and quicker to start, but flatter.
+5. [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) speaks the
+   answer, a sentence at a time while the rest is still coming, in a voice
+   cloned from a recording: deep-calm, a deep, calm Brazilian voice designed
+   with Qwen3-TTS (no one's own). Its speech plays as it's made, 80 ms at a
+   time. It runs on [OpenVINO](https://github.com/openvinotoolkit/openvino),
+   from ONNX graphs of its Portuguese model made by
+   [`tools/export_pocket.py`](tools/export_pocket.py).
+   [Supertonic 3](https://huggingface.co/Supertone/supertonic-3) (31
+   languages, ~3 times as fast) or
+   [Piper](https://github.com/OHF-Voice/piper1-gpl) (lighter, but flatter)
+   can speak instead (`tts.engine`).
 
 It doesn't listen while it talks. A low sound means something went wrong,
 and the log says what. A rising one means the brain is there: at start, or
@@ -37,10 +42,14 @@ screen: to listen now, without its name (touching its face), to stop
 answering, or to switch its mic off. Off, it records nothing at all until
 it's switched on again, even after restarts: the brain keeps that.
 
-On grognix, a Celeron N5095, Supertonic takes ~0.5 s per second of speech
-(Piper: 0.2), so it starts answering 1 to 3 s after the LLM's first words,
-which take 2 to 3 s, more when it searches the web. What was tried for its
-voice, and why this one: [plans/voice.md](../plans/voice.md).
+On a Core Ultra 7 155H, Pocket TTS takes 0.2 s per second of speech, and
+its first sound comes 0.05 s after the answer's first sentence. On grognix,
+a Celeron N5095, grog speaks with Supertonic, which takes ~0.5 s per second
+of speech there (Piper: 0.2), so it starts answering 1 to 3 s after the
+LLM's first words, which take 2 to 3 s, more when it searches the web.
+Pocket TTS wasn't measured on such slow CPUs, where it may not keep up.
+What was tried for its voice, and why this one:
+[plans/voice.md](../plans/voice.md).
 
 ## Running it
 
@@ -48,13 +57,16 @@ On NixOS, `services.grog.voice.enable` runs it as a user service of
 `services.grog.user`, whose session has the mic and the speaker (PipeWire).
 Log that user in at boot, or set `users.users.<name>.linger = true`.
 
-Nix fetches the models: Parakeet, and Supertonic 3 with its ten voices (F1
-to F5, M1 to M5), under OpenRAIL-M, which forbids harmful uses (its LICENSE
-comes with it). Pick others with `services.grog.voice.sttModel`, `ttsModel`
-and `ttsVoice`. `ttsEngine = "piper"` speaks with Piper's pt_BR `faber`
-voice, or the one in `ttsVoice`. `sttPrecision = "fp32"` runs Parakeet in
-fp32 rather than int8: it hears more, from afar most of all, for ~1.3 GB
-more RAM per Parakeet.
+Nix fetches the models: Parakeet, and Pocket TTS's Portuguese model with
+its voice deep-calm, under CC-BY-4.0 (its README.md says where it comes
+from), from grog's GitHub release `pocket-tts-pt-v1`. `ttsEngine =
+"supertonic"` speaks with Supertonic 3 and its voice M1 (or F1 to F5, M2 to
+M5, in `ttsVoice`), under OpenRAIL-M, which forbids harmful uses (its
+LICENSE comes with it): grognix does. `ttsEngine = "piper"` speaks with
+Piper's pt_BR `faber` voice, or the one in `ttsVoice`. Pick other models
+with `services.grog.voice.sttModel` and `ttsModel`. `sttPrecision = "fp32"`
+runs Parakeet in fp32 rather than int8: it hears more, from afar most of
+all, for ~1.3 GB more RAM per Parakeet.
 
 `journalctl --user -u grog-voice` shows how long each turn took.
 
@@ -67,6 +79,20 @@ grog-voice turn question.wav --no-play  # a turn from a 16 kHz mono recording
 
 If it keeps writing your way of saying its name as something else, add that
 spelling to `wakeWord`.
+
+## Another voice
+
+Pocket TTS clones a voice from a few seconds of clean speech. Make one
+where torch and pocket_tts run (`pip install pocket-tts==4.0.0 onnx`), then
+point `ttsVoice` at it:
+
+```sh
+python tools/export_pocket.py voice tools/pocket_portuguese.yaml recording.wav mine.npz
+```
+
+The same tool makes the model's files from its weights (`model
+tools/pocket_portuguese.yaml pt DIR`), as for the release. Only clone the
+voice of someone who agrees to it.
 
 ## Privacy
 
@@ -90,13 +116,13 @@ or `$GROG_VOICE_CONFIG`), merged over the defaults in
 | `mic`, `speaker` | `null` | PipeWire node names (`wpctl status -n`). `null`: the session's defaults |
 | `stt.model` | `null` | A Parakeet TDT model for sherpa-onnx, int8 or fp32. On NixOS: `sttModel`, or `sttPrecision` |
 | `stt.threads` | `2` | 3 is slower on grognix's 4 cores. fp32 with 4 is as fast as int8 with 2, given AVX2 |
-| `tts.engine` | `"supertonic"` | Or `"piper"`: ~1 GB lighter and quicker to start speaking, but flatter. On NixOS: `ttsEngine` |
-| `tts.voice` | `"M1"` | Supertonic: one of its voices (F1 to F5, M1 to M5), or a voice style `.json`. Piper: a voice, `.onnx` with its `.onnx.json`. On NixOS: `ttsVoice` |
-| `tts.speed` | `null` | How fast it speaks, from 0.5 to 2: 1 is the voice's own pace, 1.2 a fifth faster. `null`: 1.4 with Supertonic (M1 says ~140 words a minute at 1, ~200 at 1.4), 1 with Piper |
-| `tts.model` | `null` | Supertonic's directory, as in Supertone/supertonic-3 (`onnx/`, `voice_styles/`). On NixOS: `ttsModel` |
-| `tts.language` | `"pt"` | What Supertonic reads, the language grog answers in: `en`, `es`, `fr` and 28 more |
+| `tts.engine` | `"pocket"` | Or `"supertonic"`: 31 languages, ~3 times as fast, a sentence at a time. Or `"piper"`: ~1 GB lighter than Supertonic and quicker to start speaking, but flatter. On NixOS: `ttsEngine` |
+| `tts.voice` | `null` | Pocket: one of its model's voices (`voices/`), or a voice file (`.npz`). Supertonic: one of its voices (F1 to F5, M1 to M5), or a voice style `.json`. Piper: a voice, `.onnx` with its `.onnx.json`. `null`: `deep-calm` with Pocket, `M1` with Supertonic. On NixOS: `ttsVoice` |
+| `tts.speed` | `null` | How fast it speaks, from 0.5 to 2: 1 is the voice's own pace, 1.2 a fifth faster. `null`: 1.4 with Supertonic (M1 says ~140 words a minute at 1, ~200 at 1.4), 1 with Piper. Pocket only takes `null`: its voices speak at their recording's pace |
+| `tts.model` | `null` | Pocket's directory, as `tools/export_pocket.py` makes it. Supertonic's, as in Supertone/supertonic-3 (`onnx/`, `voice_styles/`). On NixOS: `ttsModel` |
+| `tts.language` | `"pt"` | What Supertonic reads, the language grog answers in: `en`, `es`, `fr` and 28 more. Pocket's model reads one, Portuguese |
 | `tts.steps` | `5` | Supertonic: fewer are faster, and worse (with 3 it drops words) |
-| `tts.threads` | `4` | Supertonic: the fastest on grognix's 4 cores, as it doesn't listen while it talks |
+| `tts.threads` | `4` | Pocket and Supertonic: Supertonic's fastest on grognix's 4 cores, as it doesn't listen while it talks. On a Core Ultra 7 155H, 6, its performance cores: Supertonic's fastest there, and Pocket's faster than 2 or 4 |
 | `endSilenceMs` | `600` | Silence that ends what you said |
 | `speculateMs` | `250` | A pause this long starts transcribing, in case it's the end. `0`: wait for the end |
 | `partialMs` | `300` | How much more you have to say before what you've said so far is transcribed again. `0`: only at pauses, without the second model |

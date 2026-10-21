@@ -13,13 +13,13 @@ You connect it to your AI provider and install it in a separated machine with op
 
 ![grog's parts: voice (ears and mouth), brain, hands and skin, running on its body](images/parts.png)
 
-| Part                           | What it is                                                                                 | Made with                    |
-|--------------------------------|--------------------------------------------------------------------------------------------|------------------------------|
-| [brain](brain/README.md)       | The core, the server that answers, and the `grog` CLI                                      | Babashka                     |
-| [voice](voice/README.md)       | Its ears and mouth: hears its name, turns speech into text and the answer back into speech | Python, Parakeet, Supertonic |
-| [skin](skin/README.md)         | A page, fullscreen on its screen, showing what it's up to                                  | HTML, CSS, JS                |
-| [hands](brain/README.md#hands) | Runs things on the machine for the brain, which is sandboxed                               | Babashka                     |
-| [body](body/README.md)         | What it runs on: a NixOS module, a PC set up just for grog                                 | Nix                          |
+| Part                           | What it is                                                                                 | Made with                                |
+|--------------------------------|--------------------------------------------------------------------------------------------|------------------------------------------|
+| [brain](brain/README.md)       | The core, the server that answers, and the `grog` CLI                                      | Babashka                                 |
+| [voice](voice/README.md)       | Its ears and mouth: hears its name, turns speech into text and the answer back into speech | Python, Parakeet, Pocket TTS, Supertonic |
+| [skin](skin/README.md)         | A page, fullscreen on its screen, showing what it's up to                                  | HTML, CSS, JS                            |
+| [hands](brain/README.md#hands) | Runs things on the machine for the brain, which is sandboxed                               | Babashka                                 |
+| [body](body/README.md)         | What it runs on: a NixOS module, a PC set up just for grog                                 | Nix                                      |
 
 ## Running it
 

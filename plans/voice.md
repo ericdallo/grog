@@ -10,11 +10,19 @@ said otherwise.
 - It runs on an asus oled now, a Core Ultra 7 155H, rather than grognix's
   Celeron: see "Round 3" below. The rest of this file is about grognix
   unless said otherwise.
-- grog speaks with **Supertonic 3** (Supertone, May 2026), voice **M1**, in
-  Portuguese (`pt`), run by **OpenVINO's CPU plugin**: the official fp32 ONNX
-  graphs from `Supertone/supertonic-3`, pinned at revision
+- grog speaks with **Pocket TTS** (Kyutai, CC-BY-4.0), its 6-layer
+  Portuguese model, in the voice **deep-calm**, which the user picked: a
+  voice designed with Qwen3-TTS, cloned by Pocket TTS. It runs on
+  **OpenVINO's CPU plugin**, from ONNX graphs grog makes of the model
+  (`voice/tools/export_pocket.py`), its speech playing 80 ms at a time as
+  it's made, without torch: see "Pocket TTS on OpenVINO" below. On the
+  station, 6 threads (`tts.threads`).
+- grognix speaks with **Supertonic 3** (Supertone, May 2026), voice **M1**,
+  in Portuguese (`pt`), on OpenVINO too: the official fp32 ONNX graphs from
+  `Supertone/supertonic-3`, pinned at revision
   `3cadd1ee6394adea1bd021217a0e650ede09a323`, 4 threads, 5 steps, at speed
-  1.4 (`tts.speed`, see "Speed" below).
+  1.4 (`tts.speed`, see "Speed" below). Pocket TTS wasn't measured there
+  (`body/grognix/default.nix` picks Supertonic, `tts.engine`).
 - Piper stays available (`tts.engine = "piper"`, `tts.voice` = a `.onnx`).
 - It hears with Parakeet TDT 0.6B v3 in int8, or fp32 with
   `services.grog.voice.sttPrecision` (see "The ears" below).
@@ -24,19 +32,26 @@ said otherwise.
   nothing recorded), over `GET /v1/voice/commands`
   (`voice/grog_voice/commands.py`). Until then grog-voice could only tell
   grog what it was doing.
-- Code: `voice/grog_voice/supertonic.py` (text handling, pure), the
-  `Supertonic` and `Piper` classes in `voice/grog_voice/speech.py`, the
-  `tts.*` settings in `voice/grog_voice/config.py`, the models in
+- Code: `voice/grog_voice/pocket.py` and `voice/grog_voice/supertonic.py`
+  (text handling, pure), the `Pocket`, `Supertonic` and `Piper` classes in
+  `voice/grog_voice/speech.py`, the `tts.*` settings in
+  `voice/grog_voice/config.py`, the models in
   `body/packages/voice-models.nix`, the NixOS options (`ttsEngine`,
-  `ttsModel`, `ttsVoice`) in `body/modules/grog.nix`.
-- What it costs over Piper: answers start 1 to 3 s later, ~1 GB more RAM
-  (the text to speech alone peaked at 1.19 GB on the laptop), ~400 MB of
-  model files, ~235 MB more in grog-voice's closure (openvino 135 MB, opencv
-  76 MB, small libraries).
+  `ttsModel`, `ttsVoice`) in `body/modules/grog.nix`, and Pocket TTS's
+  export in `voice/tools/` (`export_pocket.py`, `pocket_portuguese.yaml`).
+- What Supertonic costs over Piper on grognix: answers start 1 to 3 s
+  later, ~1 GB more RAM (the text to speech alone peaked at 1.19 GB on the
+  laptop), ~400 MB of model files, ~235 MB more in grog-voice's closure
+  (openvino 135 MB, opencv 76 MB, small libraries). Pocket TTS takes as
+  much RAM, ~405 MB of model files, and sentencepiece (14 MB more in the
+  closure).
 - Supertonic speaks ~8 dB lower than Piper (speech RMS -22 to -24 dBFS,
   peaks -5 to -8 dBFS, against Piper's -15 and 0): each piece is brought up
   to peak at -1 dBFS, by at most +12 dB, like Piper's normalized output, as
   the earcons (`sounds.py`) and the speaker's volume were set for Piper.
+  Pocket TTS streams, so a voice has one gain (`gain_db` in its file, +2.9
+  dB for deep-calm), set when it's made: its speech to ~-18 dBFS RMS,
+  peaking at -1 dBFS at most.
 
 ## Constraints
 
@@ -257,7 +272,7 @@ supertone-inc/supertonic, MIT), which grog follows:
   - It reads digits badly ("28" came out as gibberish, so numbers need spelling out), and the 6-layer model skips words now and then.
   - Its training code is open since August 2026.
   - sherpa-onnx runs it, from a reference recording, but only exports the English model. There are unofficial ONNX exports for Portuguese (`Alias-Alias/pocket-3-3-0-tts-onnx`, int8).
-  - Too slow on grognix in PyTorch, by the laptop numbers; an ONNX path was never measured.
+  - Too slow on grognix in PyTorch, by the laptop numbers; the ONNX path the station runs (round 3) wasn't measured there.
 - **Kokoro** (82M, Apache-2.0):
   - Three pt-BR voices, with a more neutral, pan-Lusophone accent.
   - A community note says its int8 exports give NaN in Portuguese, so use fp32.
@@ -455,6 +470,59 @@ The samples' page is the lab's `samples/index.html` (in
   audio in 0.10 to 0.16 s; of Chatterbox's "radio", 0.47 on 2 threads.
   Twice as slow as on the 386H with PyPI's torch 2.14, but real time with
   room to spare, as it streams.
+- Then the user picked the 6-layer Pocket TTS clone of "deep-calm" for
+  grog.
+
+### Pocket TTS on OpenVINO
+
+Running `pocket_tts` itself means torch (~1 GB more in grog-voice's
+closure) and a package nixpkgs doesn't have, at RTF 0.5 on the station.
+Instead, grog-voice runs ONNX graphs of the model on OpenVINO, as for
+Supertonic:
+
+- **The export** (`voice/tools/export_pocket.py`, in the lab, with
+  pocket_tts 4.0 and `voice/tools/pocket_portuguese.yaml`):
+  - `flow_lm.onnx` (358 MB, fp32): one step of the FlowLM with its KV
+    cache, and one step of its flow (LSD);
+  - `mimi_decoder.onnx` (41 MB): Mimi's decoder, streaming, its state
+    flattened into one tensor;
+  - the model's `tokenizer.model`, and `pocket.json`: how to run them
+    (pocket_tts's sampling, end of speech and text rules);
+  - a voice is the FlowLM's KV cache once it heard the recording
+    (`voices/deep-calm.npz`: 113 frames, 5.5 MB).
+  - The graphs follow `marcosremar2/pocket-tts-erinome-pt`'s
+    `onnx/export.py`. Run again, the export gives the same bytes. It's
+    grog's GitHub release `pocket-tts-pt-v1`, with its README.md crediting
+    Kyutai (CC-BY-4.0), pinned in `body/packages/voice-models.nix`.
+- **Synthesis** (`speech.Pocket`): for each piece of at most 50 tokens
+  (sentences together, long ones cut at commas), the text goes into the
+  voice's cache in one run, then one FlowLM step per 80 ms frame, from
+  "speech starts" (NaN), with noise from a fixed seed (the same text sounds
+  the same) at temperature 0.3. It stops 3 frames after the model says
+  speech ends (its logit past -4; 5 frames for texts of 4 words or less),
+  not before frame 6, and after (tokens / 3 + 2) s at most. Mimi decodes
+  each frame as it comes (1920 samples at 24 kHz). The first one fades in
+  over 5 ms: a fresh decoder clicks.
+- **Text**: pocket_tts's own rules, from `pocket.json`, and Portuguese
+  numbers spelled out (`pocket.py`: money, times, degrees, percentages,
+  ordinals, decimals, "uma" and "duas" before feminine nouns), as the model
+  reads digits badly.
+- **The same as PyTorch**: the graphs against the same computation in
+  PyTorch, at most 4.9e-6 apart (latent) and 1.1e-5 (cache); the first
+  step, from speech starts, identical to pocket_tts's; Mimi 2.4e-6 from
+  pocket_tts's streaming decoder.
+- **Words**: 30 sentences like grog's answers, transcribed by Parakeet:
+  5.6% wrong words (16 of 285) from the graphs, 6.3% from pocket_tts's 6
+  layers, 5.6% from its 24, 6.0% from Supertonic's M1 at 1.4. Some are
+  Parakeet's ("7h30" for "sete e meia").
+- **Speed on the station** (turbo, nixpkgs' OpenVINO 2026.1.2), the sample
+  sentence and bursts: RTF 0.259 and 0.256 with 2 threads, 0.205 and 0.204
+  with 4, 0.174 and 0.173 with 6; the first sound 0.03 to 0.05 s after a
+  sentence comes. Supertonic is ~3 times as fast (0.062), but only speaks a
+  sentence once it's all made: 0.14 to 0.28 s for the first. In the module's
+  VM test (2 cores, the fake LLM), grog started speaking 0.09 and 0.20 s
+  after the answer's first words with Pocket TTS, 1.07 s with Supertonic.
+- **Memory**: ~1.0 GB at its peak, in the lab (Supertonic: ~1.1 GB).
 
 ## Where to go from here
 
@@ -479,11 +547,11 @@ The samples' page is the lab's `samples/index.html` (in
   - Data could be real recordings (a speaker who agrees to it, hours of clean speech) or synthetic speech from a model whose license allows it.
   - OpenRAIL-M usually counts a model trained on another's outputs (distillation) as a derivative: allowed, but it inherits the use restrictions. Read Supertone's LICENSE before training on M1's output.
   - pt-BR datasets to check, licenses included: Edresson Casanova's TTS-Portuguese Corpus (Piper's `edresson` voice), CML-TTS.
-- **Pocket TTS**: open training code and voice cloning. It needs a faster
-  machine, or a measured ONNX path, to run on grognix. On the asus oled, a
-  male voice designed with Qwen3-TTS, cloned, or better fine-tuned and
-  distilled to 6 layers like the Erinome one (see round 3), then run from
-  ONNX graphs on OpenVINO, is the likeliest voice of grog's own.
+- **Pocket TTS**: done on the station with a clone, deep-calm (see "Pocket
+  TTS on OpenVINO"). Fine-tuning the 24-layer model on hours of that voice
+  and distilling it to 6 layers, like the Erinome one (see round 3), would
+  make it steadier: the 6-layer clone skips or slurs a word now and then.
+  Measure the ONNX path on grognix before it speaks that way there.
 - **Kokoro / StyleTTS2** can be fine-tuned too, with heavier inference than
   Piper.
 - **Supertonic itself** can't be trained without Supertone (Voice Builder is
@@ -503,8 +571,9 @@ The samples' page is the lab's `samples/index.html` (in
 
 - The real wait on grognix, measured during conversations, when grog-voice
   isn't transcribing while it speaks.
-- Portuguese text handling beyond "28 graus": money, times, ordinals,
-  abbreviations, English words in Portuguese sentences.
+- Portuguese text handling: for Pocket TTS, `pocket.py` spells out
+  numbers, money, times, degrees, percentages and ordinals; abbreviations,
+  and English words in Portuguese sentences, are left to the models.
 - `tts.language` has to match the language grog answers in (the brain's
   `language` setting, or the user's). It could follow it by itself.
 - RAM headroom on grognix with everything running, after this change.
