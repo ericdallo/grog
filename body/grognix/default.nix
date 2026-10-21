@@ -117,6 +117,12 @@
     # grog is the only user here, and whoever is in the room hears it anyway.
     skin.enable = true;
     settings.skin.captions = lib.mkDefault true;
+    # When asked (by voice, on its skin, or `grog update`), to the latest
+    # grog that /etc/nixos follows.
+    update = {
+      enable = true;
+      host = "grognix";
+    };
   };
 
   services.pulseaudio.enable = false;

@@ -47,7 +47,28 @@
     (with-redefs [actions/service? (constantly true)]
       (is (= (conj voice "restart") (actions/available config/defaults)))
       (testing "the model is offered those making it go away"
-        (is (= ["restart"] (get-in (actions/tool config/defaults) [:parameters :properties :action :enum])))))))
+        (is (= ["restart"] (get-in (actions/tool config/defaults) [:parameters :properties :action :enum])))))
+    (testing "updating itself, with the update service and hands to start it"
+      (with-redefs [actions/service? (constantly false)]
+        (is (= (into voice ["volume" "update" "reboot" "power-off"])
+               (actions/available (-> config/defaults
+                                      (assoc-in [:hands :socket] socket)
+                                      (assoc-in [:update :status] "/run/grog-update/status.json")))))))))
+
+(deftest updates-itself
+  (with-machine #(if (str/includes? % "is-active") {:exit 3 :output ""} {:exit 0 :output ""}) false
+    (fn [ran _]
+      (let [ctx (assistant/new-context (-> config/defaults
+                                           (assoc :state-dir (h/temp-dir))
+                                           (assoc-in [:hands :socket] socket)
+                                           (assoc-in [:update :status] "/run/grog-update/none.json")))]
+        (is (= {:started true} (actions/perform! ctx "update")))
+        (is (str/includes? (last @ran) "systemctl start --no-block grog-update.service")))))
+  (testing "not without the update service"
+    (with-machine ok false
+      (fn [_ _]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"can't update itself here"
+                              (actions/perform! (context) "update")))))))
 
 (deftest restarts-itself
   (with-machine ok true

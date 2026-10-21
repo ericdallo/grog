@@ -22,6 +22,7 @@ export const ICONS = {
   close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
   stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/>',
   restart: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4"/>',
+  update: '<path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5M4.5 16.5v3h15v-3"/>',
   reboot: '<rect x="5" y="4" width="14" height="10" rx="1.5"/><path d="M9 20h6M12 14v6"/><path d="M14.5 9a2.5 2.5 0 1 1-.8-1.8"/>',
   power: '<path d="M12 3.5V12M7.2 6.5a7.5 7.5 0 1 0 9.6 0"/>',
   "sign-out": '<path d="M14 4.5H6.5v15H14M10.5 12H20M16.5 8.5L20 12l-3.5 3.5"/>',

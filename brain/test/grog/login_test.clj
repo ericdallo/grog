@@ -244,7 +244,7 @@
           (testing "status shows the subscription"
             (is (= {:name "grog" :provider "openai" :auth "subscription" :model "gpt-6-luna"
                     :email "grog@example.com" :account-id "acct-1" :changed []}
-                   (dissoc (second (api :get (str base "/v1/status"))) :expires-at :usage)))
+                   (dissoc (second (api :get (str base "/v1/status"))) :expires-at :usage :revision :busy :update)))
             (let [out (with-out-str (client/status! base))]
               (is (str/includes? out "Name:     grog\n"))
               (is (str/includes? out "Auth:     subscription, signed in as grog@example.com"))

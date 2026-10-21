@@ -5,6 +5,8 @@
             [grog.config :as config]
             [grog.hands :as hands]
             [grog.server :as server]
+            [grog.update :as update]
+            [grog.updater :as updater]
             [grog.validation :as validation]))
 
 (def usage
@@ -33,6 +35,11 @@ Commands:
   mic on|off                  turns grog-voice's mic on or off (off, nothing
                               is heard until it's on again, even after
                               restarts)
+  update                      updates grog to the latest grog pushed, saying
+                              how it goes (services.grog.update on NixOS)
+  updater --flake DIR --host NAME --input NAME --status FILE
+                              what updates grog, as root (what the
+                              grog-update service runs)
 
 Server: $GROG_URL or " client/default-url))
 
@@ -102,6 +109,17 @@ Server: $GROG_URL or " client/default-url))
     (die "Usage: grog hands --socket PATH")
     (hands/serve! (:socket opts))))
 
+(defn ^:private update-grog [{:keys [opts]}]
+  (exit (client/update! (url opts))))
+
+(defn ^:private run-updater [{:keys [opts]}]
+  (let [{:keys [flake host input status]} opts]
+    (when (some str/blank? [flake host input status])
+      (die "Usage: grog updater --flake DIR --host NAME --input NAME --status FILE"))
+    (exit (not= "failed" (:stage (updater/update! {:flake flake :host host :input input :status status
+                                                   :revision (update/revision)}
+                                                  (updater/system (client/server-url nil))))))))
+
 (defn ^:private help [_]
   (println usage))
 
@@ -116,6 +134,11 @@ Server: $GROG_URL or " client/default-url))
    {:cmds ["settings" "reset"] :fn reset-settings}
    {:cmds ["models"] :fn models}
    {:cmds ["mic"] :fn mic}
+   {:cmds ["update"] :fn update-grog}
+   {:cmds ["updater"] :fn run-updater :spec {:flake {:coerce :string}
+                                             :host {:coerce :string}
+                                             :input {:coerce :string}
+                                             :status {:coerce :string}}}
    {:cmds [] :fn help}])
 
 (defn -main [& args]

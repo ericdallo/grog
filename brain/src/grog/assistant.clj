@@ -12,6 +12,7 @@
             [grog.provider :as provider]
             [grog.settings :as settings]
             [grog.tools :as tools]
+            [grog.update :as update]
             [grog.usage :as usage]
             [grog.voice :as voice]))
 
@@ -41,13 +42,14 @@
      :quota-failing? (atom false)}))
 
 (defn publish-status!
-  "Tells whoever watches (grog.events) who grog is, how it's paid, its time
-  zone, what can be asked of it, whether its mic is on, and what it
-  consumed, now."
+  "Tells whoever watches (grog.events) who grog is (its revision too), how
+  it's paid, its time zone, what can be asked of it, whether its mic is on,
+  and what it consumed, now."
   [ctx]
   (let [config @(:config ctx)]
     (events/publish! (:events ctx) (merge {:type :status
                                            :name (:name config)
+                                           :revision (update/revision)
                                            :timezone (config/timezone config)
                                            :actions (actions/available config)
                                            :mic (voice/mic (:voice ctx))}

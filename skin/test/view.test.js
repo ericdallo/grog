@@ -24,6 +24,7 @@ import {
   recent,
   request,
   seconds,
+  shortRevision,
   signIn,
   STALE_MS,
   stale,
@@ -31,8 +32,13 @@ import {
   tap,
   timeFormats,
   tool,
+  UPDATE_FAILED_MS,
+  UPDATE_MS,
+  UPDATED_MS,
+  updateNotice,
   usage,
   usd,
+  version,
   VOICE_GRACE_MS,
   VOICE_STALE_MS,
   VOLUME_STEP,
@@ -764,5 +770,61 @@ describe("what's asked of grog", () => {
 
   it("which close the sheet", () => {
     assert.deepEqual(["volume", "mic", "new-conversation", "restart"].map(closes), [false, false, true, true]);
+  });
+});
+
+describe("updating", () => {
+  const rev = "1234abcdef1234abcdef1234abcdef1234abcdef";
+  const update = (stage, extra = {}) => state({ update: { stage, at: NOW - 1000, to: rev, ...extra } });
+
+  it("its version, short", () => {
+    assert.equal(version(state({ revision: rev })), "1234abc");
+    assert.equal(shortRevision(`${rev}-dirty`), "1234abc-dirty");
+    assert.equal(version(state()), null);
+  });
+
+  it("says how it goes, under the time", () => {
+    assert.deepEqual(updateNotice(update("building"), NOW), {
+      label: "Building the update",
+      detail: "1234abc",
+      icon: "update",
+      failed: false,
+    });
+    assert.equal(updateNotice(update("fetching"), NOW).label, "Looking for an update");
+    assert.equal(updateNotice(update("waiting"), NOW).label, "Updating once nobody's talking");
+    assert.equal(updateNotice(update("building"), NOW - 1000 + UPDATE_MS + 1), null, "silent too long");
+    assert.equal(updateNotice(state(), NOW), null);
+  });
+
+  it("and how it went, for a while", () => {
+    assert.deepEqual(updateNotice(update("done"), NOW), { label: "Updated to", detail: "1234abc", icon: "done", failed: false });
+    assert.equal(updateNotice(update("done", { to: null }), NOW).label, "Updated");
+    assert.equal(updateNotice(update("current"), NOW).label, "Already up to date");
+    assert.equal(updateNotice(update("done"), NOW - 1000 + UPDATED_MS + 1), null);
+    const failed = updateNotice(update("failed", { error: "Couldn't build it" }), NOW);
+    assert.deepEqual([failed.label, failed.detail, failed.failed], ["Couldn't update", "Couldn't build it", true]);
+    assert.equal(updateNotice(update("failed"), NOW - 1000 + UPDATE_FAILED_MS + 1), null);
+  });
+
+  it("restarting into it, its block says so, even offline", () => {
+    for (const stage of ["switching", "verifying"]) {
+      assert.deepEqual(mode(update(stage), NOW), { mode: "restarting", label: "Updating", detail: "back in a moment" });
+      assert.equal(mode(update(stage), NOW, true).mode, "restarting");
+    }
+    assert.equal(mode(update("building"), NOW).mode, "idle", "it still listens while it builds");
+    assert.equal(mode(update("switching"), NOW - 1000 + GOING_MS + 1, true).mode, "offline", "not forever");
+  });
+
+  it("from the actions sheet, with a second tap", () => {
+    const items = menu(state({ actions: ["update", "restart"] }));
+    assert.deepEqual(items.map((i) => i.id), ["update", "restart"]);
+    assert.deepEqual([items[0].label, items[0].icon, items[0].confirm], ["Update Grog", "update", true]);
+    assert.equal(menu(state({ actions: ["update"] }), "update")[0].label, "Tap again to update");
+    assert.deepEqual(request("update", state()), { method: "POST", path: "/v1/actions/update", body: {} });
+    assert.equal(closes("update"), true);
+  });
+
+  it("as a step of a turn", () => {
+    assert.deepEqual(tool("update"), { label: "Looking for an update", short: "Update", icon: "update" });
   });
 });

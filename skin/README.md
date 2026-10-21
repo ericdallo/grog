@@ -8,6 +8,7 @@ grog's skin: a page showing what grog is up to, for a screen next to it.
   turn went well, dozes when nobody talked to it for a while, and gets
   sleepy at night, when the screen goes dark.
 - The time, and the steps of the last turn with how long each took.
+- Under the time, how an update goes while it does, and how it went.
 - With captions, what you say as you say it, then its answer.
 - The last few turns, and what it costs: how much of the subscription's
   limits is used, or what the API key spent.
@@ -24,9 +25,10 @@ On a touch screen, or with a mouse:
 - Touching grog's face talks to it, no name needed. While it answers, it
   stops it. With its mic off, it turns it on and listens.
 - The button by the clock opens its actions: the volume, the mic, a new
-  conversation, signing out, restarting grog or the machine, and turning
-  the machine off. Those that can't be undone take a second tap. They close
-  by themselves after a while.
+  conversation, signing out, updating grog, restarting it or the machine,
+  and turning the machine off. Those that can't be undone take a second
+  tap. They close by themselves after a while. Its version is at the
+  bottom.
 
 They go through the brain's actions (`POST /v1/actions/<name>`).
 

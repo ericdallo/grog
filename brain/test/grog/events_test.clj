@@ -222,6 +222,29 @@
     (testing "the machine refused: it stays"
       (is (nil? (:restarting (events/step state {:type :restarting :at 3000})))))))
 
+(deftest its-revision-and-updates
+  (let [state (run [1000 {:type :status :name "grog" :revision "fbd2aad"}]
+                   [2000 {:type :update :update {:stage "building" :to "1234abc"}}])]
+    (is (= "fbd2aad" (:revision state)))
+    (is (= {:stage "building" :to "1234abc"} (:update state)))))
+
+(deftest whether-someone-talks-to-grog
+  (let [voice (fn [state seen] {:voice {:state state :seen seen}})]
+    (is (false? (events/busy? events/initial-state 1000)))
+    (testing "grog-voice heard its name lately, and listens, waits for the answer, or says it"
+      (doseq [s ["awake" "asked" "answering" "speaking"]]
+        (is (true? (events/busy? (voice s 1000) 2000)) s))
+      (is (false? (events/busy? (voice "speaking" 1000) 60000)) "not once it's gone"))
+    (testing "not when it only hears someone, or listens"
+      (is (false? (events/busy? (voice "hearing" 1000) 2000)))
+      (is (false? (events/busy? (voice "listening" 1000) 2000))))
+    (testing "a turn under way, until it's done, or old"
+      (let [state (run [1000 {:type :turn :conversation "default" :n 1}])]
+        (is (true? (events/busy? state 2000)))
+        (is (false? (events/busy? state (+ 1000 (* 6 60 1000)))))
+        (is (false? (events/busy? (events/step state {:type :done :conversation "default" :n 1 :at 3000})
+                                  4000)))))))
+
 (deftest whether-grog-voice-is-saying-an-answer
   (let [now (atom 1000)]
     (with-redefs [events/now-ms #(deref now)]

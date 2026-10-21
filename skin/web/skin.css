@@ -292,6 +292,47 @@ ol {
   font-size: 2.4vmin;
 }
 
+/* How an update goes (view.js updateNotice): a line under the time, red
+   when it failed. */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 1.2vmin;
+  margin-top: 1.6vmin;
+  color: var(--muted);
+  font-size: 2.2vmin;
+}
+
+.notice[hidden] {
+  display: none;
+}
+
+.notice svg {
+  flex: none;
+  width: 2.6vmin;
+  height: 2.6vmin;
+  color: var(--accent);
+}
+
+.notice .what {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.notice .more {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notice.failed,
+.notice.failed svg,
+.notice.failed .what {
+  color: var(--red);
+}
+
 /* How to sign in (view.js signIn), in place of what was said and done, which
    there's none of without a login. Its code is amber, like what needs
    someone; its QR code, dark on white, as phones read them best. */
@@ -812,6 +853,13 @@ ol {
   margin-top: 2vmin;
   color: var(--red);
   font-size: 2.2vmin;
+}
+
+/* Which version of grog this is, at the bottom. */
+.sheet-version {
+  margin-top: auto;
+  color: var(--muted);
+  font: 400 1.9vmin var(--mono);
 }
 
 /* grog's face (face.js): Lid, drawn in the block's ink (--on) on its color

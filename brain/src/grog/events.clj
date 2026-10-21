@@ -7,10 +7,14 @@
 
   The state:
     :name :provider :model :auth  who grog is, and how it's paid
+    :revision  the revision of grog running, when known (grog.update)
     :timezone  grog's time zone (IANA), for clocks to show its time
     :actions   what can be asked of grog (grog.actions), like \"restart\"
     :restarting  once grog is going away, asked to: {:action :at}, the
                action being restart, reboot or power-off; nil otherwise
+    :update    how the last update of grog goes, or went (grog.updater):
+               {:stage :from :to :to-date :started-at :at :error
+               :rolled-back}; nil without any
     :mic       \"on\" or \"off\": whether grog-voice's mic is on, as asked
                (grog.voice)
     :volume    the speaker's volume, once known: {:level :muted}
@@ -176,11 +180,12 @@
     (:done :failed) (on-end state event)
     :stop (on-stop state)
     :forgot (assoc state :turn nil :heard nil)
-    :status (merge state (select-keys event [:name :provider :model :auth :timezone :actions :mic]))
+    :status (merge state (select-keys event [:name :provider :model :auth :revision :timezone :actions :mic]))
     :mic (assoc state :mic (:mic event))
     :volume (assoc state :volume (select-keys event [:level :muted]))
     ;; Without an action, it stays after all.
     :restarting (assoc state :restarting (when (:action event) (select-keys event [:action :at])))
+    :update (assoc state :update (:update event))
     :login (assoc state :login (:login event))
     :usage (assoc state :usage (:usage event))
     state))
@@ -213,6 +218,24 @@
     (and (= conversation (:conversation voice))
          (contains? #{"answering" "speaking"} voice-state)
          (< (- (now-ms) seen) voice-gone-ms))))
+
+;; grog-voice's states while someone talks to grog: once it heard its name.
+(def ^:private talking-states #{"awake" "asked" "answering" "speaking"})
+
+;; A turn this old is over, whatever it said.
+(def ^:private turn-max-ms (* 5 60 1000))
+
+(defn busy?
+  "Whether someone is talking to grog, as `state` says at `now`: grog-voice
+  heard its name lately, and is listening, waiting for the answer or saying
+  it, or a turn is under way."
+  [{:keys [voice turn]} now]
+  (boolean
+   (or (and (contains? talking-states (:state voice))
+            (< (- now (or (:seen voice) 0)) voice-gone-ms))
+       (and turn
+            (not (:done-at turn))
+            (< (- now (or (:at (first (:steps turn))) 0)) turn-max-ms)))))
 
 (defn snapshot
   "The state, as watchers get it."

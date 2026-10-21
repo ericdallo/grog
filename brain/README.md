@@ -27,6 +27,7 @@ grog settings reset        # puts those settings back
 grog models                # the models on offer, * marks the one in use
 grog login / grog logout   # the ChatGPT subscription (--browser: in a browser here)
 grog mic off / grog mic on # off, nothing is heard until it's on again
+grog update                # to the latest grog pushed, saying how it goes
 ```
 
 It finds the server through `$GROG_URL`.
@@ -102,6 +103,22 @@ systemd service that starts it again then: the NixOS module's does
 (`RestartForceExitStatus=75`). Its skin can ask too, right away (`POST
 /v1/actions/restart`).
 
+## Updating
+
+Asked to, at its skin, or with `grog update`, grog updates itself to the
+latest grog pushed. On NixOS that's `services.grog.update`: a root service
+(`grog updater`) locks the system's flake with grog's input at its latest,
+in a lock of its own, and builds the system with it, as the flake's owner.
+With something new, once nobody is talking to grog, it switches to it
+(staying in the specialisation the machine runs, if it's one), and waits for
+the new grog to answer, as its new revision. Then the flake gets the new
+lock; otherwise the machine goes back to the previous system.
+
+The model says whether there was something new. `grog update` follows it to
+the end, and starts the service itself when grog doesn't answer. How it
+goes is in the `update.status` file, which whoever watches grog sees
+(`update` in `/v1/events`).
+
 ## The prompt
 
 The system prompt is a [Selmer](https://github.com/yogthos/Selmer) template,
@@ -144,6 +161,7 @@ says which one.
 | `hands.socket` | `null` | Unix socket of its [hands](#hands) |
 | `skin.dir` | `null` | Files of its [skin](../skin/README.md), served at `/` |
 | `skin.captions` | `false` | Whether the skin shows what's said |
+| `update.status` | `null` | Where the update service says how an update goes: with it and hands, grog can [update itself](#updating) |
 | `stateDir` | `null` | Credentials, changed settings, memory, the mic's switch and usage. `null`: `$STATE_DIRECTORY` or `~/.local/state/grog` |
 | `providers.openai.auth` | `"auto"` | `"subscription"` or `"api-key"` to force one |
 | `providers.openai.model` | `"gpt-6-luna"` | Model with an API key |
@@ -169,7 +187,7 @@ JSON keys are lowerCamelCase.
 | Request | Does |
 | --- | --- |
 | `POST /v1/chat` `{"message", "conversationId", "new", "said"}` | Answers as streamed text, or as server-sent events with `Accept: text/event-stream` (`text`, `tool`, then `done` or `error`). `new` starts over; `said` is the question as heard, shown with captions |
-| `GET /v1/status` | `name`, `provider`, `model`, the account, `changed` settings and `usage` |
+| `GET /v1/status` | `name`, its `revision`, `provider`, `model`, the account, `changed` settings, `usage`, whether someone is talking to it (`busy`), and how the last update goes (`update`) |
 | `DELETE /v1/settings` | Puts the settings changed by asking back |
 | `GET /v1/models` | `{"models": [{"id", "description", "current"...}]}` |
 | `POST /v1/auth/<provider>/login` `{"method"}` | Starts signing in, or goes on with the sign-in in progress: `"device"` (the provider's way when it can) answers `{"code", "url", "expiresAt", "help"...}`, the code to enter at `url`; `"browser"`, `{"url", "redirectUri"...}`, the link to sign in at |
@@ -178,7 +196,7 @@ JSON keys are lowerCamelCase.
 | `GET /v1/events` | What it's up to, as server-sent events: a `snapshot`, then each change ([`events.clj`](src/grog/events.clj)) |
 | `POST /v1/voice` `{"state", "conversationId", "heard"}` | grog-voice saying what it's doing, and with captions what it heard. Answers `{"captions", "name"}` |
 | `GET /v1/voice/commands` | What grog-voice is asked, as server-sent events: a `snapshot` with whether its `mic` is `"on"` or `"off"`, then `mic` when that changes, `listen` (now, without its name) and `stop` (answering) |
-| `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice), `mic` `{"on"}`, `volume` (`{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `new-conversation` (forgets them all), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
+| `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice), `mic` `{"on"}`, `volume` (`{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `new-conversation` (forgets them all), `update` (starts [updating](#updating), unless it is: `{"started"}`), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
 | `GET /` | The skin, with `skin.dir` |
 | `GET /health` | `ok` |
 
@@ -197,6 +215,8 @@ middle of it ends the text with `[error] ...`, or comes as an `error` event.
   without asking, except in a turn that searched the web. So can anyone who
   runs code in grog with `nrepl.enable`, and any local user can take its
   actions, like restarting the machine (`POST /v1/actions/<name>`).
+- Updating runs what was pushed to grog's flake input, as root: whoever can
+  push there runs code on the machine, once someone asks for an update.
 - Any local user can watch `/v1/events`, which has what's said with
   `skin.captions`.
 

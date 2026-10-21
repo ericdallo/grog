@@ -30,8 +30,14 @@ export const GOING_MS = 3 * 60_000;
 export const CONFIRM_MS = 4_000;
 // How much a tap on the volume's buttons changes it, in points.
 export const VOLUME_STEP = 10;
+// An update says how it goes as it goes: silent this long, it's gone.
+export const UPDATE_MS = 30 * 60_000;
+// How long how it went shows, once it's over; failing, longer.
+export const UPDATED_MS = 20_000;
+export const UPDATE_FAILED_MS = 60_000;
 
 const TOOLS = {
+  update: { label: "Looking for an update", short: "Update", icon: "update" },
   web_search: { label: "Searching the web", short: "Web", icon: "web" },
   volume: { label: "Adjusting the volume", short: "Volume", icon: "volume" },
   system_status: { label: "Checking the machine", short: "Machine", icon: "machine" },
@@ -47,7 +53,19 @@ const GOING = {
   restart: { label: "Restarting", detail: "back in a moment" },
   reboot: { label: "Restarting the machine", detail: "back in a minute or two" },
   "power-off": { label: "Turning off", detail: "someone has to turn it on again" },
+  update: { label: "Updating", detail: "back in a moment" },
 };
+
+// What an update under way is doing (brain/src/grog/updater.clj), and once
+// it switches, grog restarts into the new version.
+const UPDATING = {
+  fetching: "Looking for an update",
+  building: "Building the update",
+  waiting: "Updating once nobody's talking",
+  switching: "Restarting into the update",
+  verifying: "Restarting into the update",
+};
+const SWITCHING = ["switching", "verifying"];
 
 // What grog-voice says while it waits for someone to talk.
 const WAITING = ["listening", "awake", "asked", "error"];
@@ -95,13 +113,53 @@ function failed(state, now) {
 }
 
 /**
- * What grog said it's going away for (asked to restart, say), lately:
- * {label, detail}, or null. It says so even once it can't be reached.
+ * What grog said it's going away for (asked to restart, say, or switching
+ * to an update), lately: {label, detail}, or null. It says so even once it
+ * can't be reached.
  */
 export function goingAway(state, now) {
   const going = state?.restarting;
-  if (!going?.action || now - going.at > GOING_MS) return null;
-  return GOING[going.action] ?? GOING.restart;
+  if (going?.action && now - going.at <= GOING_MS) return GOING[going.action] ?? GOING.restart;
+  const update = state?.update;
+  if (SWITCHING.includes(update?.stage) && now - update.at <= GOING_MS) return GOING.update;
+  return null;
+}
+
+/** A revision as short as git shows it, still saying when it's dirty; or null. */
+export function shortRevision(rev) {
+  if (!rev) return null;
+  const s = String(rev);
+  return s.length > 7 && s.endsWith("-dirty") ? `${s.slice(0, 7)}-dirty` : s.slice(0, 7);
+}
+
+/** The revision of grog running, short, or null when it doesn't know. */
+export function version(state) {
+  return shortRevision(state?.revision);
+}
+
+/**
+ * How grog's update goes, for a line on the screen: {label, detail, icon,
+ * failed}, while one is under way and for a while once it's over; null
+ * otherwise.
+ */
+export function updateNotice(state, now) {
+  const u = state?.update;
+  if (!u?.stage || !Number.isFinite(u.at)) return null;
+  const age = now - u.at;
+  const to = shortRevision(u.to) ?? "";
+  if (UPDATING[u.stage]) {
+    return age <= UPDATE_MS ? { label: UPDATING[u.stage], detail: to, icon: "update", failed: false } : null;
+  }
+  switch (u.stage) {
+    case "done":
+      return age <= UPDATED_MS ? { label: to ? "Updated to" : "Updated", detail: to, icon: "done", failed: false } : null;
+    case "current":
+      return age <= UPDATED_MS ? { label: "Already up to date", detail: to, icon: "done", failed: false } : null;
+    case "failed":
+      return age <= UPDATE_FAILED_MS ? { label: "Couldn't update", detail: u.error ?? "", icon: "failed", failed: true } : null;
+    default:
+      return null;
+  }
 }
 
 /**
@@ -416,6 +474,11 @@ export function menu(state, armed = null) {
   if (state?.auth === "subscription") {
     const again = "Tap again to sign out";
     items.push({ id: "sign-out", kind: "button", label: "Sign out", icon: "sign-out", detail: account(state), confirm: again });
+  }
+  if (can("update")) {
+    const label = state.name ? `Update ${state.name}` : "Update";
+    const detail = "to the latest version pushed";
+    items.push({ id: "update", kind: "button", label, icon: "update", detail, confirm: "Tap again to update" });
   }
   if (can("restart")) {
     const label = state.name ? `Restart ${state.name}` : "Restart";

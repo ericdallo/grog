@@ -29,7 +29,13 @@
       (is (= ["settings" "memory" "microphone" "volume" "system_status" "shell" "power"] (names hands))))
     (testing "as a service, it can restart itself"
       (with-redefs [actions/service? (constantly true)]
-        (is (= ["settings" "memory" "microphone" "power"] (names config/defaults)))))))
+        (is (= ["settings" "memory" "microphone" "power"] (names config/defaults)))))
+    (testing "with the update service, and hands to start it, it can update itself"
+      (with-redefs [actions/service? (constantly false)]
+        (is (= ["settings" "memory" "microphone" "volume" "system_status" "shell" "power" "update"]
+               (names (assoc-in hands [:update :status] "/run/grog-update/status.json"))))
+        (is (= ["settings" "memory" "microphone"]
+               (names (assoc-in config/defaults [:update :status] "/run/grog-update/status.json"))))))))
 
 (deftest runs-tools-for-the-model
   (let [searched? (atom false)

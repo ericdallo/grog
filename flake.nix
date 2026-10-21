@@ -39,6 +39,7 @@
         in
         {
           imports = [ ./body/modules/grog.nix ];
+          services.grog.revision = lib.mkDefault (self.rev or self.dirtyRev or null);
           services.grog.package = lib.mkDefault packages.grog;
           services.grog.voice.package = lib.mkDefault packages.grog-voice;
           services.grog.skin.package = lib.mkDefault packages.grog-skin;

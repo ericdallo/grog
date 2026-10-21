@@ -2,17 +2,18 @@
   "What can be asked of grog, beyond answering: to listen now, without its
   name, or to stop answering (grog-voice, see grog.voice); to turn its mic
   on or off; to change the speaker's volume; to forget its conversations;
-  and to go away: restart itself (its voice, then its brain), restart the
-  machine, or turn it off. Someone at its skin asks through `POST
-  /v1/actions/<name>` (grog.api), and they happen right away. The model
-  asks to go away through the `power` tool, and that waits for its answer
-  to be said (`after-answer!`)."
+  to update itself (grog.update); and to go away: restart itself (its
+  voice, then its brain), restart the machine, or turn it off. Someone at
+  its skin asks through `POST /v1/actions/<name>` (grog.api), and they
+  happen right away. The model asks to go away through the `power` tool,
+  and that waits for its answer to be said (`after-answer!`)."
   (:require [babashka.fs :as fs]
             [grog.conversation :as conversation]
             [grog.events :as events]
             [grog.hands :as hands]
             [grog.log :as log]
             [grog.machine :as machine]
+            [grog.update :as update]
             [grog.voice :as voice]))
 
 ;; grog restarts itself by exiting with it: its systemd service starts it
@@ -34,7 +35,7 @@
    "power-off" {:verb "poweroff" :can "CanPowerOff"}})
 
 ;; What can be asked of grog, on some machines only (see `available`).
-(def known #{"listen" "stop" "mic" "volume" "new-conversation" "restart" "reboot" "power-off"})
+(def known #{"listen" "stop" "mic" "volume" "new-conversation" "update" "restart" "reboot" "power-off"})
 
 (defn exit!
   "Ends grog with `code` (tests redefine it)."
@@ -63,10 +64,12 @@
 (defn available
   "What can be asked of grog with `config`: to listen or stop (when
   grog-voice is there to ask), its mic, forgetting its conversations, the
-  volume with hands, and going away (`going-away`)."
+  volume with hands, updating itself with the update service and hands,
+  and going away (`going-away`)."
   [config]
   (into (cond-> ["listen" "stop" "mic" "new-conversation"]
-          (hands? config) (conj "volume"))
+          (hands? config) (conj "volume")
+          (update/available? config) (conj "update"))
         (going-away config)))
 
 (defn ^:private on-machine!
@@ -90,6 +93,7 @@
       (throw (ex-info (case name
                         "restart" "not running as a service here: nothing would start it again"
                         ("reboot" "power-off" "volume") "there are no hands to do that with (hands.socket)"
+                        "update" "it can't update itself here: no update service, or no hands to start it"
                         (str "there's no action called " name))
                       {:type ::unavailable})))
     (when (and (#{"listen" "stop"} name) (not (voice/there? (:voice ctx))))
@@ -174,6 +178,7 @@
      "mic" (mic! ctx args)
      "volume" (machine/set-volume! ctx args)
      "new-conversation" (forget! ctx)
+     "update" (update/start! @(:config ctx))
      (go! ctx name))))
 
 (defn ^:private wait-until

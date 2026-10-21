@@ -1,4 +1,4 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, utils, ... }:
 
 let
   cfg = config.services.grog;
@@ -19,6 +19,9 @@ let
   # grog's hands' socket: its user creates it, grog (in the group) connects.
   handsDir = "/run/grog-hands";
   handsSocket = "${handsDir}/hands.sock";
+
+  # How an update goes (`grog updater`, as root), for grog to read.
+  updateStatus = "/run/grog-update/status.json";
 
   models = pkgs.callPackage ../packages/voice-models.nix { };
   voiceConfigFile = json.generate "grog-voice.json" (lib.recursiveUpdate
@@ -87,6 +90,52 @@ in
         service still starts without it, answering with an error that says
         which variable is missing.
       '';
+    };
+
+    revision = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      defaultText = lib.literalMD "the revision of grog's flake, with its module (`nixosModules.default`)";
+      example = "fbd2aadd94d1c3ae9adb3aa40b1e600dbdf7fb33";
+      description = ''
+        The revision of grog that `package` was built from: what grog says
+        it is, and what an update compares with the latest grog pushed.
+      '';
+    };
+
+    update = {
+      enable = lib.mkEnableOption ''
+        updating grog when asked (by voice, on its skin, or with `grog
+        update`): as root, it builds this system from `flake` with its
+        `input` at the latest grog pushed, and switches to it once nobody is
+        talking to grog, going back to the previous system if the new grog
+        doesn't answer. Whoever can push to that input can then run code as
+        root here, once someone asks'';
+
+      flake = lib.mkOption {
+        type = lib.types.str;
+        default = "/etc/nixos";
+        example = "/home/alice/nixos";
+        description = ''
+          The directory of the flake this system is built from. Its owner
+          evaluates and builds it (nix won't open someone else's git
+          repository as root), and its flake.lock only changes once the new
+          system works.
+        '';
+      };
+
+      host = lib.mkOption {
+        type = lib.types.str;
+        default = config.networking.hostName;
+        defaultText = lib.literalExpression "config.networking.hostName";
+        description = "This system in the flake: `nixosConfigurations.<host>`.";
+      };
+
+      input = lib.mkOption {
+        type = lib.types.str;
+        default = "grog";
+        description = "The flake's input that is grog.";
+      };
     };
 
     voice = {
@@ -250,8 +299,8 @@ in
     {
       assertions = [
         {
-          assertion = cfg.voice.enable || cfg.hands.enable || cfg.skin.enable -> cfg.enable;
-          message = "services.grog.voice, .hands and .skin go with grog: enable services.grog.";
+          assertion = cfg.voice.enable || cfg.hands.enable || cfg.skin.enable || cfg.update.enable -> cfg.enable;
+          message = "services.grog.voice, .hands, .skin and .update go with grog: enable services.grog.";
         }
         {
           assertion = cfg.voice.enable -> cfg.voice.user != null;
@@ -273,6 +322,7 @@ in
         wantedBy = [ "multi-user.target" ];
         wants = [ "network-online.target" ];
         after = [ "network-online.target" ];
+        environment = lib.mkIf (cfg.revision != null) { GROG_REVISION = cfg.revision; };
 
         serviceConfig = {
           ExecStart = "${lib.getExe cfg.package} serve --config ${configFile}";
@@ -391,6 +441,58 @@ in
         '';
       }
     ))
+
+    (lib.mkIf cfg.update.enable {
+      services.grog.settings.update.status = updateStatus;
+
+      # Started by grog's hands when someone asks (polkit lets them, below),
+      # or by hand: sudo systemctl start grog-update.
+      systemd.services.grog-update = {
+        description = "Updating grog to the latest pushed";
+        # It's what switches the system: switching mustn't stop it.
+        restartIfChanged = false;
+        unitConfig.X-StopOnRemoval = false;
+        path = [ config.nix.package config.systemd.package pkgs.coreutils pkgs.git pkgs.util-linux ];
+        environment = {
+          GROG_URL = grogUrl;
+        } // lib.optionalAttrs (cfg.revision != null) { GROG_REVISION = cfg.revision; };
+        serviceConfig = {
+          Type = "oneshot";
+          ExecStart = utils.escapeSystemdExecArgs [
+            (lib.getExe cfg.package)
+            "updater"
+            "--flake"
+            cfg.update.flake
+            "--host"
+            cfg.update.host
+            "--input"
+            cfg.update.input
+            "--status"
+            updateStatus
+          ];
+          # What it says stays there once it's done, for grog to read.
+          RuntimeDirectory = "grog-update";
+          RuntimeDirectoryMode = "0755";
+          RuntimeDirectoryPreserve = true;
+          # grog-voice, on the same CPU, comes first.
+          Nice = 10;
+          IOSchedulingClass = "idle";
+        };
+      };
+    })
+
+    (lib.mkIf (cfg.update.enable && cfg.hands.enable) {
+      # With sudo or not.
+      security.polkit.enable = true;
+      security.polkit.extraConfig = ''
+        polkit.addRule(function (action, subject) {
+          if (action.id == "org.freedesktop.systemd1.manage-units" &&
+              action.lookup("unit") == "grog-update.service" &&
+              action.lookup("verb") == "start" &&
+              subject.user == ${builtins.toJSON cfg.hands.user}) return polkit.Result.YES;
+        });
+      '';
+    })
 
     (lib.mkIf cfg.skin.enable {
       services.grog.settings.skin.dir = lib.mkDefault "${cfg.skin.package}/share/grog-skin/web";

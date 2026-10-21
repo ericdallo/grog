@@ -26,3 +26,11 @@
 (deftest durations
   (is (= ["<1m" "45m" "2h" "2h 10m" "3d" "3d 4h"]
          (map client/duration [30 2700 7200 7800 259200 273600]))))
+
+(deftest what-grog-update-says
+  (is (= "Looking for a new grog..." (client/update-line {:stage "fetching"})))
+  (is (= "grog already is the latest: bbbbbbb." (client/update-line {:stage "current" :to "bbbbbbbbbb"})))
+  (is (= "A new grog: bbbbbbb, this is aaaaaaa. Building it..."
+         (client/update-line {:stage "building" :from "aaaaaaaaaa" :to "bbbbbbbbbb"})))
+  (is (= "Done: grog is bbbbbbb." (client/update-line {:stage "done" :to "bbbbbbbbbb"})))
+  (is (= "[error] Couldn't build it: oops" (client/update-line {:stage "failed" :error "Couldn't build it: oops"}))))

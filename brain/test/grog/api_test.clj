@@ -210,7 +210,12 @@
                 (with-redefs [actions/service? (constantly false)]
                   (let [{:keys [status body]} (post "restart")]
                     (is (= 400 status))
-                    (is (str/includes? body "not running as a service")))))
+                    (is (str/includes? body "not running as a service"))))
+                (let [{:keys [status body]} (post "update")]
+                  (is (= 400 status))
+                  (is (str/includes? body "can't update itself here"))))
+              (testing "its status tells, for updates, whether someone talks to it, and how the last one went"
+                (is (= {:busy false :update nil} (select-keys (status url) [:busy :update]))))
               (testing "right away"
                 (let [{:keys [status body]} (post "restart")]
                   (is (= [200 {:ok true}] [status (json/parse-string body true)])))

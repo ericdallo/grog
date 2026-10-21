@@ -42,6 +42,10 @@
    ;; also shows what's said, questions and answers, to anyone who can reach
    ;; grog.
    :skin {:dir nil :captions false}
+   ;; How the update service (`grog updater`, as root) says an update goes,
+   ;; a file: with it and hands, grog can update itself when asked (the
+   ;; NixOS module's services.grog.update). nil: it can't.
+   :update {:status nil}
    ;; Where grog keeps its files: the credentials of `grog login`
    ;; (auth.json), the settings changed by asking (settings.json), what it
    ;; was told to remember (memory.json), whether grog-voice's mic is on
@@ -201,6 +205,7 @@
         (check config [:hands :socket] (some-fn nil? non-blank-string?) "a unix socket path, or null")
         (check config [:skin :dir] (some-fn nil? #(and (string? %) (fs/directory? %))) "a directory or null")
         (check config [:skin :captions] boolean? "true or false")
+        (check config [:update :status] (some-fn nil? non-blank-string?) "a file path, or null")
         (check config [:state-dir] (some-fn nil? non-blank-string?) "a directory or null")
         (check config [:provider] non-blank-string? "a provider, like \"openai\"")
         (check config [:providers] map? "the settings of each provider")]

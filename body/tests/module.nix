@@ -3,12 +3,41 @@
 # the CLI, signing in to the ChatGPT subscription, what they cost, the
 # sandbox, grog-voice: its user service, and a voice turn with the real
 # models, which whoever watches grog sees go; its skin, served; its hands: a
-# shell, the volume, root, and restarting grog when asked; and what grog asks
-# of grog-voice: its mic off, listening without its name.
+# shell, the volume, root, and restarting grog when asked; what grog asks of
+# grog-voice: its mic off, listening without its name; and updating grog,
+# from a flake of someone else's.
 # Run: nix build .#checks.x86_64-linux.module -L
 { pkgs, module }:
 
 let
+  # What updates build: alice's flake, whose grog is a repository of hers,
+  # and whose system is a fake one, switching to which only says it was
+  # asked to.
+  systemFlake = pkgs.writeText "flake.nix" ''
+    {
+      inputs.grog.url = "git+file:///home/alice/grog";
+      outputs = { grog, ... }: {
+        nixosConfigurations.machine.config.system.build.toplevel = derivation {
+          name = "fake-system";
+          system = "${pkgs.stdenv.hostPlatform.system}";
+          builder = "${pkgs.bash}/bin/bash";
+          args = [ ./build.sh ];
+          PATH = "${pkgs.coreutils}/bin";
+          grog = grog.outPath;
+        };
+      };
+    }
+  '';
+  buildFakeSystem = pkgs.writeText "build.sh" ''
+    test ! -e "$grog/broken" || { echo "this grog is broken" >&2; exit 1; }
+    mkdir -p "$out/bin"
+    echo "$grog" > "$out/grog"
+    cat > "$out/bin/switch-to-configuration" <<'EOF'
+    #!/bin/sh
+    echo "$1" >> /tmp/switched
+    EOF
+    chmod +x "$out/bin/switch-to-configuration"
+  '';
   voice = pkgs.callPackage ../packages/grog-voice.nix { };
   models = pkgs.callPackage ../packages/voice-models.nix { };
   # A spoken question, starting with grog's name (the wake word), in a voice
@@ -22,7 +51,7 @@ in
 pkgs.testers.runNixOSTest {
   name = "grog-module";
 
-  nodes.machine = { pkgs, ... }: {
+  nodes.machine = { pkgs, lib, ... }: {
     imports = [ module ];
 
     services.grog = {
@@ -91,11 +120,32 @@ pkgs.testers.runNixOSTest {
       wantedBy = [ "multi-user.target" ];
       serviceConfig.ExecStart = "${pkgs.babashka-unwrapped}/bin/bb ${./fake-llm.clj}";
     };
+
+    # Updates, from alice's flake (systemFlake), like a machine whose system
+    # is in someone's own repository.
+    services.grog.update = {
+      enable = true;
+      flake = "/home/alice/nixos";
+      host = "machine";
+    };
+    # Without its revision, an update goes by what the flake locked, and the
+    # new grog only has to answer.
+    services.grog.revision = lib.mkForce null;
+    users.users.alice.isNormalUser = true;
+    environment.systemPackages = [ pkgs.git ];
+    nix.settings = {
+      experimental-features = [ "nix-command" "flakes" ];
+      # The fake system's builder comes from the store as it is, offline.
+      sandbox = false;
+      substituters = lib.mkForce [ ];
+      flake-registry = "";
+    };
   };
 
   testScript = ''
     import json
     import re
+    import shlex
 
     machine.wait_for_unit("multi-user.target")
     machine.wait_for_unit("fake-llm.service")
@@ -332,5 +382,54 @@ pkgs.testers.runNixOSTest {
         )
         machine.wait_until_succeeds(recording())
         machine.wait_until_succeeds("grep -q '\"state\":\"awake\"' /tmp/events-asked.log")
+
+    def alice(command):
+        return machine.succeed(f"su - alice -c {shlex.quote(command)}").strip()
+
+    def commit(repo, message):
+        alice(f"cd ~/{repo} && git add -A && git -c user.name=alice -c user.email=alice@example.com commit -qm {message}")
+
+    with subtest("updates: grog can, from alice's flake, a repository of hers"):
+        machine.succeed(
+            "install -d -o alice -g users /home/alice/grog /home/alice/nixos",
+            "echo '{ outputs = { self }: { }; }' > /home/alice/grog/flake.nix",
+            "cp ${systemFlake} /home/alice/nixos/flake.nix",
+            "cp ${buildFakeSystem} /home/alice/nixos/build.sh",
+            "chown alice:users /home/alice/grog/flake.nix /home/alice/nixos/flake.nix /home/alice/nixos/build.sh",
+        )
+        alice("cd ~/grog && git init -q")
+        commit("grog", "first")
+        alice("cd ~/nixos && git init -q")
+        commit("nixos", "first")
+        alice("cd ~/nixos && nix flake lock")
+        commit("nixos", "lock")
+        snapshot = machine.succeed("curl -sN --max-time 2 http://127.0.0.1:8484/v1/events || true")
+        state = json.loads(snapshot.split("data: ", 1)[1].splitlines()[0])["state"]
+        assert "update" in state["actions"], state["actions"]
+
+    with subtest("asked through its hands, it finds nothing new"):
+        machine.succeed(
+            "curl -sf -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8484/v1/actions/update"
+        )
+        machine.wait_until_succeeds("grep -q '\"stage\":\"current\"' /run/grog-update/status.json")
+        machine.fail("test -e /tmp/switched")
+
+    with subtest("something new is built and switched to, and the flake gets the new lock, still alice's"):
+        alice("echo new > ~/grog/new")
+        commit("grog", "new")
+        rev = alice("git -C ~/grog rev-parse HEAD")
+        assert f"Done: grog is {rev[:7]} (" in (out := grog("update")), out
+        assert machine.succeed("cat /tmp/switched").split() == ["switch"]
+        assert "fake-system" in machine.succeed("readlink -f /nix/var/nix/profiles/system")
+        machine.succeed(f"grep -q {rev} /home/alice/nixos/flake.lock")
+        machine.succeed("stat -c %U /home/alice/nixos/flake.lock | grep -qx alice")
+
+    with subtest("a grog that doesn't build: nothing switches, the lock stays"):
+        alice("touch ~/grog/broken")
+        commit("grog", "broken")
+        out = machine.fail("su - grog -c 'grog update'")
+        assert "Couldn't build it" in out, out
+        assert machine.succeed("cat /tmp/switched").split() == ["switch"]
+        machine.succeed(f"grep -q {rev} /home/alice/nixos/flake.lock")
   '';
 }

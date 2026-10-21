@@ -24,7 +24,9 @@ import {
   stale,
   tap,
   timeFormats,
+  updateNotice,
   usage,
+  version,
   wordChanges,
 } from "./view.js";
 
@@ -35,6 +37,7 @@ const EVENTS = ["snapshot", "voice", "turn", "tool", "text", "done", "failed", "
   "volume",
   "stop",
   "forgot",
+  "update",
 ]);
 // The skin moves a little this often, so that nothing marks the screen.
 const DRIFT_MS = 5 * 60_000;
@@ -49,7 +52,7 @@ const els = Object.fromEntries(
     .concat(["captions", "question", "answer", "pipeline", "recent", "usage"])
     .concat(["signin", "signin-title", "signin-qr", "signin-url", "signin-code", "signin-expires"])
     .concat(["signin-note", "signin-error", "signin-help", "signin-help-text", "signin-help-url"])
-    .concat(["open-actions", "close-actions", "sheet", "items", "sheet-error"])
+    .concat(["open-actions", "close-actions", "sheet", "items", "sheet-error", "sheet-version", "notice"])
     .map((id) => [id, $(id)]),
 );
 // grog's face, in its block.
@@ -214,6 +217,18 @@ function drawSignIn(t) {
   setText(els["signin-help-url"], s.help?.shortUrl ?? "");
 }
 
+/** How an update goes, under the time; while grog restarts into it, its block says so. */
+function drawNotice(t) {
+  once("notice", offline ? null : updateNotice(state, t), (n) => {
+    els.notice.hidden = !n;
+    if (!n) return;
+    els.notice.classList.toggle("failed", n.failed);
+    els.notice.innerHTML = icon(n.icon);
+    els.notice.append(el("span", "what", n.label));
+    if (n.detail) els.notice.append(el("span", "more", n.detail));
+  });
+}
+
 function drawPipeline(t) {
   els.pipeline.classList.toggle("stale", stale(state, t));
   once("pipeline", pipeline(state?.turn, offline), (steps) => {
@@ -346,6 +361,8 @@ function drawSheet() {
   if (!can) shut();
   els.sheet.classList.toggle("open", sheetOpen);
   if (els.sheet.inert === sheetOpen) els.sheet.inert = !sheetOpen;
+  const v = version(state);
+  setText(els["sheet-version"], v ? `Version ${v}` : "");
   once("menu", menu(state, armed), (items) => {
     const list = (some) => {
       const ul = el("ul", "group");
@@ -361,6 +378,7 @@ function draw() {
   drawMode(t);
   drawBrand(t);
   drawSignIn(t);
+  drawNotice(t);
   drawCaptions(t);
   drawPipeline(t);
   drawRecent();

@@ -84,9 +84,10 @@ From a checkout:
 
 On grognix:
 
+- To update grog, ask it, tap Update on its screen, or run `grog update`
+  ([Updating](#updating)).
 - After changing `/etc/nixos/machine.nix`, `sudo nixos-rebuild switch`. To
-  update grog, `sudo nix flake update --flake /etc/nixos` first. To undo,
-  `sudo nixos-rebuild switch --rollback`.
+  undo, `sudo nixos-rebuild switch --rollback`.
 - `journalctl -u grog -f` shows the brain's log, and
   `journalctl --user -u grog-voice -f` the voice's. Neither has what was said.
 - A Wi-Fi profile made in GNOME only works on the USB port the dongle was
@@ -99,6 +100,30 @@ To add an API key, kept out of git and the Nix store:
 read -rs KEY && printf 'OPENAI_API_KEY=%s\n' "$KEY" | ssh grog@grognix.local \
   'sudo install -D -m 600 /dev/stdin /etc/grog/secrets.env && sudo systemctl restart grog'
 ```
+
+## Updating
+
+grog updates itself when asked, by voice, on its screen, or with `grog
+update` (`services.grog.update`, on in grognix). It builds the system from
+its flake with grog's input at the latest grog pushed, as the flake's owner,
+switches to it once nobody is talking to grog, and goes back to the previous
+system if the new grog doesn't answer. Only then does the flake get the new
+lock. On another machine:
+
+```nix
+services.grog.update = {
+  enable = true;
+  flake = "/home/alice/nixos"; # its flake, a repository of alice's, say
+  host = "my-machine";         # its nixosConfigurations.<host>; default: the host name
+};
+```
+
+A machine running grog in a specialisation stays in it. The new lock isn't
+committed anywhere. Whoever can push to grog's input can run code as root
+there, once someone asks for an update.
+
+By hand, on grognix: `sudo nix flake update --flake /etc/nixos`, then
+`sudo nixos-rebuild switch`.
 
 ## Audio
 

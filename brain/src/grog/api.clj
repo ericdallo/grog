@@ -14,6 +14,7 @@
             [grog.settings :as settings]
             [grog.skin :as skin]
             [grog.sse :as sse]
+            [grog.update :as update]
             [grog.usage :as usage]
             [grog.voice :as voice]
             [org.httpkit.server :as http]))
@@ -259,8 +260,12 @@
        (= [:get "/v1/status"] [request-method uri])
        (api-call #(assoc (provider/describe config)
                          :name (:name config)
+                         :revision (update/revision)
                          :changed (settings/changed ctx)
-                         :usage (usage/summary ctx)))
+                         :usage (usage/summary ctx)
+                         ;; For updates: whether someone is talking to it, and how the last one goes.
+                         :busy (events/busy? (events/snapshot (:events ctx)) (events/now-ms))
+                         :update (update/status config)))
 
        (= [:delete "/v1/settings"] [request-method uri])
        (api-call #(do (settings/reset-all! ctx)

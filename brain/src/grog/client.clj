@@ -2,9 +2,11 @@
   "Command line client of a running server. Its JSON keys are in
   lowerCamelCase, read as kebab-case keywords (grog.config/parse)."
   (:require [babashka.http-client :as http]
+            [babashka.process :as p]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [grog.config :as config]))
+            [grog.config :as config]
+            [grog.update :as update]))
 
 (def default-url "http://127.0.0.1:8484")
 
@@ -185,11 +187,12 @@
     nil))
 
 (defn status! [url]
-  (let [[ok? {:keys [provider model auth email error changed usage] assistant :name :as body}]
+  (let [[ok? {:keys [provider model auth email error changed usage revision] assistant :name :as body}]
         (call :get url "/v1/status")]
     (if-not ok?
       (fail body)
       (do (println "Name:    " assistant)
+          (println "Revision:" (or (update/short-revision revision) "unknown"))
           (println "Provider:" provider)
           (println "Model:   " model)
           (println "Auth:    " (case auth
@@ -220,6 +223,92 @@
                      "The mic is off: nothing is heard until it's on again, even after restarts."))
           true)
       (fail body))))
+
+(defn update-line
+  "What `grog update` says of an update going through `status`'s stage
+  (grog.updater)."
+  [{:keys [stage from to to-date error]}]
+  (let [latest (str (update/short-revision to) (some->> (update/when-pushed {} to-date) (format " (%s)")))]
+    (case stage
+      "fetching" "Looking for a new grog..."
+      "current" (str "grog already is the latest: " latest ".")
+      "building" (str "A new grog: " latest (some->> (update/short-revision from) (str ", this is "))
+                      ". Building it...")
+      "waiting" "Waiting for nobody to be talking to grog..."
+      "switching" "Switching to it..."
+      "verifying" "Waiting for the new grog to answer..."
+      "done" (str "Done: grog is " latest ".")
+      "failed" (str "[error] " error)
+      (str "Updating (" stage ")..."))))
+
+;; How long `grog update` waits for the update to start, and for grog to
+;; come back, restarting.
+(def ^:private update-start-ms 60000)
+(def ^:private update-gone-ms (* 5 60 1000))
+
+(defn ^:private follow-update
+  "Says each stage the update started since `since` (ms) goes through, until
+  it's over, grog restarting along the way: whether it went well, or there
+  was nothing new."
+  [url since]
+  (loop [said nil
+         gone-since nil]
+    (Thread/sleep 1000)
+    (let [[ok? body] (call :get url "/v1/status")
+          {:keys [stage started-at] :as status} (when ok? (:update body))
+          now (System/currentTimeMillis)]
+      (cond
+        (and (not ok?) gone-since (> (- now gone-since) update-gone-ms))
+        (fail "grog didn't come back: see journalctl -u grog-update -u grog")
+
+        (not ok?)
+        (recur said (or gone-since now))
+
+        (< (or started-at 0) since)
+        (if (> (- now since) update-start-ms)
+          (fail "The update didn't start: see journalctl -u grog-update")
+          (recur said nil))
+
+        :else
+        (do (when (not= stage said)
+              (println (update-line status))
+              (flush))
+            (if (contains? update/under-way stage)
+              (recur stage nil)
+              (not= "failed" stage)))))))
+
+(defn ^:private update-without-grog!
+  "Updates through systemd, as grog doesn't answer: whether it went well."
+  [url]
+  (println (str "grog doesn't answer at " url ": updating through systemd..."))
+  (flush)
+  (let [since (System/currentTimeMillis)
+        {:keys [exit]} @(p/process ["systemctl" "start" "grog-update.service"] {:inherit true})
+        status (update/read-status update/default-status-file)]
+    (if (>= (or (:started-at status) 0) since)
+      (do (println (update-line status))
+          (not= "failed" (:stage status)))
+      (fail (if (zero? exit)
+              "The update said nothing: see journalctl -u grog-update"
+              "Couldn't start it: try sudo systemctl start grog-update")))))
+
+(defn update!
+  "Asks grog to update itself to the latest grog pushed, then follows how it
+  goes until it's over: whether it went well, or there was nothing new.
+  When grog doesn't answer, starts the update service itself."
+  [url]
+  (let [since (System/currentTimeMillis)]
+    (try
+      (let [resp (http/post (str url "/v1/actions/update")
+                            {:headers {"content-type" "application/json"} :body "{}" :throw false})
+            body (try (config/parse (:body resp)) (catch Exception _ nil))]
+        (cond
+          (not= 200 (:status resp)) (fail (or (:error body) (:body resp)))
+          (:started body) (follow-update url since)
+          :else (do (println "An update is already under way.")
+                    (follow-update url (or (get-in body [:update :started-at]) 0)))))
+      (catch java.io.IOException _
+        (update-without-grog! url)))))
 
 (defn models! [url]
   (let [[ok? body] (call :get url "/v1/models")]
