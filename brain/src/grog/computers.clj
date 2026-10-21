@@ -11,6 +11,7 @@
             [clojure.string :as str]
             [grog.config :as config]
             [grog.log :as log]
+            [grog.machine :as machine]
             [grog.remote-hands :as remote-hands]
             [grog.state :as state])
   (:import (java.net DatagramPacket DatagramSocket InetAddress)))
@@ -328,4 +329,13 @@
                   :required ["computer" "action"]
                   :additionalProperties false}
      :changes? (fn [args] (not= "status" (:action args)))
+     :detail (fn [{:keys [computer action text target media command] :as args}]
+               (str computer ": " (str/join " " (remove str/blank? [action
+                                                                    (case action
+                                                                      "notify" text
+                                                                      "open" target
+                                                                      "media" media
+                                                                      "volume" (machine/volume-detail args)
+                                                                      "shell" command
+                                                                      nil)]))))
      :run (fn [ctx args _] (act! @(:config ctx) args))}))

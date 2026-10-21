@@ -2,6 +2,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [grog.actions :as actions]
+            [grog.computers :as computers]
             [grog.config :as config]
             [grog.tools :as tools]))
 
@@ -55,3 +56,37 @@
       (reset! searched? true)
       (is (str/starts-with? (run "echo" {:change 1}) "error: nothing is changed in a turn that searched the web"))
       (is (= "{\"say\":\"oi\"}" (run "echo" {:say "oi"}))))))
+
+(deftest tells-what-a-tool-is-used-with
+  (let [told (atom [])
+        tool (assoc echo :detail (fn [{:keys [say bug]}] (if bug (throw (Exception. "oops")) say)))
+        run (tools/runner {} [tool] {:searched? (constantly false)
+                                     :detail! #(swap! told conj [%1 %2])})]
+    (run "echo" {:say "oi"})
+    (run "echo" {})
+    (run "echo" {:bug true :say "x"})
+    (is (= [["echo" "oi"]] @told) "nothing when there's nothing to say, or it fails"))
+  (testing "on one line, and short"
+    (is (= "a b" (tools/short-detail "  a\n  b ")))
+    (is (nil? (tools/short-detail " ")))
+    (is (= 120 (count (tools/short-detail (apply str (repeat 300 "x"))))))))
+
+(deftest what-each-tool-is-used-with
+  (let [detail (fn [tool-name args]
+                 (let [tool (->> (assoc-in config/defaults [:hands :socket] "/run/grog-hands/hands.sock")
+                                 tools/available
+                                 (some #(when (= tool-name (:name %)) %)))]
+                   ((:detail tool) args)))]
+    (with-redefs [actions/service? (constantly true)
+                  computers/all (constantly [{:name "deluxe"}])]
+      (is (= "40%" (detail "volume" {:level 40})))
+      (is (= "-10 mute" (detail "volume" {:change -10 :mute true})))
+      (is (= "uptime" (detail "shell" {:command "uptime"})))
+      (is (= "the trash goes out on Tuesdays" (detail "memory" {:remember "the trash goes out on Tuesdays"})))
+      (is (= "forget: x" (detail "memory" {:forget "x"})))
+      (is (= "name Friday, location" (detail "settings" {:name "Friday" :location {:city "Recife"}})))
+      (is (= "off" (detail "microphone" {:on false})))
+      (is (= "restart" (detail "power" {:action "restart"})))
+      (is (= "deluxe: shell uptime" (detail "computer" {:computer "deluxe" :action "shell" :command "uptime"})))
+      (is (= "deluxe: volume 30%" (detail "computer" {:computer "deluxe" :action "volume" :level 30})))
+      (is (= "deluxe: lock" (detail "computer" {:computer "deluxe" :action "lock"}))))))

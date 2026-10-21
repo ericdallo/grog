@@ -60,8 +60,17 @@
           volume)
       (throw (ex-info (str "the volume couldn't be changed: " (str/trim (str output))) {})))))
 
+(defn volume-detail
+  "What a volume is changed with, for whoever watches: a level, a change,
+  muting."
+  [{:keys [level change mute]}]
+  (str/join " " (remove nil? [(when (int? level) (str level "%"))
+                              (when (int? change) (format "%+d" change))
+                              (case mute true "mute" false "unmute" nil)])))
+
 (def volume-tool
   {:name "volume"
+   :detail volume-detail
    :description "The speaker's volume: tells it, or changes it when the user asks (louder, quieter, to a level, mute, unmute)."
    :parameters {:type "object"
                 :properties {:level {:type "integer" :minimum 0 :maximum 100
@@ -108,6 +117,7 @@
                 :required ["command"]
                 :additionalProperties false}
    :changes? (constantly true)
+   :detail :command
    :run shell!})
 
 (def tools

@@ -169,6 +169,7 @@ ol {
 .app {
   display: grid;
   grid-template-columns: 36% 1fr;
+  grid-template-rows: minmax(0, 1fr);
   height: 100vh;
 }
 
@@ -267,6 +268,7 @@ ol {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   padding: 6vmin 6vmin 5.5vmin;
 }
 
@@ -336,9 +338,8 @@ ol {
 /* How to sign in (view.js signIn), in place of what was said and done, which
    there's none of without a login. Its code is amber, like what needs
    someone; its QR code, dark on white, as phones read them best. */
-.signing-in .captions,
-.signing-in .pipeline,
-.signing-in .cards {
+.signing-in .chat-box,
+.signing-in .pipeline {
   display: none;
 }
 
@@ -437,9 +438,8 @@ ol {
 /* Pairing a computer (view.js pairing), in place of what was said and done:
    what to run on it, then the code to check, amber like what needs someone,
    with Allow and Deny. */
-.adding-computer .captions,
-.adding-computer .pipeline,
-.adding-computer .cards {
+.adding-computer .chat-box,
+.adding-computer .pipeline {
   display: none;
 }
 
@@ -525,34 +525,63 @@ ol {
   display: none;
 }
 
-.captions {
-  min-height: 15vmin;
-  margin-top: 4.4vmin;
-  transition: opacity 0.6s;
+/* What was said and done (view.js chat), oldest first, scrolled to its end
+   as it comes: someone can scroll back, then a button brings it back. No
+   scrollbar: it's a screen to look at. */
+.chat-box {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin-top: 3.6vmin;
 }
 
-.captions.empty {
-  opacity: 0;
+.chat {
+  height: 100%;
+  overflow-y: auto;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
 }
 
-.question {
+.chat::-webkit-scrollbar {
+  display: none;
+}
+
+.chat:empty::after {
+  color: var(--muted);
+  font-size: 2.2vmin;
+  content: "Nothing yet";
+}
+
+.chat-end {
+  position: absolute;
+  right: 0;
+  bottom: 1vmin;
+}
+
+.turn + .turn {
+  margin-top: 3vmin;
+}
+
+/* What was said to grog, quoted, then what it answers and does. */
+.said {
   color: var(--muted);
   font-size: 2.6vmin;
   font-style: italic;
 }
 
-.question:not(:empty)::before {
+.said:not(:empty)::before {
   content: "“";
 }
 
-.question:not(:empty)::after {
+.said:not(:empty)::after {
   content: "”";
 }
 
 /* What's being said to grog, as it comes: as big as an answer. */
-.captions.live .question {
+.said.live {
   color: var(--ink);
-  font-size: 3.5vmin;
+  font-size: 3.2vmin;
   font-style: normal;
   line-height: 1.35;
 }
@@ -560,15 +589,73 @@ ol {
 /* Each new word fades in after the one before (--i, from skin.js). It moves
    while someone talks, when grog-voice needs the CPU most: captions are
    opt-in, and the words are small. */
-.question .word {
+.said .word {
   display: inline-block;
   animation: word-in 0.35s ease-out calc(var(--i, 0) * 0.08s) both;
 }
 
-.answer {
-  margin-top: 1.2vmin;
-  font-size: 3.5vmin;
+.reply .text {
+  margin: 1vmin 0 0;
+  font-size: 3.2vmin;
   line-height: 1.35;
+}
+
+/* A tool it uses, or used, and what with. */
+.reply .tool {
+  display: flex;
+  align-items: center;
+  gap: 1.2vmin;
+  width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin-top: 1.2vmin;
+  padding: 0.9vmin 1.6vmin 0.9vmin 1.3vmin;
+  border-radius: 1vmin;
+  background: var(--card);
+}
+
+.reply .tool svg {
+  flex: none;
+  width: 2.6vmin;
+  height: 2.6vmin;
+  color: var(--accent);
+}
+
+.reply .tool .what {
+  flex: none;
+  font-size: 2vmin;
+  font-weight: 600;
+}
+
+.reply .tool .with {
+  overflow: hidden;
+  color: var(--muted);
+  font: 400 1.8vmin var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Its icon breathes while it runs, and only then. */
+.reply .tool.running svg {
+  animation: breathe 1.4s ease-in-out infinite;
+}
+
+.reply .end {
+  display: flex;
+  gap: 1.4vmin;
+  margin-top: 1vmin;
+  color: var(--muted);
+  font: 400 1.6vmin var(--mono);
+}
+
+.reply .end.failed .how {
+  color: var(--red);
+}
+
+/* What's new fades in, once. */
+.turn.fresh,
+.reply .fresh {
+  animation: rise-in 0.35s ease-out both;
 }
 
 .pipeline {
@@ -634,11 +721,9 @@ ol {
   color: var(--red);
 }
 
-.cards {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2vmin;
-  margin-top: auto;
+/* What it consumed, in the actions, under them. */
+.sheet .usage {
+  margin-top: 3vmin;
 }
 
 .panel {
@@ -654,41 +739,6 @@ ol {
   font: 700 1.6vmin/1 var(--text);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-}
-
-.recent li {
-  display: grid;
-  grid-template-columns: 8.5vmin 3vmin 1fr auto;
-  align-items: center;
-  gap: 1.4vmin;
-  padding: 0.6vmin 0;
-  font-size: 2.1vmin;
-}
-
-.recent li + li {
-  border-top: 0.15vmin solid var(--line);
-}
-
-.recent time,
-.recent .took {
-  color: var(--muted);
-  font: 400 1.9vmin var(--mono);
-}
-
-.recent svg {
-  width: 2.6vmin;
-  height: 2.6vmin;
-  color: var(--accent);
-}
-
-.recent li.failed,
-.recent li.failed svg {
-  color: var(--red);
-}
-
-.recent li.none {
-  display: block;
-  color: var(--muted);
 }
 
 .meter {
@@ -1262,6 +1312,19 @@ ol {
   from {
     opacity: 0;
     transform: translateY(0.3em);
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(1vmin);
+  }
+}
+
+@keyframes breathe {
+  50% {
+    opacity: 0.35;
   }
 }
 

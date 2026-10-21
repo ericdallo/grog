@@ -69,20 +69,12 @@
           <div class="pairing-error" id="pairing-error"></div>
         </section>
 
-        <div class="captions" id="captions" hidden>
-          <div class="question" id="question"></div>
-          <div class="answer" id="answer"></div>
+        <div class="chat-box">
+          <ol class="chat" id="chat"></ol>
+          <button class="round chat-end" id="chat-end" type="button" aria-label="Latest" hidden></button>
         </div>
 
         <ol class="pipeline" id="pipeline"></ol>
-
-        <div class="cards">
-          <section class="panel recent">
-            <h2>Recent</h2>
-            <ol id="recent"></ol>
-          </section>
-          <section class="panel usage" id="usage" hidden></section>
-        </div>
       </main>
 
       <section class="sheet" id="sheet" aria-label="Actions">
@@ -91,6 +83,7 @@
           <button class="round" id="close-actions" type="button" aria-label="Close"></button>
         </div>
         <div class="items" id="items"></div>
+        <section class="panel usage" id="usage" hidden></section>
         <div class="sheet-error" id="sheet-error"></div>
         <div class="sheet-version" id="sheet-version"></div>
       </section>

@@ -30,13 +30,36 @@
       (is (= [["heard" 2000] ["thinking" 3510] ["answering" 4000] ["tool" 4100] ["speaking" 4200]]
              (steps state)))
       (is (= "web_search" (get-in state [:turn :steps 3 :name]))))
+    (testing "its answer, in order: text, the tool it used until it answered again, and more text"
+      (is (= [{:text "Let me check."} {:tool "web_search" :at 4100 :done-at 6000} {:text " Sunny. Warm."}]
+             (get-in state [:turn :parts]))))
     (testing "what was said, how it went, and when grog-voice was done saying it"
-      (is (= {:question "will it rain?" :answer "Let me check. Sunny. Warm." :done-at 6200 :ok true :spoken-at 7000}
-             (select-keys (:turn state) [:question :answer :done-at :ok :ms :spoken-at]))))
-    (testing "the recent turns"
-      (is (= [{:at 6200 :conversation "voice" :ms 2690 :tools ["web_search"] :ok true}] (:recent state))))
+      (is (= {:question "will it rain?" :done-at 6200 :ok true :spoken-at 7000}
+             (select-keys (:turn state) [:question :done-at :ok :ms :spoken-at]))))
+    (testing "no history before it"
+      (is (= [] (:history state))))
     (testing "grog-voice: since when it's in its state, and when it last said"
       (is (= {:state "listening" :since 7000 :seen 7000 :conversation "voice"} (:voice state))))))
+
+(deftest a-tool-ends-with-the-next-one-or-the-turn
+  (let [state (run [1000 {:type :turn :conversation "c" :n 1}]
+                   [1100 {:type :tool :conversation "c" :n 1 :name "computer"}]
+                   [1500 {:type :tool :conversation "c" :n 1 :name "volume"}]
+                   [1900 {:type :failed :conversation "c" :n 1 :error "Oops."}])]
+    (is (= [{:tool "computer" :at 1100 :done-at 1500} {:tool "volume" :at 1500 :done-at 1900}]
+           (get-in state [:turn :parts])))))
+
+(deftest what-a-tool-is-used-with
+  (let [state (run [1000 {:type :turn :conversation "c" :n 1}]
+                   [1100 {:type :tool :conversation "c" :n 1 :name "shell"}]
+                   [1200 {:type :tool-detail :conversation "c" :n 1 :name "shell" :detail "uptime"}]
+                   [1300 {:type :tool :conversation "c" :n 1 :name "shell"}]
+                   [1400 {:type :tool-detail :conversation "c" :n 1 :name "shell" :detail "df -h"}]
+                   [1500 {:type :tool-detail :conversation "c" :n 1 :name "volume" :detail "40%"}])]
+    (is (= [["shell" "uptime"] ["shell" "df -h"]] (map (juxt :tool :detail) (get-in state [:turn :parts])))
+        "each its own, none for a tool it didn't use"))
+  (testing "never without captions"
+    (is (= {:type :tool-detail :name "shell"} (events/redact {:type :tool-detail :name "shell" :detail "uptime"})))))
 
 (deftest spoken-only-once-grog-voice-said-it
   (testing "not a typed turn"
@@ -74,7 +97,9 @@
                    [1200 {:type :text :conversation "c" :n 1 :text " Hm."}]
                    [1300 {:type :tool :conversation "c" :n 1 :name "web_search"}]
                    [5000 {:type :text :conversation "c" :n 1 :text "Sunny."}])]
-    (is (= ["thinking" "answering" "tool" "answering"] (map first (steps state))))))
+    (is (= ["thinking" "answering" "tool" "answering"] (map first (steps state))))
+    (is (= [{:text "Let me check. Hm."} {:tool "web_search" :at 1300 :done-at 5000} {:text "Sunny."}]
+           (get-in state [:turn :parts])))))
 
 (deftest what-grog-voice-heard-for-grog
   (let [state (run [1000 {:type :voice :state "hearing" :conversation "voice"}]
@@ -105,25 +130,36 @@
     (is (= {:state "listening" :since 5000 :seen 5000 :conversation "voice" :error-at 2000} (:voice state))
         "kept after it's back")))
 
-(deftest events-of-other-turns-dont-touch-the-current-one
+(deftest the-last-turns-go-in-the-history
+  (let [state (run [1000 {:type :turn :conversation "a" :n 1 :question "first?"}]
+                   [1100 {:type :text :conversation "a" :n 1 :text "One."}]
+                   [1200 {:type :done :conversation "a" :n 1}]
+                   [2000 {:type :turn :conversation "a" :n 2 :question "second?"}])]
+    (is (= [{:conversation "a" :n 1 :question "first?" :parts [{:text "One."}] :done-at 1200 :ok true}]
+           (map #(dissoc % :steps) (:history state))))
+    (is (= 2 (get-in state [:turn :n]))))
+  (testing "up to 20"
+    (let [state (apply run (for [n (range 1 26)]
+                             [(* n 1000) {:type :turn :conversation "c" :n n}]))]
+      (is (= (range 5 25) (map :n (:history state))))
+      (is (= 25 (get-in state [:turn :n]))))))
+
+(deftest events-of-turns-gone-to-the-history-go-there
   (let [state (run [1000 {:type :turn :conversation "a" :n 1}]
                    [1100 {:type :turn :conversation "b" :n 1}]
                    [1200 {:type :tool :conversation "a" :n 1 :name "volume"}]
-                   [1300 {:type :done :conversation "a" :n 1 :ms 300 :tools ["volume"]}])]
-    (is (= {:conversation "b" :n 1 :steps [{:step "thinking" :at 1100}]} (:turn state)))
-    (is (= [{:at 1300 :conversation "a" :ms 300 :tools ["volume"] :ok true}] (:recent state)))))
+                   [1300 {:type :done :conversation "a" :n 1 :ms 300 :tools ["volume"]}]
+                   [1400 {:type :text :conversation "z" :n 9 :text "Lost."}])]
+    (is (= {:conversation "b" :n 1 :steps [{:step "thinking" :at 1100}] :parts []} (:turn state)))
+    (is (= [{:tool "volume" :at 1200 :done-at 1300}] (get-in state [:history 0 :parts])))
+    (is (= {:done-at 1300 :ok true} (select-keys (get-in state [:history 0]) [:done-at :ok])))
+    (is (= 1 (count (:history state))) "nor anything of a turn it never saw")))
 
 (deftest failed-turns
   (let [state (run [1000 {:type :turn :conversation "c" :n 1}]
                    [1500 {:type :failed :conversation "c" :n 1 :ms 500 :tools [] :error "No credentials."}])]
     (is (= {:done-at 1500 :ok false :error "No credentials."}
-           (select-keys (:turn state) [:done-at :ok :ms :error])))
-    (is (false? (:ok (first (:recent state)))))))
-
-(deftest only-the-last-turns
-  (let [state (apply run (for [n (range 1 12)]
-                           [(* n 1000) {:type :done :conversation "c" :n n :ms n}]))]
-    (is (= [11 10 9 8] (map :ms (:recent state))))))
+           (select-keys (:turn state) [:done-at :ok :ms :error])))))
 
 (defn ^:private watcher
   "A watcher keeping what it gets, parsed: [send! messages-atom]."
@@ -148,12 +184,29 @@
       (testing "the state first, with whether there are captions, the time and when grog started"
         (let [[[type {:keys [state]}]] @got]
           (is (= "snapshot" type))
-          (is (= {:name "grog" :auth "api-key" :timezone "America/Sao_Paulo" :captions false :now 5000 :recent []
+          (is (= {:name "grog" :auth "api-key" :timezone "America/Sao_Paulo" :captions false :now 5000 :history []
                   :startedAt 5000}
-                 (select-keys state [:name :auth :timezone :captions :now :recent :startedAt])))
+                 (select-keys state [:name :auth :timezone :captions :now :history :startedAt])))
           (testing "without what's kept for the turns to come"
             (is (= {:state "hearing" :since 5000 :seen 5000 :conversation "voice"} (:voice state)))
             (is (not (contains? state :heardAt)))))))))
+
+(deftest the-history-goes-out-when-it-changes
+  (with-redefs [events/now-ms (constantly 5000)]
+    (let [hub (events/new-hub (constantly true))
+          [send! got] (watcher)]
+      (events/watch! hub :w send!)
+      (events/publish! hub {:type :turn :conversation "c" :n 1 :question "one?"})
+      (events/publish! hub {:type :text :conversation "c" :n 1 :text "One."})
+      (events/publish! hub {:type :done :conversation "c" :n 1})
+      (events/publish! hub {:type :turn :conversation "c" :n 2 :question "two?"})
+      (events/publish! hub {:type :text :conversation "c" :n 2 :text "Two."})
+      (events/publish! hub {:type :forgot})
+      (is (= [["snapshot" true] ["turn" false] ["text" false] ["done" false] ["turn" true] ["text" false]
+              ["forgot" true]]
+             (map (fn [[type {:keys [state]}]] [type (contains? state :history)]) @got)))
+      (is (= ["one?"] (map :question (get-in (nth @got 4) [1 :state :history]))))
+      (is (= [] (get-in (last @got) [1 :state :history])) "forgotten"))))
 
 (deftest without-captions-nothing-said-goes-out
   (with-redefs [events/now-ms (constantly 5000)]
@@ -164,15 +217,19 @@
                             :heard {:text "secret heard" :final true}})
       (events/publish! hub {:type :turn :conversation "c" :n 1 :question "secret question" :said "Grog, secret"})
       (events/publish! hub {:type :text :conversation "c" :n 1 :text "secret answer"})
+      (events/publish! hub {:type :tool :conversation "c" :n 1 :name "shell"})
       (events/publish! hub {:type :text :conversation "c" :n 1 :text "more secrets"})
+      (events/publish! hub {:type :text :conversation "c" :n 1 :text "still more secrets"})
       (events/publish! hub {:type :done :conversation "c" :n 1 :ms 10 :tools ["shell"]})
       (events/publish! hub {:type :turn :conversation "c" :n 2 :question "secret again"})
       (events/publish! hub {:type :failed :conversation "c" :n 2 :ms 10 :error "quoting a secret"})
       (let [sent (pr-str @got)]
         (is (not (str/includes? sent "secret")) sent))
-      (testing "the steps go on, and an answer that adds nothing isn't sent again"
-        (is (= ["snapshot" "voice" "turn" "text" "done" "turn" "failed"] (map first @got)))
-        (is (= ["heard" "thinking" "answering"] (map :step (get-in (second (nth @got 4)) [:state :turn :steps])))))
+      (testing "the steps and the tools go on, and an answer that adds nothing isn't sent again"
+        (is (= ["snapshot" "voice" "turn" "text" "tool" "text" "done" "turn" "failed"] (map first @got)))
+        (is (= ["heard" "thinking" "answering" "tool" "answering"]
+               (map :step (get-in (second (nth @got 6)) [:state :turn :steps]))))
+        (is (= [{:tool "shell" :at 5000 :doneAt 5000}] (get-in (second (nth @got 6)) [:state :turn :parts]))))
       (testing "nor is it kept"
         (is (not (str/includes? (pr-str (events/snapshot hub)) "secret")))))))
 
@@ -188,8 +245,8 @@
       (let [[type {:keys [event state]}] (last @got)]
         (is (= "text" type))
         (is (= {:conversation "c" :n 1 :text "No." :at 5000} event))
-        (is (= {:question "will it rain?" :said "Grog, will it rain?" :answer "No."}
-               (select-keys (:turn state) [:question :said :answer])))
+        (is (= {:question "will it rain?" :said "Grog, will it rain?" :parts [{:text "No."}]}
+               (select-keys (:turn state) [:question :said :parts])))
         (is (= {:text "Grog, will it rain?" :final true :at 5000} (:heard state)))
         (is (true? (:captions state)))))))
 
@@ -197,8 +254,7 @@
   (let [state (run [1000 {:type :turn :conversation "voice" :n 1}]
                    [1500 {:type :stop}]
                    [1600 {:type :failed :conversation "voice" :n 1 :ms 600 :error "The client went away."}])]
-    (is (= {:done-at 1600 :ok false :stopped true} (select-keys (:turn state) [:done-at :ok :stopped :error :stopping])))
-    (is (true? (:stopped (first (:recent state))))))
+    (is (= {:done-at 1600 :ok false :stopped true} (select-keys (:turn state) [:done-at :ok :stopped :error :stopping]))))
   (testing "stopping nothing changes nothing, and what went well went well"
     (let [state (run [1000 {:type :turn :conversation "voice" :n 1}]
                      [1500 {:type :done :conversation "voice" :n 1 :ms 500}]
@@ -208,11 +264,12 @@
 (deftest the-mic-the-volume-and-forgetting
   (let [state (run [1000 {:type :status :name "grog" :mic "on"}]
                    [1100 {:type :turn :conversation "voice" :n 1}]
+                   [1150 {:type :turn :conversation "voice" :n 2}]
                    [1200 {:type :mic :mic "off"}]
                    [1300 {:type :volume :level 40 :muted false}])]
     (is (= ["off" {:level 40 :muted false}] ((juxt :mic :volume) state)))
-    (testing "forgetting the conversations, the last turn goes too"
-      (is (nil? (:turn (events/step state {:type :forgot :at 1400})))))))
+    (testing "forgetting the conversations, the last turns go too"
+      (is (= [nil []] ((juxt :turn :history) (events/step state {:type :forgot :at 1400})))))))
 
 (deftest what-can-be-asked-and-going-away
   (let [state (run [1000 {:type :status :name "grog" :actions ["restart" "reboot"]}]
@@ -277,4 +334,3 @@
         (events/unwatch! hub :w)
         (events/publish! hub {:type :voice :state "listening"})
         (is (= ["snapshot" :ping] (map #(if (vector? %) (first %) %) @got)))))))
-

@@ -89,4 +89,5 @@
                                       :description "What to forget, as listed."}}
                 :additionalProperties false}
    :changes? (constantly true)
+   :detail (fn [{:keys [remember forget]}] (or remember (some->> forget (str "forget: "))))
    :run (fn [ctx args _] (change! ctx args))})

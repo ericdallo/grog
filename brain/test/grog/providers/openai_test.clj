@@ -60,6 +60,8 @@
 (deftest tells-when-the-model-uses-a-tool
   (h/with-fake [fake [{:body (h/sse {:type "response.output_item.added" :item {:type "reasoning"}}
                                     {:type "response.output_item.added" :item {:type "web_search_call"}}
+                                    {:type "response.output_item.done"
+                                     :item {:type "web_search_call" :action {:type "search" :query "weather SP"}}}
                                     {:type "response.output_item.added" :item {:type "function_call" :name "get_time"}}
                                     {:type "response.output_item.added" :item {:type "message"}}
                                     {:type "response.output_text.delta" :delta "Noon."}
@@ -67,7 +69,8 @@
     (with-redefs [http/api-key (constantly "k")]
       (let [[on-tool tools] (h/collector)]
         (is (= "Noon." (:text (openai/stream-reply! (cfg (:url fake)) request identity on-tool))))
-        (is (= [{:name "web_search"} {:name "get_time"}] @tools))))))
+        (is (= [{:name "web_search"} {:name "web_search" :detail "weather SP"} {:name "get_time"}] @tools)
+            "and what it searched for, once it knows")))))
 
 (deftest separates-messages
   (h/with-fake [fake [{:body (h/sse {:type "response.output_item.added" :item {:type "message"}}

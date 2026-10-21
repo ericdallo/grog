@@ -154,7 +154,10 @@
                         :else acc))
 
                     "response.output_item.done"
-                    (update acc :items conj (:item event))
+                    (let [{item-type :type :keys [action]} (:item event)]
+                      (when-let [query (and (= "web_search_call" item-type) (not-empty (:query action)))]
+                        (on-tool {:name "web_search" :detail query}))
+                      (update acc :items conj (:item event)))
 
                     "response.output_text.delta"
                     (let [text (:delta event)]

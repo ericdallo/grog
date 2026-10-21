@@ -5,7 +5,7 @@ import {
   account,
   CAPTIONS_MS,
   capitalize,
-  captions,
+  chat,
   closes,
   DOZING_MS,
   duration,
@@ -25,7 +25,6 @@ import {
   PLEASED_MS,
   qrFile,
   reaction,
-  recent,
   request,
   seconds,
   shortRevision,
@@ -58,7 +57,6 @@ function state(extra = {}) {
     captions: false,
     voice: { state: "listening", since: NOW - 5000, seen: NOW - 1000, conversation: "voice" },
     turn: null,
-    recent: [],
     usage: null,
     ...extra,
   };
@@ -336,77 +334,108 @@ describe("the steps of a turn", () => {
   });
 });
 
-describe("captions", () => {
-  const said = turn([["thinking", 1]], { question: "will it rain?", answer: " Sunny all day. " });
-
-  it("only when they're on", () => {
-    assert.equal(captions(state({ turn: said }), NOW), null);
-    assert.deepEqual(captions(state({ turn: said, captions: true }), NOW), {
-      question: "will it rain?",
-      answer: "Sunny all day.",
-      live: false,
-    });
+describe("the chat", () => {
+  const said = turn([["heard", NOW - 3000], ["thinking", NOW - 2800]], {
+    said: "Grog, will it rain?",
+    question: "will it rain?",
+    parts: [
+      { text: "Let me check." },
+      { tool: "web_search", at: NOW - 2500, doneAt: NOW - 1000, detail: "rain São Paulo" },
+      { text: " No, sunny. " },
+    ],
+    doneAt: NOW - 500,
+    ok: true,
   });
 
-  it("what's said to grog as it comes, before the turn", () => {
-    const heard = { text: "Grog, will it", final: false, at: NOW - 500 };
-    assert.deepEqual(captions(state({ captions: true, heard }), NOW), {
-      question: "Grog, will it",
-      answer: "",
+  it("what was said and done, in order, with captions", () => {
+    assert.deepEqual(chat(state({ captions: true, turn: said }), [], NOW), [
+      {
+        key: "voice:1",
+        at: NOW - 3000,
+        said: "Grog, will it rain?",
+        live: false,
+        items: [
+          { kind: "text", text: "Let me check." },
+          { kind: "tool", icon: "web", label: "Searched the web", detail: "rain São Paulo", running: false },
+          { kind: "text", text: "No, sunny." },
+        ],
+        end: { status: "done", took: "2.5 s", error: "" },
+      },
+    ]);
+  });
+
+  it("without captions, only what it did", () => {
+    assert.deepEqual(chat(state({ turn: said }), [], NOW), [
+      {
+        key: "voice:1",
+        at: NOW - 3000,
+        said: "",
+        live: false,
+        items: [{ kind: "tool", icon: "web", label: "Searched the web", detail: "", running: false }],
+        end: { status: "done", took: "2.5 s", error: "" },
+      },
+    ]);
+  });
+
+  it("the turns before, oldest first, typed ones as typed", () => {
+    const typed = turn([["thinking", 1]], { conversation: "default", question: "hi", parts: [{ text: "Hi!" }] });
+    const before = [{ ...typed, doneAt: 2, ok: true }];
+    assert.deepEqual(
+      chat(state({ captions: true, turn: { ...said, n: 2 } }), before, NOW).map((t) => [t.key, t.said]),
+      [
+        ["default:1", "hi"],
+        ["voice:2", "Grog, will it rain?"],
+      ],
+    );
+  });
+
+  it("a tool runs until it's done, or grog is gone", () => {
+    const running = turn([["thinking", NOW - 2000], ["tool", NOW - 1000, "shell"]], {
+      parts: [{ tool: "shell", at: NOW - 1000 }],
+    });
+    const [under] = chat(state({ turn: running }), [], NOW);
+    assert.deepEqual(under.items, [{ kind: "tool", icon: "shell", label: "Running a command", detail: "", running: true }]);
+    assert.equal(under.end, null, "not over");
+    assert.equal(chat(state({ turn: running }), [], NOW, true)[0].items[0].running, false, "offline");
+  });
+
+  it("how it ended, when not well", () => {
+    const failed = { ...said, ok: false, error: "No credentials." };
+    assert.deepEqual(chat(state({ captions: true, turn: failed }), [], NOW)[0].end, {
+      status: "failed",
+      took: "2.5 s",
+      error: "No credentials.",
+    });
+    assert.equal(chat(state({ turn: failed }), [], NOW)[0].end.error, "", "what went wrong only with captions");
+    assert.equal(chat(state({ turn: { ...said, ok: false, stopped: true } }), [], NOW)[0].end.status, "stopped");
+  });
+
+  it("what's said to grog as it comes, after the last turn, for a while", () => {
+    const heard = { text: "Grog, and", final: false, at: NOW - 100 };
+    assert.deepEqual(chat(state({ captions: true, heard, turn: said }), [], NOW).at(-1), {
+      key: "heard",
+      at: NOW - 100,
+      said: "Grog, and",
       live: true,
+      items: [],
+      end: null,
     });
-    const last = turn([["thinking", NOW - 60_000]], { question: "hi", answer: "Hi!", doneAt: NOW - 50_000, ok: true });
-    assert.equal(captions(state({ captions: true, heard, turn: last }), NOW).question, "Grog, will it", "after the last");
-    assert.equal(captions(state({ captions: true, heard: { ...heard, final: true } }), NOW).live, false, "all of it");
-    const old = { ...heard, at: NOW - CAPTIONS_MS - 1 };
-    assert.equal(captions(state({ captions: true, heard: old }), NOW), null, "not for long");
-    assert.equal(captions(state({ heard }), NOW), null, "only with captions");
-  });
-
-  it("the voice turn's question, as it was said", () => {
-    const heard = { text: "Grog, will it rain?", final: true, at: NOW - 2000 };
-    const voiced = turn([["heard", NOW - 4000], ["thinking", NOW - 1500]], {
-      said: "Grog, will it rain?",
-      question: "will it rain?",
-      answer: "No.",
-    });
-    assert.deepEqual(captions(state({ captions: true, heard, turn: voiced }), NOW), {
-      question: "Grog, will it rain?",
-      answer: "No.",
-      live: false,
-    });
-    const typed = { ...voiced, said: undefined, conversation: "default" };
-    assert.equal(captions(state({ captions: true, heard, turn: typed }), NOW).question, "will it rain?", "typed");
+    assert.equal(chat(state({ captions: true, heard: { ...heard, final: true } }), [], NOW)[0].live, false, "all of it");
+    assert.deepEqual(chat(state({ captions: true, heard }), [], NOW + CAPTIONS_MS), [], "not for long");
+    assert.deepEqual(chat(state({ heard }), [], NOW), [], "only with captions");
   });
 
   it("not what's heard during a turn: the same words, heard again", () => {
-    const voiced = turn([["heard", NOW - 4000], ["thinking", NOW - 1500]], { said: "Grog, will it rain?" });
+    const voiced = turn([["heard", NOW - 4000], ["thinking", NOW - 1500]], { said: "Grog, will it rain?", parts: [] });
     const heard = { text: "Grog, will it rain", final: true, at: NOW - 1000 };
-    assert.deepEqual(captions(state({ captions: true, heard, turn: voiced }), NOW), {
-      question: "Grog, will it rain?",
-      answer: "",
-      live: false,
-    });
-    const done = { ...voiced, answer: "No.", doneAt: NOW - 500, ok: true };
-    assert.equal(captions(state({ captions: true, heard, turn: done }), NOW).answer, "No.", "heard before it ended");
-    const next = { text: "Grog, and", final: false, at: NOW - 100 };
-    assert.deepEqual(captions(state({ captions: true, heard: next, turn: done }), NOW), {
-      question: "Grog, and",
-      answer: "",
-      live: true,
-    });
+    assert.deepEqual(
+      chat(state({ captions: true, heard, turn: voiced }), [], NOW).map((t) => t.key),
+      ["voice:1"],
+    );
   });
 
-  it("for a while after the turn", () => {
-    const over = { ...said, doneAt: NOW - 30_000, ok: true };
-    assert.equal(captions(state({ turn: over, captions: true }), NOW), null);
-  });
-
-  it("the end of long answers, cut at a word", () => {
-    const long = { ...said, answer: "one two three four five six" };
-    assert.equal(captions(state({ turn: long, captions: true }), NOW, 12).answer, "…five six");
-    const word = { ...said, answer: "supercalifragilistic" };
-    assert.equal(captions(state({ turn: word, captions: true }), NOW, 5).answer, "…istic", "no space in it");
+  it("nothing without grog", () => {
+    assert.deepEqual(chat(null), []);
   });
 });
 
@@ -429,38 +458,6 @@ describe("words as they come", () => {
       gone: 2,
     });
     assert.deepEqual(wordChanges([], ""), { words: [], gone: 0 });
-  });
-});
-
-describe("the last turns", () => {
-  it("their tools, how long they took, and whether they went well", () => {
-    const s = state({
-      recent: [
-        { at: 3, conversation: "voice", ms: 4200, tools: ["web_search", "web_search"], ok: true },
-        { at: 2, conversation: "default", ms: 900, tools: [], ok: false },
-        { at: 1, conversation: "voice", ms: 1100, tools: [], ok: true },
-      ],
-    });
-    assert.deepEqual(recent(s), [
-      { at: 3, icon: "web", label: "Web", took: "4.2 s", ok: true },
-      { at: 2, icon: "answering", label: "Answer", took: "0.9 s", ok: false },
-      { at: 1, icon: "voice", label: "Answer", took: "1.1 s", ok: true },
-    ]);
-  });
-
-  it("all of them, without a voice too", () => {
-    const recentTurns = [4, 3, 2, 1].map((at) => ({ at, conversation: "voice", ms: 1000, tools: [], ok: true }));
-    const s = state({ voice: undefined, recent: recentTurns });
-    assert.deepEqual(
-      recent(s).map((r) => [r.at, r.icon]),
-      [
-        [4, "answering"],
-        [3, "answering"],
-        [2, "answering"],
-        [1, "answering"],
-      ],
-    );
-    assert.deepEqual(recent(null), []);
   });
 });
 
@@ -526,7 +523,7 @@ describe("what it consumed", () => {
 describe("words and numbers", () => {
   it("tools by name", () => {
     assert.equal(tool("volume").label, "Adjusting the volume");
-    assert.deepEqual(tool("new_thing"), { label: "New thing", short: "New thing", icon: "tool" });
+    assert.deepEqual(tool("new_thing"), { label: "New thing", done: "New thing", short: "New thing", icon: "tool" });
     assert.deepEqual([capitalize("plus"), capitalize(""), capitalize(null)], ["Plus", "", ""]);
   });
 
@@ -671,7 +668,7 @@ describe("a turn asked to stop", () => {
     });
     assert.equal(mode(state({ turn: stopped }), NOW).mode, "idle");
     assert.deepEqual(pipeline(stopped).at(-1), { label: "Stopped", icon: "stop", offset: "1.0 s", status: "done" });
-    assert.equal(recent(state({ recent: [{ at: NOW, ms: 900, tools: [], ok: false, stopped: true }] }))[0].ok, true);
+    assert.equal(chat(state({ turn: stopped }), [], NOW)[0].end.status, "stopped");
   });
 });
 
@@ -829,7 +826,12 @@ describe("updating", () => {
   });
 
   it("as a step of a turn", () => {
-    assert.deepEqual(tool("update"), { label: "Looking for an update", short: "Update", icon: "update" });
+    assert.deepEqual(tool("update"), {
+      label: "Looking for an update",
+      done: "Looked for an update",
+      short: "Update",
+      icon: "update",
+    });
   });
 });
 
@@ -900,6 +902,11 @@ describe("pairing a computer", () => {
   });
 
   it("acting on one, as a step of a turn", () => {
-    assert.deepEqual(tool("computer"), { label: "Using a computer", short: "Computer", icon: "computer" });
+    assert.deepEqual(tool("computer"), {
+      label: "Using a computer",
+      done: "Used a computer",
+      short: "Computer",
+      icon: "computer",
+    });
   });
 });

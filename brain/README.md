@@ -269,8 +269,8 @@ While pairing, grog also listens on `computers.pairing`, for the computer
   anyone who can talk to grog, or reach it as a local user, can ask it for
   what that computer allows, as its user. What it asks first needs someone
   at the computer.
-- Any local user can watch `/v1/events`, which has what's said with
-  `skin.captions`.
+- Any local user can watch `/v1/events`, which has what's said, and what
+  tools were used with (commands, searches), with `skin.captions`.
 
 ## Development
 

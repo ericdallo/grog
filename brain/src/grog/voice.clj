@@ -113,6 +113,7 @@
                 :required ["on"]
                 :additionalProperties false}
    :changes? (constantly true)
+   :detail (fn [{:keys [on]}] (case on true "on" false "off" nil))
    :run (fn [ctx {:keys [on]} _]
           (when-not (boolean? on)
             (throw (ex-info "on must be true or false" {})))

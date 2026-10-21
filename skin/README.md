@@ -9,9 +9,13 @@ grog's skin: a page showing what grog is up to, for a screen next to it.
   sleepy at night, when the screen goes dark.
 - The time, and the steps of the last turn with how long each took.
 - Under the time, how an update goes while it does, and how it went.
-- With captions, what you say as you say it, then its answer.
-- The last few turns, and what it costs: how much of the subscription's
-  limits is used, or what the API key spent.
+- The last turns, as a chat: with captions, what you say as you say it,
+  its answer as it comes, and the tools it uses in between, with what (a
+  search, a command); without, only which tools it used, and how long each
+  turn took. It keeps to the latest, but you can scroll back, and a button
+  (or leaving it alone a while) brings it back.
+- In its actions, what it costs: how much of the subscription's limits is
+  used, or what the API key spent.
 - With nothing to pay with, how to sign in: a code to enter on a phone or
   computer, with the QR code of the page to enter it at, and what ChatGPT
   has to allow once per account. The QR codes come with the Nix package
@@ -49,8 +53,8 @@ To see it from another machine, `ssh -L 8484:127.0.0.1:8484 <server>` and
 open `http://localhost:8484/`.
 
 `skin.captions` is off by default, since anyone who can reach grog could
-watch what's said. grognix turns it on: grog is its only user, and whoever
-is in the room hears it anyway.
+watch what's said, and what its tools are used with. grognix turns it on:
+grog is its only user, and whoever is in the room hears it anyway.
 
 ## Development
 

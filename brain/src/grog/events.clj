@@ -27,17 +27,20 @@
                reply to it), as it comes: {:text :final :at}, a guess at
                what was said so far until it's final
     :turn      the current turn, or the last one: {:conversation :n :steps
-               :question :said :answer :done-at :ok :stopped :error
+               :parts :question :said :done-at :ok :stopped :error
                :spoken-at}, :n telling it from the others, :said being what
                was said aloud for it as grog-voice heard it (the wake word
                included), its steps {:step :at} (heard, thinking, tool with
-               :name, answering, speaking), in order, :stopping once it's
-               asked to stop, :stopped when it then ended (not well, without
+               :name, answering, speaking), in order, its parts what its
+               answer is made of, in order: text ({:text}) and the tools it
+               used ({:tool :detail :at :done-at}, :detail saying what with,
+               like what it searched, once known), :stopping once it's asked
+               to stop, :stopped when it then ended (not well, without
                failing), :spoken-at when grog-voice was done saying its
                answer, if it said it; nil once the conversations were
                forgotten
-    :recent    the last 4 turns, newest first: {:at :conversation :ms :tools
-               :ok :stopped}
+    :history   the turns before it, up to 20, oldest first, as :turn; only
+               sent with the events changing it (and the snapshot)
     :login     the last sign-in to the provider's subscription, as
                grog.login/view tells: {:provider :status :method :label},
                and while it waits for a code to be entered, the :code, the
@@ -52,8 +55,9 @@
     :now       when it was sent
 
   What's said (what grog-voice heard, questions, what was said for them,
-  answers, error messages) only goes in with captions (the `skin.captions`
-  setting): anyone who can reach grog can watch."
+  answers, what tools were used with, error messages) only goes in with
+  captions (the `skin.captions` setting): anyone who can reach grog can
+  watch."
   (:require [grog.sse :as sse]))
 
 ;; How long after grog-voice heard someone a turn of its conversation counts
@@ -63,7 +67,7 @@
 ;; grog-voice says what it's doing at least every 10 s: past this, it's gone.
 (def ^:private voice-gone-ms 35000)
 
-(def ^:private recent-max 4)
+(def ^:private history-max 20)
 
 (def voice-states
   "What grog-voice says it's doing (voice/grog_voice/reporter.py)."
@@ -75,18 +79,39 @@
   (System/currentTimeMillis))
 
 (def initial-state
-  {:voice nil :turn nil :recent [] :login nil :usage nil})
+  {:voice nil :turn nil :history [] :login nil :usage nil})
 
-(defn ^:private turn-of?
-  "Whether `event` is about the current turn."
-  [{:keys [turn]} {:keys [conversation n]}]
-  (and (some? turn) (= conversation (:conversation turn)) (= n (:n turn))))
+(defn ^:private turn-path
+  "Where in `state` the turn `event` is about is: [:turn], [:history i], or
+  nil when it's gone."
+  [{:keys [turn history]} {:keys [conversation n]}]
+  (let [this? #(and (= conversation (:conversation %)) (= n (:n %)))]
+    (if (and turn (this? turn))
+      [:turn]
+      (some #(when (this? (history %)) [:history %]) (range (count history))))))
 
-(defn ^:private add-step [state step]
-  (update-in state [:turn :steps] conj step))
+(defn ^:private add-step [state path step]
+  (update-in state (conj path :steps) conj step))
 
-(defn ^:private last-step [state]
-  (:step (peek (get-in state [:turn :steps]))))
+(defn ^:private last-step [state path]
+  (:step (peek (get-in state (conj path :steps)))))
+
+(defn ^:private close-tool
+  "`parts`, the tool under way at their end, if any, done `at`."
+  [parts at]
+  (let [parts (or parts [])
+        part (peek parts)]
+    (if (and (:tool part) (not (:done-at part)))
+      (conj (pop parts) (assoc part :done-at at))
+      parts)))
+
+(defn ^:private add-text
+  "`parts` with `text` at their end."
+  [parts text]
+  (let [part (peek parts)]
+    (if (contains? part :text)
+      (conj (pop parts) (update part :text str text))
+      (conj parts {:text text}))))
 
 (defn ^:private spoken?
   "Whether grog-voice, which was saying the current turn's answer, just
@@ -118,51 +143,66 @@
              (= "speaking" voice-state)
              (= conversation (:conversation turn))
              (not-any? #(= "speaking" (:step %)) (:steps turn)))
-      (add-step state {:step "speaking" :at at})
+      (add-step state [:turn] {:step "speaking" :at at})
       state)))
 
+(defn ^:private archive
+  "`state` with its turn, if any, last in its history."
+  [{:keys [turn] :as state}]
+  (cond-> state
+    turn (update :history #(vec (take-last history-max (conj (or % []) turn))))))
+
 (defn ^:private on-turn
-  "A turn starts: heard, when grog-voice just heard it, then thinking."
-  [{:keys [voice heard-at] :as state} {:keys [conversation n question said at]}]
-  (let [heard? (and heard-at
+  "A turn starts, the last one going in the history: heard, when
+  grog-voice just heard it, then thinking."
+  [state {:keys [conversation n question said at]}]
+  (let [{:keys [voice heard-at] :as state} (archive state)
+        heard? (and heard-at
                     (= conversation (:conversation voice))
                     (< (- at heard-at) heard-window-ms))]
     (cond-> (assoc state :turn (cond-> {:conversation conversation
                                         :n n
                                         :steps (cond-> []
                                                  heard? (conj {:step "heard" :at heard-at})
-                                                 true (conj {:step "thinking" :at at}))}
+                                                 true (conj {:step "thinking" :at at}))
+                                        :parts []}
                                  question (assoc :question question)
                                  said (assoc :said said)))
       heard? (dissoc :heard-at))))
 
+(defn ^:private on-tool
+  "The turn uses a tool: a step, and a part of its answer, the tool before
+  done."
+  [state {:keys [name at] :as event}]
+  (if-let [path (turn-path state event)]
+    (-> state
+        (add-step path {:step "tool" :name name :at at})
+        (update-in (conj path :parts) #(conj (close-tool % at) {:tool name :at at})))
+    state))
+
 (defn ^:private on-text
   "Text of the answer: answering, again after a tool (while grog-voice
-  speaks it, it's the same answer)."
+  speaks it, it's the same answer), which is then done."
   [state {:keys [text at] :as event}]
-  (if-not (turn-of? state event)
-    state
-    (cond-> state
-      (not (#{"answering" "speaking"} (last-step state))) (add-step {:step "answering" :at at})
-      text (update-in [:turn :answer] str text))))
+  (if-let [path (turn-path state event)]
+    (cond-> (update-in state (conj path :parts) close-tool at)
+      (not (#{"answering" "speaking"} (last-step state path))) (add-step path {:step "answering" :at at})
+      text (update-in (conj path :parts) add-text text))
+    state))
 
 (defn ^:private on-end
   "The turn is over, well (:done) or not (:failed): stopped, when it was
   asked to (see `on-stop`), rather than failed."
-  [state {:keys [type conversation ms tools error at] :as event}]
-  (let [ok? (= :done type)
-        current? (turn-of? state event)
-        stopped? (boolean (and current? (not ok?) (get-in state [:turn :stopping])))]
-    (cond-> (update state :recent #(vec (take recent-max (cons (cond-> {:at at
-                                                                        :conversation conversation
-                                                                        :ms ms
-                                                                        :tools (vec tools)
-                                                                        :ok ok?}
-                                                                 stopped? (assoc :stopped true))
-                                                               %))))
-      current? (update :turn #(cond-> (dissoc (assoc % :done-at at :ok ok?) :stopping)
-                                stopped? (assoc :stopped true)
-                                (and error (not stopped?)) (assoc :error error))))))
+  [state {:keys [type error at] :as event}]
+  (if-let [path (turn-path state event)]
+    (let [ok? (= :done type)
+          stopped? (boolean (and (not ok?) (get-in state (conj path :stopping))))]
+      (update-in state path #(cond-> (-> (assoc % :done-at at :ok ok?)
+                                         (dissoc :stopping)
+                                         (update :parts close-tool at))
+                               stopped? (assoc :stopped true)
+                               (and error (not stopped?)) (assoc :error error))))
+    state))
 
 (defn ^:private on-stop
   "The turn under way was asked to stop: when it ends, it's stopped."
@@ -171,19 +211,30 @@
     (assoc-in state [:turn :stopping] true)
     state))
 
+(defn ^:private on-tool-detail
+  "What a tool of the turn is used with: the last one by that name not told
+  yet."
+  [state {:keys [name detail] :as event}]
+  (let [path (turn-path state event)
+        parts (get-in state (conj path :parts))
+        i (when (and path detail)
+            (last (keep-indexed #(when (and (= name (:tool %2)) (not (:detail %2))) %1) parts)))]
+    (if i
+      (assoc-in state (conj path :parts i :detail) detail)
+      state)))
+
 (defn step
   "The state after `event` (with its :type and :at)."
   [state {:keys [type] :as event}]
   (case type
     :voice (on-voice state event)
     :turn (on-turn state event)
-    :tool (if (turn-of? state event)
-            (add-step state {:step "tool" :name (:name event) :at (:at event)})
-            state)
+    :tool (on-tool state event)
+    :tool-detail (on-tool-detail state event)
     :text (on-text state event)
     (:done :failed) (on-end state event)
     :stop (on-stop state)
-    :forgot (assoc state :turn nil :heard nil)
+    :forgot (assoc state :turn nil :heard nil :history [])
     :status (merge state (select-keys event [:name :provider :model :auth :revision :timezone :actions :mic]))
     :mic (assoc state :mic (:mic event))
     :volume (assoc state :volume (select-keys event [:level :muted]))
@@ -198,7 +249,7 @@
 (defn redact
   "`event` without what was said in it."
   [event]
-  (dissoc event :question :said :text :error :heard))
+  (dissoc event :question :said :text :error :heard :detail))
 
 (defn new-hub
   "Where the state lives and who watches it. `captions?` tells whether what's
@@ -257,8 +308,9 @@
 
 (defn publish!
   "Applies `event` ({:type ...}) to the state, without what was said in it
-  unless captions are on, and sends both to the watchers. A nil hub ignores
-  it."
+  unless captions are on, and sends both to the watchers, the history only
+  when it changed: the text of an answer comes a few words at a time. A nil
+  hub ignores it."
   [{:keys [state lock] :as hub} event]
   (when hub
     (locking lock
@@ -268,7 +320,9 @@
         (when (not= before after)
           (send-all! hub (sse/message (name (:type event))
                                       {:event (dissoc event :type)
-                                       :state (snapshot hub)})))))))
+                                       :state (cond-> (snapshot hub)
+                                                (identical? (:history before) (:history after))
+                                                (dissoc :history))})))))))
 
 (defn watch!
   "Sends the state to `send!` (a function of an SSE text returning false

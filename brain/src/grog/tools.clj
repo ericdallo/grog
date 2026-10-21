@@ -11,8 +11,13 @@
                (sent as JSON). Throws ex-info to tell it what went wrong.
                `turn`: {:id the conversation, :n its turn number, :searched?
                (fn []), :later an atom of the actions to take once its
-               answer is out, when its caller takes them (grog.actions)}."
+               answer is out, when its caller takes them (grog.actions),
+               :detail! (fn [name detail]), telling whoever watches what a
+               tool is used with}.
+    :detail    (fn [args]), optional: what it's used with, in a few words
+               (a command, a level), for whoever watches; nil for nothing."
   (:require [cheshire.core :as json]
+            [clojure.string :as str]
             [grog.actions :as actions]
             [grog.computers :as computers]
             [grog.log :as log]
@@ -42,6 +47,26 @@
   [tools]
   (mapv #(select-keys % [:name :description :parameters]) tools))
 
+;; How long what a tool is used with gets, for whoever watches.
+(def ^:private detail-max-chars 120)
+
+(defn short-detail
+  "What a tool is used with, `s`, for whoever watches: on one line, at most
+  `detail-max-chars` long; nil when blank."
+  [s]
+  (let [s (some-> s str (str/replace #"\s+" " ") str/trim)]
+    (cond
+      (str/blank? s) nil
+      (> (count s) detail-max-chars) (str (subs s 0 (dec detail-max-chars)) "…")
+      :else s)))
+
+(defn ^:private tell-detail!
+  "Tells whoever watches what `tool` is used with, if it says."
+  [{:keys [name detail]} args {:keys [detail!]}]
+  (when (and detail detail!)
+    (when-let [d (try (detail args) (catch Exception _ nil))]
+      (detail! name d))))
+
 (defn runner
   "Runs the model's calls of `tools` during `turn`: (fn [name args]) -> what
   to tell the model, never throwing."
@@ -58,6 +83,7 @@
 
           :else
           (try
+            (tell-detail! tool args turn)
             (let [result (run ctx args turn)]
               (if (string? result) result (json/generate-string result)))
             (catch clojure.lang.ExceptionInfo e

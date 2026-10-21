@@ -306,7 +306,8 @@ pkgs.testers.runNixOSTest {
         state = data[-1]["state"]
         steps = [s["step"] for s in state["turn"]["steps"]]
         assert in_order(steps, ["heard", "thinking", "tool", "answering", "speaking"]), steps
-        assert state["recent"][0]["tools"] == ["web_search"], state["recent"]
+        tools = [p["tool"] for p in state["turn"]["parts"] if "tool" in p]
+        assert tools == ["web_search"], state["turn"]
         # Captions are off: grog says what it does, not what's said.
         assert "previsão" not in watched and "messages=" not in watched, watched
 

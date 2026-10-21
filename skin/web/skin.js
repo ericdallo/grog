@@ -9,17 +9,17 @@ import { ICONS } from "./icons.js";
 import {
   account,
   activeTurn,
-  captions,
+  chat,
   closes,
   CONFIRM_MS,
   elapsed,
   face,
+  FOLLOW_MS,
   isNight,
   menu,
   mode,
   pairing,
   pipeline,
-  recent,
   request,
   signIn,
   stale,
@@ -32,7 +32,9 @@ import {
 } from "./view.js";
 
 // The event types grog sends: see brain/src/grog/events.clj.
-const EVENTS = ["snapshot", "voice", "turn", "tool", "text", "done", "failed", "status", "login", "usage"].concat([
+const EVENTS = ["snapshot", "voice", "turn", "tool", "tool-detail", "text", "done", "failed", "status"].concat([
+  "login",
+  "usage",
   "restarting",
   "mic",
   "volume",
@@ -41,6 +43,10 @@ const EVENTS = ["snapshot", "voice", "turn", "tool", "text", "done", "failed", "
   "update",
   "pairing",
 ]);
+// How close to its end the chat is still at its end, in pixels.
+const END_PX = 8;
+// The chat scrolls this soon after someone touched it: they scrolled it.
+const TOUCHED_MS = 1_000;
 // The skin moves a little this often, so that nothing marks the screen.
 const DRIFT_MS = 5 * 60_000;
 // Untouched this long, the actions close.
@@ -51,7 +57,7 @@ const SHEET_ERROR_MS = 5_000;
 const $ = (id) => document.getElementById(id);
 const els = Object.fromEntries(
   ["name", "model", "account", "clock", "date", "avatar", "label", "detail", "timer"]
-    .concat(["captions", "question", "answer", "pipeline", "recent", "usage"])
+    .concat(["chat", "chat-end", "pipeline", "usage"])
     .concat(["signin", "signin-title", "signin-qr", "signin-url", "signin-code", "signin-expires"])
     .concat(["signin-note", "signin-error", "signin-help", "signin-help-text", "signin-help-url"])
     .concat(["pairing", "pairing-title", "pairing-detail", "pairing-hint", "pairing-command", "pairing-code"])
@@ -63,6 +69,12 @@ const els = Object.fromEntries(
 const eye = new Face(els.avatar);
 
 let state = null;
+// The turns before the last, as grog last sent them: not with every event.
+let history = [];
+// Whether the chat keeps to its end, as what's new comes, and when someone
+// last touched it.
+let following = true;
+let touchedAt = 0;
 let offline = true;
 // Lost grog since the page loaded: once back, reload.
 let lost = false;
@@ -168,24 +180,101 @@ function drawWords(e, text) {
   }
 }
 
-function drawCaptions(t) {
-  els.captions.hidden = !state?.captions;
-  const said = captions(state, t);
-  els.captions.classList.toggle("empty", !said);
-  els.captions.classList.toggle("live", Boolean(said?.live));
-  if (said) {
-    drawWords(els.question, said.question);
-    setText(els.answer, said.answer);
-  } else if (els.captions.hidden) {
-    clearCaptions();
-  }
+/** A tool grog uses, or used: what with, once known. */
+function toolRow(item) {
+  const row = el("div", `tool${item.running ? " running" : ""}`);
+  row.innerHTML = icon(item.icon);
+  row.append(el("span", "what", item.label));
+  if (item.detail) row.append(el("span", "with", item.detail));
+  return row;
 }
 
-// Gone, once faded out: the next question's words all fade in.
-function clearCaptions() {
-  if (!els.captions.classList.contains("empty")) return;
-  els.question.replaceChildren();
-  setText(els.answer, "");
+/** How a turn ended: when it started, how long it took, and how it went if not well. */
+function endRow(turn) {
+  const { status, took, error } = turn.end;
+  const row = el("div", `end ${status}`);
+  row.append(el("time", null, format("clock", turn.at)), el("span", null, took));
+  if (status === "stopped") row.append(el("span", "how", "Stopped"));
+  if (status === "failed") row.append(el("span", "how", error ? `Failed: ${error}` : "Failed"));
+  return row;
+}
+
+/**
+ * A turn of the chat (view.js chat), in its `li`: what was said for it, a
+ * word at a time while it's heard, then its answer, and how it ended. What's
+ * new in it since it was last drawn fades in, unless `quiet`.
+ */
+function drawTurn(li, turn, quiet) {
+  let said = li.querySelector(":scope > .said");
+  let reply = li.querySelector(":scope > .reply");
+  if (!said) {
+    said = el("div", "said");
+    reply = el("div", "reply");
+    li.append(said, reply);
+  }
+  said.hidden = !turn.said;
+  said.classList.toggle("live", turn.live);
+  if (turn.live || said.querySelector(".word")) drawWords(said, turn.said);
+  else setText(said, turn.said);
+  const before = Number(li.dataset.items ?? 0);
+  const rows = turn.items.map((item, i) => {
+    const row = item.kind === "text" ? el("p", "text", item.text) : toolRow(item);
+    if (!quiet && i >= before) row.classList.add("fresh");
+    return row;
+  });
+  if (turn.end) {
+    const row = endRow(turn);
+    if (!quiet && !li.dataset.ended) row.classList.add("fresh");
+    li.dataset.ended = "1";
+    rows.push(row);
+  }
+  li.dataset.items = String(turn.items.length);
+  reply.replaceChildren(...rows);
+}
+
+/**
+ * What was said and done, a turn per item: only those that changed are
+ * drawn again, and those already there stay in the page (moving one would
+ * play its animations again). What grog-voice heard becomes the turn it's
+ * for. It keeps to its end, unless someone scrolled back.
+ */
+function drawChat(t) {
+  const quiet = !els.chat.dataset.drawn;
+  once("chat", { turns: chat(state, history, t, offline), timezone: state?.timezone }, ({ turns }) => {
+    if (state) els.chat.dataset.drawn = "1";
+    const byKey = new Map([...els.chat.children].map((li) => [li.dataset.key, li]));
+    let heard = turns.some((turn) => turn.key === "heard") ? null : byKey.get("heard");
+    const lis = turns.map((turn, i) => {
+      let li = byKey.get(turn.key);
+      if (!li && heard && turn.said && i === turns.length - 1) {
+        li = heard;
+        heard = null;
+      }
+      li ??= el("li", quiet ? "turn" : "turn fresh");
+      li.dataset.key = turn.key;
+      const json = JSON.stringify(turn);
+      if (li.dataset.json !== json) {
+        drawTurn(li, turn, quiet);
+        li.dataset.json = json;
+      }
+      return li;
+    });
+    for (const li of [...els.chat.children]) if (!lis.includes(li)) li.remove();
+    let before = null;
+    for (const li of lis) {
+      const next = before ? before.nextSibling : els.chat.firstChild;
+      if (next !== li) els.chat.insertBefore(li, next);
+      before = li;
+    }
+    if (following) els.chat.scrollTop = els.chat.scrollHeight;
+  });
+}
+
+/** Back to the chat's end, keeping to it. */
+function follow() {
+  following = true;
+  els["chat-end"].hidden = true;
+  els.chat.scrollTop = els.chat.scrollHeight;
 }
 
 /** The QR code `src` in `img`, shown once it loads: none for pages the skin has no code of. */
@@ -271,25 +360,6 @@ function drawPipeline(t) {
         const dot = el("div", "dot");
         dot.innerHTML = icon(s.icon);
         li.append(dot, el("div", "name", s.label), el("div", "offset", s.offset));
-        return li;
-      }),
-    );
-  });
-}
-
-function drawRecent() {
-  once("recent", { turns: recent(state), timezone: state?.timezone }, ({ turns }) => {
-    if (!turns.length) {
-      els.recent.replaceChildren(el("li", "none", "Nothing yet"));
-      return;
-    }
-    els.recent.replaceChildren(
-      ...turns.map((r) => {
-        const li = el("li", r.ok ? "" : "failed");
-        const when = el("time", null, format("clock", r.at));
-        const what = el("span");
-        what.innerHTML = icon(r.icon);
-        li.append(when, what, el("span", null, r.label), el("span", "took", r.took));
         return li;
       }),
     );
@@ -413,9 +483,8 @@ function draw() {
   drawSignIn(t);
   drawPairing(t);
   drawNotice(t);
-  drawCaptions(t);
+  drawChat(t);
   drawPipeline(t);
-  drawRecent();
   drawUsage(t);
   drawSheet();
   tick();
@@ -522,6 +591,7 @@ function tick() {
 function receive(event) {
   const { state: next } = JSON.parse(event.data);
   state = next;
+  if (next.history) history = next.history;
   skew = state.now - Date.now();
   offline = false;
   draw();
@@ -549,9 +619,25 @@ function drift() {
 }
 
 if (new URLSearchParams(location.search).has("kiosk")) document.documentElement.classList.add("kiosk");
-els.captions.addEventListener("transitionend", (e) => {
-  if (e.target === els.captions) clearCaptions();
+// Scrolled back by someone (not by what it shows growing), the chat stays
+// there, until it's left alone a while.
+for (const type of ["wheel", "touchmove", "pointerdown"]) {
+  els.chat.addEventListener(type, () => (touchedAt = Date.now()), { passive: true });
+}
+els.chat.addEventListener("scroll", () => {
+  const atEnd = els.chat.scrollHeight - els.chat.scrollTop - els.chat.clientHeight <= END_PX;
+  if (atEnd) following = true;
+  else if (Date.now() - touchedAt < TOUCHED_MS) following = false;
+  else if (following) els.chat.scrollTop = els.chat.scrollHeight;
+  els["chat-end"].hidden = following;
+  later("follow", following ? null : FOLLOW_MS, follow);
 });
+// Words take more room once their fonts are in.
+document.fonts.ready.then(() => {
+  if (following) els.chat.scrollTop = els.chat.scrollHeight;
+});
+els["chat-end"].innerHTML = icon("down");
+els["chat-end"].addEventListener("click", follow);
 // Touching grog's face talks to it, or stops it.
 els.avatar.addEventListener("click", () => {
   const touch = tap(state, now(), offline);
@@ -580,6 +666,6 @@ els["signin-qr"].addEventListener("load", () => {
 });
 draw();
 connect();
-// The clock, countdowns, and what times out (errors, captions).
+// The clock, countdowns, and what times out (errors, what was heard).
 setInterval(draw, 1000);
 setInterval(drift, DRIFT_MS);

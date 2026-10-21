@@ -93,14 +93,18 @@
                 messages (conj (conversation/history store id now-ms (:ttl-ms opts))
                                {:role "user" :content message})
                 offered (tools/available config)
-                on-tool (fn [{:keys [name] :as tool}]
-                          (vswap! used conj name)
-                          (publish! {:type :tool :name name})
-                          (on-tool tool))
+                on-tool (fn [{:keys [name detail] :as tool}]
+                          (if (contains? tool :detail)
+                            (when-let [detail (tools/short-detail detail)]
+                              (publish! {:type :tool-detail :name name :detail detail}))
+                            (do (vswap! used conj name)
+                                (publish! {:type :tool :name name})
+                                (on-tool tool))))
                 on-text (fn [text]
                           (publish! {:type :text :text text})
                           (on-text text))
-                turn {:id id :n n :searched? #(boolean (some #{"web_search"} @used)) :later later}
+                turn {:id id :n n :searched? #(boolean (some #{"web_search"} @used)) :later later
+                      :detail! #(on-tool {:name %1 :detail %2})}
                 {:keys [text stop-reason usage quota]} (provider/stream-reply!
                                                         config
                                                         {:system (prompt/system-prompt

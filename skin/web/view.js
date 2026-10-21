@@ -6,8 +6,10 @@
 export const VOICE_STALE_MS = 35_000;
 // How long an error shows.
 export const ERROR_MS = 6_000;
-// How long the captions of the last turn stay once it's over.
+// How long what grog-voice heard for grog shows, without a turn for it.
 export const CAPTIONS_MS = 20_000;
+// Scrolled back, the chat goes back to its end once left alone this long.
+export const FOLLOW_MS = 30_000;
 // The steps of the last turn fade after this long.
 export const STALE_MS = 45_000;
 // Right after grog starts, a voice that hasn't said anything yet may be on its
@@ -41,17 +43,18 @@ export const PAIRED_MS = 10_000;
 // (computers.pairing.port, brain/src/grog/config.clj).
 export const PAIRING_PORT = 8485;
 
+// Each tool grog has: what it's doing with it (label), what it did (done).
 const TOOLS = {
-  computer: { label: "Using a computer", short: "Computer", icon: "computer" },
-  update: { label: "Looking for an update", short: "Update", icon: "update" },
-  web_search: { label: "Searching the web", short: "Web", icon: "web" },
-  volume: { label: "Adjusting the volume", short: "Volume", icon: "volume" },
-  system_status: { label: "Checking the machine", short: "Machine", icon: "machine" },
-  shell: { label: "Running a command", short: "Shell", icon: "shell" },
-  memory: { label: "Remembering", short: "Memory", icon: "memory" },
-  settings: { label: "Changing its settings", short: "Settings", icon: "settings" },
-  microphone: { label: "Switching its mic", short: "Mic", icon: "no-mic" },
-  power: { label: "Getting ready to restart", short: "Power", icon: "power" },
+  computer: { label: "Using a computer", done: "Used a computer", short: "Computer", icon: "computer" },
+  update: { label: "Looking for an update", done: "Looked for an update", short: "Update", icon: "update" },
+  web_search: { label: "Searching the web", done: "Searched the web", short: "Web", icon: "web" },
+  volume: { label: "Adjusting the volume", done: "Adjusted the volume", short: "Volume", icon: "volume" },
+  system_status: { label: "Checking the machine", done: "Checked the machine", short: "Machine", icon: "machine" },
+  shell: { label: "Running a command", done: "Ran a command", short: "Shell", icon: "shell" },
+  memory: { label: "Remembering", done: "Remembered", short: "Memory", icon: "memory" },
+  settings: { label: "Changing its settings", done: "Changed its settings", short: "Settings", icon: "settings" },
+  microphone: { label: "Switching its mic", done: "Switched its mic", short: "Mic", icon: "no-mic" },
+  power: { label: "Getting ready to restart", done: "Got ready to restart", short: "Power", icon: "power" },
 };
 
 // What grog says going away (POST /v1/actions/<action>) is about.
@@ -84,11 +87,11 @@ export function capitalize(s) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
-/** A tool by its name: {label, short, icon}. */
+/** A tool by its name: {label, done, short, icon}. */
 export function tool(name) {
   if (TOOLS[name]) return TOOLS[name];
   const label = capitalize(String(name ?? "tool").replaceAll("_", " "));
-  return { label, short: label, icon: "tool" };
+  return { label, done: label, short: label, icon: "tool" };
 }
 
 /** What grog-voice is doing, or null: it never said, or not lately. */
@@ -386,29 +389,52 @@ export function pipeline(turn, offline = false) {
   return out;
 }
 
+/** A turn (grog's state's turn, or one of its history), for the chat: see chat(). */
+function chatTurn(turn, captions, offline) {
+  const items = (turn.parts ?? []).flatMap((p) => {
+    if (p.tool) {
+      const kind = tool(p.tool);
+      const running = !p.doneAt && !turn.doneAt && !offline;
+      const detail = captions ? (p.detail ?? "") : "";
+      return [{ kind: "tool", icon: kind.icon, label: running ? kind.label : kind.done, detail, running }];
+    }
+    const text = captions ? String(p.text ?? "").trim() : "";
+    return text ? [{ kind: "text", text }] : [];
+  });
+  const start = turn.steps?.[0]?.at ?? turn.doneAt ?? 0;
+  const status = turn.stopped ? "stopped" : turn.ok === false ? "failed" : "done";
+  return {
+    key: `${turn.conversation}:${turn.n}`,
+    at: start,
+    said: captions ? (turn.said ?? turn.question ?? "") : "",
+    live: false,
+    items,
+    end: turn.doneAt
+      ? { status, took: seconds(turn.doneAt - start), error: captions && status === "failed" ? (turn.error ?? "") : "" }
+      : null,
+  };
+}
+
 /**
- * What was said in the current or last turn, when captions are on and it's
- * recent: {question, answer, live}, or null. Before a turn and after the
- * last one, what grog-voice hears for grog, as it comes (live while it isn't
- * all there); during a turn, its question, as it was said when grog-voice
- * heard it. The answer's end, at most `max` characters, cut at a word.
+ * What was said and done, oldest first: the turns before the last
+ * (`history`, as grog last sent it), the last, and after it, what
+ * grog-voice hears for grog as it comes, for a while. Each {key, at, said,
+ * live, items, end}: `said`, what was said for it (as heard, or typed);
+ * `items`, its answer in order, {kind: "text", text} and {kind: "tool", icon,
+ * label, detail, running}; `end`, once it's over, {status: done, failed or
+ * stopped, took, error}; `live`, what's heard isn't all there yet. What was
+ * said (said, text, details, errors) only shows with captions. `offline`:
+ * grog isn't there to say, so nothing runs.
  */
-export function captions(state, now, max = 260) {
-  if (!state?.captions) return null;
-  const { turn, heard } = state;
+export function chat(state, history = [], now = 0, offline = false) {
+  if (!state) return [];
+  const { turn, heard, captions } = state;
+  const turns = [...(history ?? []), ...(turn ? [turn] : [])].map((t) => chatTurn(t, captions, offline));
   const between = !turn || (turn.doneAt && heard?.at > turn.doneAt);
-  if (heard?.text && between && now - heard.at < CAPTIONS_MS) {
-    return { question: heard.text, answer: "", live: !heard.final };
+  if (captions && heard?.text && between && now - heard.at < CAPTIONS_MS) {
+    turns.push({ key: "heard", at: heard.at, said: heard.text, live: !heard.final, items: [], end: null });
   }
-  if (!turn || (turn.doneAt && now - turn.doneAt > CAPTIONS_MS)) return null;
-  const question = turn.said ?? turn.question ?? "";
-  if (!question && !turn.answer) return null;
-  let answer = (turn.answer ?? "").trim();
-  if (answer.length > max) {
-    const cut = answer.slice(-max);
-    answer = `…${cut.slice(cut.indexOf(" ") + 1)}`;
-  }
-  return { question, answer, live: false };
+  return turns;
 }
 
 /**
@@ -426,20 +452,6 @@ export function wordChanges(shown, text) {
     })),
     gone: Math.max(0, shown.length - next.length),
   };
-}
-
-/** The last turns: {at, icon, label, took, ok}, newest first. A turn stopped didn't fail. */
-export function recent(state) {
-  return (state?.recent ?? []).map((r) => {
-    const tools = (r.tools ?? []).map((t) => tool(t));
-    return {
-      at: r.at,
-      icon: tools[0]?.icon ?? (r.conversation === state.voice?.conversation ? "voice" : "answering"),
-      label: tools.length ? [...new Set(tools.map((t) => t.short))].join(" · ") : "Answer",
-      took: seconds(r.ms ?? 0),
-      ok: r.ok !== false || Boolean(r.stopped),
-    };
-  });
 }
 
 /**

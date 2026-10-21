@@ -9,7 +9,9 @@
                     ({:system :messages :location :timezone :tools :call-tool}),
                     calling `on-text` with each chunk of text, and `on-tool`
                     with {:name} when the model starts using a tool (like web
-                    search, or one of `tools`). `tools` are grog's own
+                    search, or one of `tools`), and again with {:name
+                    :detail} once it knows what a tool it runs itself is used
+                    with (what it searched the web for). `tools` are grog's own
                     ([{:name :description :parameters}], parameters as a JSON
                     schema, see grog.tools): when the model calls one, the
                     provider runs it with (call-tool name args), which returns

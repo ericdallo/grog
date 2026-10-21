@@ -8,6 +8,7 @@
             [grog.actions :as actions]
             [grog.client :as client]
             [grog.config :as config]
+            [grog.events :as events]
             [grog.hands :as hands]
             [grog.log :as log]
             [grog.providers.http :as http]
@@ -161,6 +162,25 @@
           (is (= ["id -un"] @ran))
           (is (= {:type "function_call_output" :call_id "c1" :output "{\"exit\":0,\"output\":\"grog\\n\"}"}
                  (last (sent fake 1)))))))))
+
+(deftest whoever-watches-sees-what-a-tool-is-used-with
+  (h/with-fake [fake (apply concat (repeat 2 [(function-call "c1" "shell" "{\"command\":\"id -un\"}")
+                                              (answer "É o grog.")]))]
+    (with-redefs [http/api-key (constantly "k")
+                  hands/ask! (constantly {:exit 0 :output "grog\n" :timed-out false :truncated false})]
+      (doseq [captions [true false]]
+        (let [srv (start-server-at (:url fake) (h/temp-dir) #(-> %
+                                                                 (assoc-in [:hands :socket] "/run/grog-hands/hands.sock")
+                                                                 (assoc-in [:skin :captions] captions)))]
+          (try
+            (is (first (ask (str "http://127.0.0.1:" (:port srv)) "c" "quem é o usuário?")))
+            (is (= (if captions
+                     [{:tool "shell" :detail "id -un"} {:text "É o grog."}]
+                     [{:tool "shell"}])
+                   (map #(dissoc % :at :done-at) (get-in (events/snapshot (:events (:ctx srv))) [:turn :parts])))
+                (if captions "with captions" "nothing said, without"))
+            (finally
+              (server/stop! srv))))))))
 
 (deftest no-shell-commands-after-a-web-search
   ;; A page it read could have asked for the command.
@@ -414,9 +434,9 @@
             (is (= [true "Sunny tomorrow."] (ask url "voice" "will it be sunny tomorrow?")))
             (is (eventually #(some (fn [[type]] (= "done" type)) @got)))
             (is (= ["turn" "tool" "text" "done"] (filter #{"turn" "tool" "text" "done"} (map first @got))))
-            (let [{:keys [turn recent]} (:state (second (last (filter #(= "done" (first %)) @got))))]
+            (let [{:keys [turn]} (:state (second (last (filter #(= "done" (first %)) @got))))]
               (is (= ["heard" "thinking" "tool" "answering"] (map :step (:steps turn))))
-              (is (= {:ok true :tools ["web_search"]} (select-keys (first recent) [:ok :tools])))))
+              (is (= [true ["web_search"]] [(:ok turn) (keep :tool (:parts turn))]))))
           (testing "and nothing that was said, without captions"
             (is (not-any? #(str/includes? (pr-str %) "sunny") @got)))
           (testing "what it spent: a web search, with an API key"

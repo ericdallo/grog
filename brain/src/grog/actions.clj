@@ -238,5 +238,6 @@
                   :required ["action"]
                   :additionalProperties false}
      :changes? (constantly true)
+     :detail :action
      :run (fn [ctx {:keys [action]} turn]
             (later! ctx (str action) turn))}))
