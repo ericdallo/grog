@@ -7,10 +7,14 @@ said otherwise.
 
 ## Where it stands
 
+- It runs on an asus oled now, a Core Ultra 7 155H, rather than grognix's
+  Celeron: see "Round 3" below. The rest of this file is about grognix
+  unless said otherwise.
 - grog speaks with **Supertonic 3** (Supertone, May 2026), voice **M1**, in
   Portuguese (`pt`), run by **OpenVINO's CPU plugin**: the official fp32 ONNX
   graphs from `Supertone/supertonic-3`, pinned at revision
-  `3cadd1ee6394adea1bd021217a0e650ede09a323`, 4 threads, 5 steps.
+  `3cadd1ee6394adea1bd021217a0e650ede09a323`, 4 threads, 5 steps, at speed
+  1.4 (`tts.speed`, see "Speed" below).
 - Piper stays available (`tts.engine = "piper"`, `tts.voice` = a `.onnx`).
 - It hears with Parakeet TDT 0.6B v3 in int8, or fp32 with
   `services.grog.voice.sttPrecision` (see "The ears" below).
@@ -223,6 +227,17 @@ supertone-inc/supertonic, MIT), which grog follows:
   1.0 in sherpa (the samples the user picked) and 1.05 in the SDK. At 1.0
   it speaks slowly: the first test sentence lasts 6.8 s, against Piper's
   4.7 s.
+- **Speed**: grog divides the predicted duration by `tts.speed` (Piper's
+  `length_scale` too). Once grog ran on a faster machine, the user noticed
+  it was still reading what came before a tool call when the model had
+  long answered: answers stream all the way, but the model is done in 2 to
+  7 s, and speaking took 7 to 29 s after the question. M1 on the sample
+  sentence: 142 words a minute at 1.0, 149 at 1.05, 156 at 1.1, 163 at
+  1.15, 170 at 1.2, 184 at 1.3, 198 at 1.4; Parakeet heard every word up to
+  1.4 (one slurred "amanhã" at 1.2). The user liked 1.4, Supertonic's
+  default since (Piper's voices keep their own pace, 1: faber already says
+  that sentence in 4.7 s to M1's 6.8). Fewer frames, so synthesis is that
+  much faster too.
 - **Masks make padding safe** (the SDK pads batches with them), which we
   checked on the CPU with padded sizes.
 - **sherpa-onnx's `voice.bin`** holds the ten styles in the order F1 to F5,
@@ -311,6 +326,119 @@ grog would answer. The scripts ran with grog-voice's own Python, as above.
   "Graguinho", "Grogi", "Krogi", "Group", "G". Short and alone, from 3 m, is
   the hardest.
 
+## Round 3: the asus oled (late October 2026)
+
+grog moved from grognix to the user's old laptop, an ASUS Zenbook 14
+UX3405MA (Core Ultra 7 155H: 6 performance cores with two threads each, 10
+efficient ones, AVX2 and AVX-VNNI; 16 GB, ~10 GB free with grog running;
+an Arc iGPU, Xe-LPG; an NPU without its driver, so OpenVINO sees CPU and
+GPU only). It runs grog as a boot entry of its own, a NixOS specialisation
+in the user's dotfiles, and uses its built-in mics and speaker. Samples
+were made on another laptop (Core Ultra 9 386H, 32 GB) in a throwaway
+Docker lab with CPU PyTorch; speed numbers are from the 155H unless said
+otherwise.
+
+### Its CPU ran without turbo
+
+auto-cpufreq's `turbo = "auto"` (the dotfiles', on AC) only turns turbo on
+under sustained load, too late for grog's bursts: they ran at the base
+clock, 1.4 GHz (TLP was on too, fighting it). Turned on for a test
+(`intel_pstate/no_turbo`, up to 4.5 GHz), with grog-voice listening on, in
+bursts:
+
+| | Turbo off | Turbo on |
+| --- | --- | --- |
+| Parakeet int8, 2 threads, 2.6 to 4.2 s commands (median) | 0.33 s | 0.14 s |
+| Parakeet int8, 4 threads | 0.27 s | 0.10 s |
+| Supertonic M1, 4 threads: RTF, first sentences | 0.155, 0.42 to 1.04 s | 0.074, 0.22 to 0.48 s |
+| Supertonic M1, 6 threads | 0.06 to 0.17, 0.19 to 0.73 s | 0.056, 0.16 to 0.36 s |
+| Supertonic M1, 6 threads, 10 steps | 0.18 to 0.25 | 0.100, 0.29 to 0.64 s |
+
+- Without turbo: 8 threads 0.109, 12 threads 0.095, and OpenVINO's own
+  choice (14 threads, no `INFERENCE_NUM_THREADS`) 0.14 to 0.21, with the
+  slowest first sentences: 6 threads it is.
+- Its package went from 47 °C to 72 °C over minutes of back-to-back
+  benchmarks with turbo; real use is bursts.
+- The station's config (the dotfiles) asks auto-cpufreq for `turbo =
+  "always"` on AC, without TLP, with Parakeet in fp32 on 4 threads and
+  Supertonic on 6 (`sttPrecision`, `stt.threads`, `tts.threads`), from its
+  next rebuild.
+
+### The Arc iGPU
+
+OpenVINO's GPU plugin sees "Intel(R) Arc(TM) Graphics" through
+intel-compute-runtime (Gen12 and newer). Unlike grognix's Gen11, its
+results are right (Parakeet transcribes them perfectly) and running a
+smaller size after a bigger one works. But for Supertonic it's slower than
+the CPU:
+
+- Fully dynamic shapes still don't compile; bounded ones (1 to 512) do, at
+  RTF 0.29 for the sample sentence and 0.63 in bursts (f16): each new size
+  seems to cost a compile.
+- Static shapes (text 256, latent 256) in f32: 0.28 s per step of the
+  vector estimator for 14 s of speech, RTF 0.105. In f16 they don't build
+  (`clBuildProgram`).
+
+### Voices tried
+
+All with the sample sentence, checked by Parakeet (word error rate in the
+lab's `transcripts.json`), and by pitch (librosa's pyin: median F0, male
+voices ~85 to 155 Hz).
+
+- **Qwen3-TTS** (Alibaba, Apache-2.0, 0.6B and 1.7B, 10 languages):
+  - 1.7B VoiceDesign makes a voice from a description, in English (`Male,
+    about 35 years old, native Brazilian Portuguese speaker from São
+    Paulo. Warm baritone...`). Six designs, each saying a reference
+    sentence and the sample one. It's stochastic: the same description
+    gave a different voice for each text, and the one written in
+    Portuguese came out high (220 to 244 Hz), likely a woman's. "Deep",
+    "soft" and "warm" came out male (100 to 155 Hz).
+  - 0.6B Base cloned each design's reference faithfully, digits read right
+    ("28 graus"), and so did the designs themselves.
+  - 0.6B CustomVoice's presets (Aiden, Ryan, Uncle Fu... none Brazilian)
+    speak Portuguese; one, Dylan, gave nothing Parakeet could make out.
+  - On CPU PyTorch (386H): RTF 5 to 7.5 for the 1.7B, 3.4 to 7.3 for the
+    0.6B: the code predictor's 15 small steps per 80 ms frame weigh as much
+    as the model. Not for live use on the station; a voice designer, and a
+    teacher.
+- **Chatterbox Multilingual V3, Brazilian Portuguese model** (Resemble AI,
+  MIT, 0.5B): cloned all six designs without a single wrong word, but at
+  RTF 5.4 to 6.9 on the 386H's CPU. It needs a GPU.
+- **MOSS-TTS-Nano** (Apache-2.0, 0.1B, 48 kHz): unreliable in Portuguese,
+  up to 65% wrong words, and "Grog" came out "Rock", "Gauge", "Urogue".
+- **Pocket TTS** (Kyutai, CC-BY-4.0, 100M):
+  - Cloning needs the gated `kyutai/pocket-tts`; the user okayed
+    `lunahr/pocket-tts-ungated`, a CC-BY copy of an older release
+    (revision `d03cd73415a8d46d8eb115c7b524aebb0a729f4a`).
+  - Its weights only read text with its own SentencePiece tokenizer
+    (`tokenizer.model`): with the current release's tokenizer, every clone
+    said the same gibberish.
+  - With it, the 24-layer and 6-layer models cloned the six designs with 0
+    to 3% wrong words (numbers spelled out: it reads digits badly).
+  - Its predefined Portuguese voices are mostly foreign speakers; only
+    `rafael` is Brazilian.
+  - It streams: the first audio comes in 0.12 to 0.26 s, where Supertonic
+    synthesizes a whole sentence first. On the 386H, in bursts, `pocket_tts`
+    sets 1 torch thread: 6 layers RTF 0.37 (0.24 with 2 threads, no better
+    with more); 24 layers 1.18 (0.70 with 2, 0.53 with 4).
+  - Someone did for a woman's voice what grog would need for one of its
+    own (`marcosremar2/pocket-tts-erinome-pt`, CC-BY-4.0): 7.3 h of a
+    Brazilian voice generated with Qwen3-TTS, the 24-layer Portuguese model
+    fine-tuned on it (1,000 steps), then distilled to 6 layers (16,000
+    steps), with Kyutai's training code. Word errors 8.2% to 6.2% against
+    the released 6 layers, ~3x real time on 4 CPU threads, and ONNX
+    graphs (a FlowLM step with its KV cache, the Mimi decoder, the voice
+    as a ready KV cache) that would run on OpenVINO without torch.
+- **Supertonic 3**: blends of M1 with the other male styles (half and
+  half, 70/30) keep every word and lower the pitch (M1 143 Hz, blends 107
+  to 124 Hz); 8 and 10 steps didn't change what Parakeet heard.
+- Looked up, not tried: Voxtral TTS (Mistral, 4B, CC-BY-NC, a 16 GB GPU),
+  Fish Audio S2 Pro (5B, non-commercial), VoxCPM2 (2B, RTF 0.3 on an RTX
+  4090), OmniVoice (CC-BY-NC), Sopro (European Portuguese only).
+
+The samples' page is the lab's `samples/index.html` (in
+`~/.cache/grog-voicelab` on the laptop that made them).
+
 ## Where to go from here
 
 ### Ears
@@ -335,7 +463,10 @@ grog would answer. The scripts ran with grog-voice's own Python, as above.
   - OpenRAIL-M usually counts a model trained on another's outputs (distillation) as a derivative: allowed, but it inherits the use restrictions. Read Supertone's LICENSE before training on M1's output.
   - pt-BR datasets to check, licenses included: Edresson Casanova's TTS-Portuguese Corpus (Piper's `edresson` voice), CML-TTS.
 - **Pocket TTS**: open training code and voice cloning. It needs a faster
-  machine, or a measured ONNX path, to run on grognix.
+  machine, or a measured ONNX path, to run on grognix. On the asus oled, a
+  male voice designed with Qwen3-TTS, cloned, or better fine-tuned and
+  distilled to 6 layers like the Erinome one (see round 3), then run from
+  ONNX graphs on OpenVINO, is the likeliest voice of grog's own.
 - **Kokoro / StyleTTS2** can be fine-tuned too, with heavier inference than
   Piper.
 - **Supertonic itself** can't be trained without Supertone (Voice Builder is

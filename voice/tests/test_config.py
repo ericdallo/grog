@@ -43,6 +43,7 @@ class ConfigTest(unittest.TestCase):
             {
                 "engine": "supertonic",
                 "voice": "M1",
+                "speed": None,
                 "model": None,
                 "language": "pt",
                 "steps": 5,
@@ -163,6 +164,22 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(
             ['tts.engine: expected "supertonic" or "piper", got "espeak"'], problems({"engine": "espeak"})
         )
+
+    def test_speed_for_both_engines(self):
+        def problems(tts):
+            return config.problems(
+                config.deep_merge(config.DEFAULTS, {"stt": {"model": self.model}, "tts": tts})
+            )
+
+        for engine in ({"model": self.supertonic}, {"engine": "piper", "voice": self.voice}):
+            for ok in (None, 0.5, 1, 1.25, 2):
+                self.assertEqual([], problems({**engine, "speed": ok}), ok)
+            for bad in (0, 0.4, 2.5, "1.2", True):
+                self.assertEqual(
+                    [f"tts.speed: expected a number from 0.5 to 2, or null, got {json.dumps(bad)}"],
+                    problems({**engine, "speed": bad}),
+                    bad,
+                )
 
     def test_wake_words(self):
         def problems(wake_word):

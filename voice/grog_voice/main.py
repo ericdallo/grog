@@ -100,10 +100,11 @@ def text_to_speech(tts, engines=None):
         from .speech import Piper, Supertonic
 
         engines = {"supertonic": Supertonic, "piper": Piper}
+    speed = config.SPEEDS[tts["engine"]] if tts["speed"] is None else tts["speed"]
     if tts["engine"] == "piper":
-        return engines["piper"](tts["voice"])
+        return engines["piper"](tts["voice"], speed)
     style = supertonic.voice_style(tts["model"], tts["voice"])
-    return engines["supertonic"](tts["model"], style, tts["language"], tts["steps"], tts["threads"])
+    return engines["supertonic"](tts["model"], style, tts["language"], tts["steps"], tts["threads"], speed)
 
 
 def build(settings, open_mic, play, report=None, name=lambda: None, partials=True):

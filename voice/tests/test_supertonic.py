@@ -66,6 +66,11 @@ class VoiceStyleTest(unittest.TestCase):
         self.assertEqual(2, supertonic.latent_frames(3073, 3072))
         self.assertEqual(1, supertonic.latent_frames(0, 3072))
 
+    def test_duration_samples_shorter_when_faster(self):
+        self.assertEqual(44100, supertonic.duration_samples(1.0, 44100, 1.0))
+        self.assertEqual(36750, supertonic.duration_samples(1.0, 44100, 1.2))
+        self.assertEqual(88200, supertonic.duration_samples(1.0, 44100, 0.5))
+
 
 if __name__ == "__main__":
     unittest.main()

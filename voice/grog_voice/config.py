@@ -10,6 +10,10 @@ from .speech import parakeet_files
 
 # The text to speech engines (tts.engine).
 ENGINES = ("supertonic", "piper")
+# How fast each speaks without a tts.speed: Supertonic's M1 is slow on its own
+# (~140 words a minute), and the user liked it at 1.4 (~200); Piper's voices
+# speak at a normal pace.
+SPEEDS = {"supertonic": 1.4, "piper": 1.0}
 
 DEFAULTS = {
     # grog's HTTP API.
@@ -38,6 +42,9 @@ DEFAULTS = {
         # file (.json). Piper: a voice, its .onnx file with the .onnx.json next
         # to it.
         "voice": "M1",
+        # How fast it speaks: 1 is the voice's own pace, 1.2 a fifth faster.
+        # null: the engine's (see SPEEDS).
+        "speed": None,
         # Supertonic: its directory, as in Supertone/supertonic-3 (onnx/ and
         # voice_styles/).
         "model": None,
@@ -137,6 +144,7 @@ CHECKS = [
     ),
     ("stt.threads", lambda v: _int(v, 1), "a positive integer"),
     ("tts.engine", lambda v: v in ENGINES, '"supertonic" or "piper"'),
+    ("tts.speed", lambda v: v is None or (_number(v) and 0.5 <= v <= 2), "a number from 0.5 to 2, or null"),
     ("endSilenceMs", lambda v: _int(v, 1), "a positive integer"),
     ("speculateMs", lambda v: _int(v, 0), "an integer, 0 or more"),
     ("partialMs", lambda v: _int(v, 0), "an integer, 0 or more"),

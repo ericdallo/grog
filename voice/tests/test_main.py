@@ -23,15 +23,20 @@ class TextToSpeechTest(unittest.TestCase):
         }
         tts = config.deep_merge(config.DEFAULTS, {"tts": {"model": "/m"}})["tts"]
         text_to_speech(tts, engines)
-        text_to_speech({**tts, "voice": "/voices/mine.json", "language": "en", "steps": 3}, engines)
-        text_to_speech({**tts, "engine": "piper", "voice": "/voices/faber.onnx"}, engines)
+        mine = {"voice": "/voices/mine.json", "language": "en", "steps": 3, "speed": 1.3}
+        text_to_speech({**tts, **mine}, engines)
+        piper = {**tts, "engine": "piper", "voice": "/voices/faber.onnx"}
+        text_to_speech(piper, engines)
+        text_to_speech({**piper, "speed": 0.9}, engines)
         self.assertEqual(
             [
-                ("supertonic", "/m", "/m/voice_styles/M1.json", "pt", 5, 4),
-                ("supertonic", "/m", "/voices/mine.json", "en", 3, 4),
-                ("piper", "/voices/faber.onnx"),
+                ("supertonic", "/m", "/m/voice_styles/M1.json", "pt", 5, 4, 1.4),
+                ("supertonic", "/m", "/voices/mine.json", "en", 3, 4, 1.3),
+                ("piper", "/voices/faber.onnx", 1.0),
+                ("piper", "/voices/faber.onnx", 0.9),
             ],
             made,
+            "each engine at its own speed, unless set",
         )
 
 

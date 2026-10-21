@@ -92,6 +92,7 @@ or `$GROG_VOICE_CONFIG`), merged over the defaults in
 | `stt.threads` | `2` | 3 is slower on grognix's 4 cores. fp32 with 4 is as fast as int8 with 2, given AVX2 |
 | `tts.engine` | `"supertonic"` | Or `"piper"`: ~1 GB lighter and quicker to start speaking, but flatter. On NixOS: `ttsEngine` |
 | `tts.voice` | `"M1"` | Supertonic: one of its voices (F1 to F5, M1 to M5), or a voice style `.json`. Piper: a voice, `.onnx` with its `.onnx.json`. On NixOS: `ttsVoice` |
+| `tts.speed` | `null` | How fast it speaks, from 0.5 to 2: 1 is the voice's own pace, 1.2 a fifth faster. `null`: 1.4 with Supertonic (M1 says ~140 words a minute at 1, ~200 at 1.4), 1 with Piper |
 | `tts.model` | `null` | Supertonic's directory, as in Supertone/supertonic-3 (`onnx/`, `voice_styles/`). On NixOS: `ttsModel` |
 | `tts.language` | `"pt"` | What Supertonic reads, the language grog answers in: `en`, `es`, `fr` and 28 more |
 | `tts.steps` | `5` | Supertonic: fewer are faster, and worse (with 3 it drops words) |

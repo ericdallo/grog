@@ -74,17 +74,19 @@ class Parakeet:
 
 class Piper:
     """Text to speech with a Piper voice, kept loaded: ~0.2 s per second of
-    speech on grognix (loading it takes ~2 s)."""
+    speech on grognix (loading it takes ~2 s). `speed`: 1 is the voice's own
+    pace, higher is faster."""
 
-    def __init__(self, voice):
-        from piper import PiperVoice
+    def __init__(self, voice, speed=1.0):
+        from piper import PiperVoice, SynthesisConfig
 
         self.voice = PiperVoice.load(voice)
         self.sample_rate = self.voice.config.sample_rate
+        self.config = SynthesisConfig(length_scale=self.voice.config.length_scale / speed)
 
     def __call__(self, text):
         """Yields the 16-bit mono audio of `text`, a sentence at a time."""
-        for chunk in self.voice.synthesize(text):
+        for chunk in self.voice.synthesize(text, syn_config=self.config):
             yield chunk.audio_int16_bytes
 
 
@@ -95,9 +97,10 @@ class Supertonic:
     steps) and ~1 GB. `model` has its graphs (onnx/) as in
     Supertone/supertonic-3; `style`, a voice (its .json); `language`, what
     it reads (see supertonic.LANGUAGES); `steps`, of its flow: fewer are
-    faster, and worse."""
+    faster, and worse; `speed`: 1 is the voice's own pace, higher is
+    faster."""
 
-    def __init__(self, model, style, language, steps, threads):
+    def __init__(self, model, style, language, steps, threads, speed=1.0):
         import json
 
         import numpy as np
@@ -117,7 +120,7 @@ class Supertonic:
         # Samples per latent frame, and its channels.
         self.frame = cfg["ae"]["base_chunk_size"] * cfg["ttl"]["chunk_compress_factor"]
         self.channels = cfg["ttl"]["latent_dim"] * cfg["ttl"]["chunk_compress_factor"]
-        self.language, self.steps = language, steps
+        self.language, self.steps, self.speed = language, steps, speed
         # Compiled straight from their files, they take half the memory.
         core, config = ov.Core(), {"INFERENCE_NUM_THREADS": threads, "PERFORMANCE_HINT": "LATENCY"}
         self.duration, self.encoder, self.estimator, self.vocoder = (
@@ -141,7 +144,7 @@ class Supertonic:
         ids = np.array([ids], dtype=np.int64)
         text_mask = np.ones((1, 1, ids.shape[1]), dtype=np.float32)
         seconds = np.asarray(self.duration({"text_ids": ids, "style_dp": self.dp, "text_mask": text_mask})[0])
-        samples = int(seconds.reshape(-1)[0] * self.sample_rate)
+        samples = supertonic.duration_samples(float(seconds.reshape(-1)[0]), self.sample_rate, self.speed)
         frames = supertonic.latent_frames(samples, self.frame)
         text_emb = self.encoder({"text_ids": ids, "style_ttl": self.ttl, "text_mask": text_mask})[0]
         latent_mask = np.ones((1, 1, frames), dtype=np.float32)

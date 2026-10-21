@@ -75,6 +75,12 @@ def voice_style(model, voice):
     return voice if voice.endswith(".json") else os.path.join(model, "voice_styles", f"{voice}.json")
 
 
+def duration_samples(seconds, sample_rate, speed):
+    """How many samples it takes to say what the duration predictor says
+    lasts `seconds`, `speed` times as fast."""
+    return int(seconds / speed * sample_rate)
+
+
 def latent_frames(samples, frame):
     """How many latent frames make `samples` of audio, `frame` samples each."""
     return max(1, math.ceil(samples / frame))
