@@ -13,7 +13,14 @@ class ConfigTest(unittest.TestCase):
         self.model = os.path.join(self.dir.name, "parakeet")
         os.mkdir(self.model)
         self.voice = os.path.join(self.dir.name, "voice.onnx")
-        for path in (self.voice, self.voice + ".json"):
+        self.supertonic = os.path.join(self.dir.name, "supertonic-3")
+        self.style = os.path.join(self.dir.name, "mine.json")
+        files = [self.voice, self.voice + ".json", self.style] + [
+            os.path.join(self.supertonic, f)
+            for f in config.SUPERTONIC_FILES + ("voice_styles/M1.json", "voice_styles/F2.json")
+        ]
+        for path in files:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             open(path, "w").close()
 
     def write(self, text):
@@ -28,9 +35,21 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(2, settings["stt"]["threads"])
         self.assertEqual(300, settings["partialMs"])
         self.assertEqual(
+            {
+                "engine": "supertonic",
+                "voice": "M1",
+                "model": None,
+                "language": "pt",
+                "steps": 5,
+                "threads": 4,
+            },
+            settings["tts"],
+        )
+        self.assertEqual(
             [
                 "stt.model: expected a Parakeet model directory, got nothing",
-                "tts.voice: expected a Piper voice (.onnx, with its .onnx.json next to it), got nothing",
+                "tts.model: expected a Supertonic model directory (onnx/ and voice_styles/, "
+                "as in Supertone/supertonic-3), got nothing",
             ],
             config.problems(settings),
         )
@@ -40,7 +59,7 @@ class ConfigTest(unittest.TestCase):
             json.dumps(
                 {
                     "stt": {"model": self.model},
-                    "tts": {"voice": self.voice},
+                    "tts": {"model": self.supertonic},
                     "mic": "my-mic",
                     "endSilenceMs": 800,
                 }
@@ -49,6 +68,7 @@ class ConfigTest(unittest.TestCase):
         settings = config.load(path)
         self.assertEqual([], config.problems(settings))
         self.assertEqual(2, settings["stt"]["threads"])
+        self.assertEqual("M1", settings["tts"]["voice"])
         self.assertEqual("my-mic", settings["mic"])
         self.assertEqual(800, settings["endSilenceMs"])
         self.assertIsNone(config.DEFAULTS["mic"], "the defaults stay untouched")
@@ -59,7 +79,7 @@ class ConfigTest(unittest.TestCase):
                 json.dumps(
                     {
                         "stt": {"model": self.model, "threads": True, "beam": 2},
-                        "tts": {"voice": os.path.join(self.dir.name, "missing.onnx")},
+                        "tts": {"engine": "piper", "voice": os.path.join(self.dir.name, "missing.onnx")},
                         "grogUrl": "localhost:8484",
                         "speculateMs": 0,
                         "endSilenceMs": "600",
@@ -83,11 +103,42 @@ class ConfigTest(unittest.TestCase):
             config.problems(settings),
         )
 
+    def test_text_to_speech_by_engine(self):
+        def problems(tts):
+            return config.problems(
+                config.deep_merge(config.DEFAULTS, {"stt": {"model": self.model}, "tts": tts})
+            )
+
+        model = {"model": self.supertonic}
+        self.assertEqual([], problems({**model, "voice": "F2", "language": "en", "steps": 3, "threads": 2}))
+        self.assertEqual([], problems({**model, "voice": self.style}), "a voice style of its own")
+        self.assertEqual(
+            [
+                "tts.voice: expected one of Supertonic's voices (F1 to F5, M1 to M5), or a voice style file "
+                '(.json), got "M3"',
+                'tts.language: expected a language Supertonic reads, like "pt", got "xx"',
+                "tts.steps: expected a positive integer, got 0",
+                'tts.threads: expected a positive integer, got "4"',
+            ],
+            problems({**model, "voice": "M3", "language": "xx", "steps": 0, "threads": "4"}),
+            "M3 isn't in this model",
+        )
+        self.assertEqual(
+            [], problems({"engine": "piper", "voice": self.voice, "language": "xx"}), "its own only"
+        )
+        self.assertEqual(
+            ['tts.voice: expected a Piper voice (.onnx, with its .onnx.json next to it), got "M1"'],
+            problems({"engine": "piper"}),
+        )
+        self.assertEqual(
+            ['tts.engine: expected "supertonic" or "piper", got "espeak"'], problems({"engine": "espeak"})
+        )
+
     def test_wake_words(self):
         def problems(wake_word):
             settings = config.deep_merge(
                 config.DEFAULTS,
-                {"stt": {"model": self.model}, "tts": {"voice": self.voice}, "wakeWord": wake_word},
+                {"stt": {"model": self.model}, "tts": {"model": self.supertonic}, "wakeWord": wake_word},
             )
             return config.problems(settings)
 

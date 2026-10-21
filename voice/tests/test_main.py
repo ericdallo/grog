@@ -6,12 +6,33 @@ from fakes import FakeMic, FakeStt, FakeVad
 from grog_voice import config
 from grog_voice.ears import Ears, Heard
 from grog_voice.grog import GrogError
-from grog_voice.main import NameWatch, heard_line, wake_words
+from grog_voice.main import NameWatch, heard_line, text_to_speech, wake_words
 from grog_voice.wake import WakeWords
 
 
 def settings(wake_word):
     return config.deep_merge(config.DEFAULTS, {"wakeWord": wake_word})
+
+
+class TextToSpeechTest(unittest.TestCase):
+    def test_the_engine_the_settings_pick(self):
+        made = []
+        engines = {
+            "supertonic": lambda *args: made.append(("supertonic", *args)),
+            "piper": lambda *args: made.append(("piper", *args)),
+        }
+        tts = config.deep_merge(config.DEFAULTS, {"tts": {"model": "/m"}})["tts"]
+        text_to_speech(tts, engines)
+        text_to_speech({**tts, "voice": "/voices/mine.json", "language": "en", "steps": 3}, engines)
+        text_to_speech({**tts, "engine": "piper", "voice": "/voices/faber.onnx"}, engines)
+        self.assertEqual(
+            [
+                ("supertonic", "/m", "/m/voice_styles/M1.json", "pt", 5, 4),
+                ("supertonic", "/m", "/voices/mine.json", "en", 3, 4),
+                ("piper", "/voices/faber.onnx"),
+            ],
+            made,
+        )
 
 
 class WakeWordsTest(unittest.TestCase):

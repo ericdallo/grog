@@ -5,6 +5,11 @@ import json
 import os
 import re
 
+from . import supertonic
+
+# The text to speech engines (tts.engine).
+ENGINES = ("supertonic", "piper")
+
 DEFAULTS = {
     # grog's HTTP API.
     "grogUrl": "http://127.0.0.1:8484",
@@ -26,8 +31,24 @@ DEFAULTS = {
         "threads": 2,
     },
     "tts": {
-        # A Piper voice: the .onnx file, with its .onnx.json next to it.
-        "voice": None,
+        # "supertonic" (Supertonic 3) or "piper".
+        "engine": "supertonic",
+        # Supertonic: one of its voices (F1 to F5, M1 to M5), or a voice style
+        # file (.json). Piper: a voice, its .onnx file with the .onnx.json next
+        # to it.
+        "voice": "M1",
+        # Supertonic: its directory, as in Supertone/supertonic-3 (onnx/ and
+        # voice_styles/).
+        "model": None,
+        # Supertonic: the language it reads ("pt", "en", ...), the one grog
+        # answers in.
+        "language": "pt",
+        # Supertonic: steps of its flow. Fewer are faster, and worse: with 3 it
+        # drops words.
+        "steps": 5,
+        # Supertonic: CPU threads. On grognix's 4 cores, 4 are the fastest: it
+        # doesn't listen while it talks.
+        "threads": 4,
     },
     # Silence after speech that ends an utterance.
     "endSilenceMs": 600,
@@ -110,16 +131,76 @@ CHECKS = [
     ("speaker", _optional(_non_blank), "a PipeWire node name, or null"),
     ("stt.model", lambda v: isinstance(v, str) and os.path.isdir(v), "a Parakeet model directory"),
     ("stt.threads", lambda v: _int(v, 1), "a positive integer"),
-    (
-        "tts.voice",
-        lambda v: isinstance(v, str) and os.path.isfile(v) and os.path.isfile(v + ".json"),
-        "a Piper voice (.onnx, with its .onnx.json next to it)",
-    ),
+    ("tts.engine", lambda v: v in ENGINES, '"supertonic" or "piper"'),
     ("endSilenceMs", lambda v: _int(v, 1), "a positive integer"),
     ("speculateMs", lambda v: _int(v, 0), "an integer, 0 or more"),
     ("partialMs", lambda v: _int(v, 0), "an integer, 0 or more"),
     ("maxUtteranceSeconds", _number, "a positive number"),
 ]
+
+# What a Supertonic model directory holds (see speech.Supertonic).
+SUPERTONIC_FILES = tuple(
+    f"onnx/{name}"
+    for name in (
+        "duration_predictor.onnx",
+        "text_encoder.onnx",
+        "vector_estimator.onnx",
+        "vocoder.onnx",
+        "tts.json",
+        "unicode_indexer.json",
+    )
+)
+
+
+def _piper_voice(v):
+    return isinstance(v, str) and os.path.isfile(v) and os.path.isfile(v + ".json")
+
+
+def _supertonic_model(v):
+    return isinstance(v, str) and all(os.path.isfile(os.path.join(v, f)) for f in SUPERTONIC_FILES)
+
+
+def _supertonic_voice(v, model):
+    """A style file, or one of its voices, which `model` has (when it's a
+    model at all: if not, that's what's wrong)."""
+    if not _non_blank(v):
+        return False
+    if v.endswith(".json"):
+        return os.path.isfile(v)
+    return v in supertonic.VOICES and (
+        not _supertonic_model(model) or os.path.isfile(supertonic.voice_style(model, v))
+    )
+
+
+def _tts_checks(settings):
+    """The checks of the settings of the text to speech engine in use."""
+    engine, model = _get(settings, "tts.engine"), _get(settings, "tts.model")
+    if engine == "piper":
+        return [("tts.voice", _piper_voice, "a Piper voice (.onnx, with its .onnx.json next to it)")]
+    if engine != "supertonic":
+        return []
+    return [
+        (
+            "tts.voice",
+            lambda v: _supertonic_voice(v, model),
+            "one of Supertonic's voices (F1 to F5, M1 to M5), or a voice style file (.json)",
+        ),
+        (
+            "tts.model",
+            _supertonic_model,
+            "a Supertonic model directory (onnx/ and voice_styles/, as in Supertone/supertonic-3)",
+        ),
+        ("tts.language", lambda v: v in supertonic.LANGUAGES, 'a language Supertonic reads, like "pt"'),
+        ("tts.steps", lambda v: _int(v, 1), "a positive integer"),
+        ("tts.threads", lambda v: _int(v, 1), "a positive integer"),
+    ]
+
+
+def _checks(settings):
+    """CHECKS, with those of the text to speech engine's settings after
+    tts.engine."""
+    at = next(i for i, check in enumerate(CHECKS) if check[0] == "tts.engine") + 1
+    return CHECKS[:at] + _tts_checks(settings) + CHECKS[at:]
 
 
 def _get(settings, path):
@@ -140,7 +221,7 @@ def _unknown(settings, defaults, prefix=""):
 def problems(settings):
     """What's wrong with `settings`, naming them the way they're written."""
     out = [f"unknown setting: {path}" for path in _unknown(settings, DEFAULTS)]
-    for path, ok, expected in CHECKS:
+    for path, ok, expected in _checks(settings):
         v = _get(settings, path)
         if not ok(v):
             out.append(f"{path}: expected {expected}, got {'nothing' if v is None else json.dumps(v)}")

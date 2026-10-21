@@ -26,18 +26,20 @@ python3Packages.buildPythonApplication {
 
   dependencies = with python3Packages; [
     numpy
+    # Runs Supertonic: twice as fast as ONNX Runtime on grognix's CPU.
+    openvino
     piper
     pysilero-vad
     sherpa-onnx
   ];
-  # nixpkgs' sherpa-onnx installs no package metadata (pythonImportsCheck
-  # still checks it's there).
-  pythonRemoveDeps = [ "sherpa-onnx" ];
+  # nixpkgs' openvino and sherpa-onnx install no package metadata
+  # (pythonImportsCheck still checks they're there).
+  pythonRemoveDeps = [ "openvino" "sherpa-onnx" ];
 
   # The unit tests need none of the models.
   nativeCheckInputs = [ python3Packages.unittestCheckHook ];
   unittestFlags = [ "-s" "tests" "-v" ];
-  pythonImportsCheck = [ "grog_voice" "piper" "pysilero_vad" "sherpa_onnx" ];
+  pythonImportsCheck = [ "grog_voice" "openvino" "piper" "pysilero_vad" "sherpa_onnx" ];
 
   makeWrapperArgs = [
     # pw-cat records and plays.

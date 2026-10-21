@@ -21,14 +21,20 @@ up to it.
    doesn't need it.
 4. A short sound says it got it, and the brain answers, streamed. Another
    sound means it's looking something up.
-5. [Piper](https://github.com/OHF-Voice/piper1-gpl) speaks the answer a
-   sentence at a time, while the rest is still coming.
+5. [Supertonic 3](https://huggingface.co/Supertone/supertonic-3) speaks the
+   answer in its voice M1, a sentence at a time, while the rest is still
+   coming. It runs on [OpenVINO](https://github.com/openvinotoolkit/openvino),
+   twice as fast as ONNX Runtime on grognix's CPU.
+   [Piper](https://github.com/OHF-Voice/piper1-gpl) can speak instead
+   (`tts.engine`): lighter and quicker to start, but flatter.
 
 It doesn't listen while it talks. A low sound means something went wrong,
 and the log says what.
 
-On grognix, a Celeron N5095, it starts answering about 3 s after you stop
-talking, 5 to 8 s when it searches the web. Most of that is the LLM.
+On grognix, a Celeron N5095, Supertonic takes ~0.5 s per second of speech
+(Piper: 0.2), so it starts answering 1 to 3 s after the LLM's first words,
+which take 2 to 3 s, more when it searches the web. What was tried for its
+voice, and why this one: [plans/voice.md](../plans/voice.md).
 
 ## Running it
 
@@ -36,8 +42,11 @@ On NixOS, `services.grog.voice.enable` runs it as a user service of
 `services.grog.user`, whose session has the mic and the speaker (PipeWire).
 Log that user in at boot, or set `users.users.<name>.linger = true`.
 
-Nix fetches the models: Parakeet and Piper's pt_BR `faber` voice. Pick others
-with `services.grog.voice.sttModel` and `ttsVoice`.
+Nix fetches the models: Parakeet, and Supertonic 3 with its ten voices (F1
+to F5, M1 to M5), under OpenRAIL-M, which forbids harmful uses (its LICENSE
+comes with it). Pick others with `services.grog.voice.sttModel`, `ttsModel`
+and `ttsVoice`. `ttsEngine = "piper"` speaks with Piper's pt_BR `faber`
+voice, or the one in `ttsVoice`.
 
 `journalctl --user -u grog-voice` shows how long each turn took.
 
@@ -72,7 +81,12 @@ or `$GROG_VOICE_CONFIG`), merged over the defaults in
 | `mic`, `speaker` | `null` | PipeWire node names (`wpctl status -n`). `null`: the session's defaults |
 | `stt.model` | `null` | A Parakeet TDT model for sherpa-onnx. On NixOS: `sttModel` |
 | `stt.threads` | `2` | 3 is slower on grognix's 4 cores |
-| `tts.voice` | `null` | A Piper voice, `.onnx` with its `.onnx.json`. On NixOS: `ttsVoice` |
+| `tts.engine` | `"supertonic"` | Or `"piper"`: ~1 GB lighter and quicker to start speaking, but flatter. On NixOS: `ttsEngine` |
+| `tts.voice` | `"M1"` | Supertonic: one of its voices (F1 to F5, M1 to M5), or a voice style `.json`. Piper: a voice, `.onnx` with its `.onnx.json`. On NixOS: `ttsVoice` |
+| `tts.model` | `null` | Supertonic's directory, as in Supertone/supertonic-3 (`onnx/`, `voice_styles/`). On NixOS: `ttsModel` |
+| `tts.language` | `"pt"` | What Supertonic reads, the language grog answers in: `en`, `es`, `fr` and 28 more |
+| `tts.steps` | `5` | Supertonic: fewer are faster, and worse (with 3 it drops words) |
+| `tts.threads` | `4` | Supertonic: the fastest on grognix's 4 cores, as it doesn't listen while it talks |
 | `endSilenceMs` | `600` | Silence that ends what you said |
 | `speculateMs` | `250` | A pause this long starts transcribing, in case it's the end. `0`: wait for the end |
 | `partialMs` | `300` | How much more you have to say before what you've said so far is transcribed again. `0`: only at pauses, without the second model |

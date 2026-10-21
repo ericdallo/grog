@@ -16,6 +16,9 @@ let
 
     # The VM has no sound card: a virtual mic, recording silence.
     services.grog.voice.settings.mic = "null-mic";
+    # Lighter than Supertonic, by ~1 GB: grog-voice's voice is module.nix's
+    # business.
+    services.grog.voice.ttsEngine = "piper";
     services.pipewire.extraConfig.pipewire."90-null-mic"."context.objects" = [{
       factory = "adapter";
       args = {

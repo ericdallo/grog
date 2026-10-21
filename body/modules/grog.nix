@@ -25,7 +25,12 @@ let
     {
       inherit grogUrl;
       stt.model = "${cfg.voice.sttModel}";
-      tts.voice = "${cfg.voice.ttsVoice}";
+      tts = {
+        engine = cfg.voice.ttsEngine;
+        voice = cfg.voice.ttsVoice;
+      } // lib.optionalAttrs (cfg.voice.ttsEngine == "supertonic") {
+        model = "${cfg.voice.ttsModel}";
+      };
     }
     cfg.voice.settings);
 in
@@ -120,13 +125,34 @@ in
         '';
       };
 
-      ttsVoice = lib.mkOption {
-        type = lib.types.path;
-        default = "${models.faber}/pt_BR-faber-medium.onnx";
-        defaultText = lib.literalMD "Piper's pt_BR `faber` voice, medium quality (`body/packages/voice-models.nix`)";
+      ttsEngine = lib.mkOption {
+        type = lib.types.enum [ "supertonic" "piper" ];
+        default = "supertonic";
         description = ''
-          Text to speech: a Piper voice, its `.onnx` file with the
-          `.onnx.json` next to it. Voices: https://huggingface.co/rhasspy/piper-voices
+          Text to speech: Supertonic 3, or Piper, lighter (~1 GB less) and
+          faster to start speaking, but flatter.
+        '';
+      };
+
+      ttsModel = lib.mkOption {
+        type = lib.types.path;
+        default = models.supertonic;
+        defaultText = lib.literalMD "Supertonic 3, its graphs and its ten voices (`body/packages/voice-models.nix`)";
+        description = ''
+          Supertonic's directory, laid out as Supertone/supertonic-3 on
+          Hugging Face (`onnx/`, `voice_styles/`).
+        '';
+      };
+
+      ttsVoice = lib.mkOption {
+        type = lib.types.str;
+        default = if cfg.voice.ttsEngine == "piper" then "${models.faber}/pt_BR-faber-medium.onnx" else "M1";
+        defaultText = lib.literalMD ''`"M1"`; with Piper, its pt_BR `faber` voice, medium quality (`body/packages/voice-models.nix`)'';
+        example = "F2";
+        description = ''
+          Supertonic: one of its voices (F1 to F5, M1 to M5), or a voice
+          style file (`.json`). Piper: a voice, its `.onnx` file with the
+          `.onnx.json` next to it (https://huggingface.co/rhasspy/piper-voices).
         '';
       };
 
@@ -143,7 +169,8 @@ in
           Settings rendered to JSON (lowerCamelCase keys) and merged over
           grog-voice's defaults (voice/grog_voice/config.py, documented in
           voice/README.md). `grogUrl` points at services.grog on this machine,
-          `stt.model` and `tts.voice` come from the options above.
+          `stt.model` and `tts.engine`, `tts.voice` and `tts.model` come from
+          the options above.
         '';
       };
     };

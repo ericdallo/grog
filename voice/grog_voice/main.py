@@ -91,6 +91,21 @@ def reporter(settings):
     )
 
 
+def text_to_speech(tts, engines=None):
+    """The text to speech engine the `tts` settings pick, loaded. `engines`:
+    its classes by name (speech.Supertonic and speech.Piper by default)."""
+    from . import supertonic
+
+    if engines is None:
+        from .speech import Piper, Supertonic
+
+        engines = {"supertonic": Supertonic, "piper": Piper}
+    if tts["engine"] == "piper":
+        return engines["piper"](tts["voice"])
+    style = supertonic.voice_style(tts["model"], tts["voice"])
+    return engines["supertonic"](tts["model"], style, tts["language"], tts["steps"], tts["threads"])
+
+
 def build(settings, open_mic, play, report=None, name=lambda: None, partials=True):
     """Loads the models (a few seconds), then opens the mic: a Voice, telling
     grog what it's doing through `report` (a Reporter, if any), and what it
@@ -102,14 +117,14 @@ def build(settings, open_mic, play, report=None, name=lambda: None, partials=Tru
     from . import grog
     from .audio import NullPlayer, Player
     from .loop import Voice
-    from .speech import Parakeet, Piper, SileroVad
+    from .speech import Parakeet, SileroVad
     from .worker import Worker
 
     started = time.monotonic()
     model, threads = settings["stt"]["model"], settings["stt"]["threads"]
     partial_stt = Worker(Parakeet, model, threads) if partials and settings["partialMs"] else None
     stt = Parakeet(model, threads)
-    tts = Piper(settings["tts"]["voice"])
+    tts = text_to_speech(settings["tts"])
     vad = SileroVad()
     for _ in tts("Ok."):  # the first run is slower
         pass

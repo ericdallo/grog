@@ -1,7 +1,13 @@
-"""The models: Silero VAD, Parakeet speech-to-text and Piper text-to-speech.
-Their libraries load lazily, so the rest runs (and is tested) without them."""
+"""The models: Silero VAD, Parakeet speech-to-text, and text-to-speech with
+Supertonic or Piper. Their libraries load lazily, so the rest runs (and is
+tested) without them."""
 
+from . import supertonic
 from .audio import peak_dbfs, stt_gain_db
+
+# Supertonic's speech is brought up to peak there (-1 dBFS), by at most that
+# much (+12 dB), like Piper's.
+SUPERTONIC_PEAK, SUPERTONIC_MAX_GAIN = 0.89, 4.0
 
 
 class SileroVad:
@@ -67,3 +73,83 @@ class Piper:
         """Yields the 16-bit mono audio of `text`, a sentence at a time."""
         for chunk in self.voice.synthesize(text):
             yield chunk.audio_int16_bytes
+
+
+class Supertonic:
+    """Text to speech with Supertonic 3 (Supertone, OpenRAIL-M), kept loaded,
+    on OpenVINO's CPU plugin: twice as fast as ONNX Runtime on grognix's
+    Celeron N5095, where it takes ~0.5 s per second of speech (4 threads, 5
+    steps) and ~1 GB. `model` has its graphs (onnx/) as in
+    Supertone/supertonic-3; `style`, a voice (its .json); `language`, what
+    it reads (see supertonic.LANGUAGES); `steps`, of its flow: fewer are
+    faster, and worse."""
+
+    def __init__(self, model, style, language, steps, threads):
+        import json
+
+        import numpy as np
+        import openvino as ov
+
+        with open(f"{model}/onnx/tts.json", encoding="utf-8") as f:
+            cfg = json.load(f)
+        with open(f"{model}/onnx/unicode_indexer.json", encoding="utf-8") as f:
+            self.indexer = json.load(f)
+        with open(style, encoding="utf-8") as f:
+            voice = json.load(f)
+        self.ttl, self.dp = (
+            np.array(voice[k]["data"], dtype=np.float32).reshape(voice[k]["dims"])
+            for k in ("style_ttl", "style_dp")
+        )
+        self.sample_rate = cfg["ae"]["sample_rate"]
+        # Samples per latent frame, and its channels.
+        self.frame = cfg["ae"]["base_chunk_size"] * cfg["ttl"]["chunk_compress_factor"]
+        self.channels = cfg["ttl"]["latent_dim"] * cfg["ttl"]["chunk_compress_factor"]
+        self.language, self.steps = language, steps
+        # Compiled straight from their files, they take half the memory.
+        core, config = ov.Core(), {"INFERENCE_NUM_THREADS": threads, "PERFORMANCE_HINT": "LATENCY"}
+        self.duration, self.encoder, self.estimator, self.vocoder = (
+            core.compile_model(f"{model}/onnx/{name}.onnx", "CPU", config)
+            for name in ("duration_predictor", "text_encoder", "vector_estimator", "vocoder")
+        )
+
+    def __call__(self, text):
+        """Yields the 16-bit mono audio of `text`, a piece at a time (long
+        texts are read in pieces, see supertonic.pieces)."""
+        for piece in supertonic.pieces(text, self.language):
+            if pcm := self._synthesize(piece):
+                yield pcm
+
+    def _synthesize(self, text):
+        import numpy as np
+
+        ids = supertonic.symbols(supertonic.prepare(text, self.language), self.indexer)
+        if not ids:
+            return b""
+        ids = np.array([ids], dtype=np.int64)
+        text_mask = np.ones((1, 1, ids.shape[1]), dtype=np.float32)
+        seconds = np.asarray(self.duration({"text_ids": ids, "style_dp": self.dp, "text_mask": text_mask})[0])
+        samples = int(seconds.reshape(-1)[0] * self.sample_rate)
+        frames = supertonic.latent_frames(samples, self.frame)
+        text_emb = self.encoder({"text_ids": ids, "style_ttl": self.ttl, "text_mask": text_mask})[0]
+        latent_mask = np.ones((1, 1, frames), dtype=np.float32)
+        # The same noise for the same length: the same text sounds the same.
+        latent = np.random.default_rng(0).standard_normal((1, self.channels, frames), dtype=np.float32)
+        total = np.array([self.steps], dtype=np.float32)
+        for step in range(self.steps):
+            latent = self.estimator(
+                {
+                    "noisy_latent": latent,
+                    "text_emb": text_emb,
+                    "style_ttl": self.ttl,
+                    "text_mask": text_mask,
+                    "latent_mask": latent_mask,
+                    "current_step": np.array([step], dtype=np.float32),
+                    "total_step": total,
+                }
+            )[0]
+        wav = np.asarray(self.vocoder({"latent": latent})[0]).reshape(-1)[:samples]
+        # Up to where Piper's speech peaks, which the earcons and the speaker's
+        # volume were set for: Supertonic's is ~8 dB lower.
+        if (peak := float(np.abs(wav).max())) > 0:
+            wav = wav * min(SUPERTONIC_PEAK / peak, SUPERTONIC_MAX_GAIN)
+        return (np.clip(wav, -1, 1) * 32767).astype(np.int16).tobytes()

@@ -5,7 +5,7 @@ import array
 import functools
 import math
 
-VOLUME = 0.18  # about -15 dBFS; Piper's speech peaks near 0 dBFS
+VOLUME = 0.18  # about -15 dBFS; speech peaks near 0 dBFS (see speech.py)
 
 
 def _pluck(rate, hz, seconds, volume=VOLUME, decay_s=0.06):

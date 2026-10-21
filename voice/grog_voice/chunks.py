@@ -1,6 +1,7 @@
 """Cuts an answer, as it streams in, into chunks to speak: sentences, and a
-first chunk that may end at a clause, so that speaking starts sooner (Piper
-synthesizes a chunk at a time, ~0.2 s per second of speech on grognix)."""
+first chunk that may end at a clause, so that speaking starts sooner (text to
+speech synthesizes a chunk at a time: on grognix, Supertonic takes ~0.5 s per
+second of speech, Piper ~0.2)."""
 
 import re
 
