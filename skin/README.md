@@ -46,7 +46,9 @@ The [brain](../brain/README.md) serves it at `http://127.0.0.1:8484/`, from
 On NixOS, `services.grog.skin.enable` also opens it fullscreen when
 `services.grog.user` logs in, in a window of its own (`kiosk.js`, GTK and
 WebKit) that keeps the screen on. F11 toggles fullscreen, Ctrl+R reloads,
-and Ctrl+Q closes it until the next login. With
+and Ctrl+Q closes it until the next login. When the GPU hangs and the
+kernel resets it (i915 says so), the window can't draw anymore: it exits,
+and its service starts it again. With
 `services.grog.skin.user = null`, it's only served.
 
 To see it from another machine, `ssh -L 8484:127.0.0.1:8484 <server>` and

@@ -5,7 +5,8 @@
 // It shows nothing but grog's page, tries again while grog isn't up, keeps
 // the screen on, and, as GNOME starts in its overview, closes it: the skin is
 // what the screen shows. F11 toggles fullscreen, Ctrl+R reloads, Ctrl+Q
-// quits.
+// quits. Once the GPU was reset (it hung), it exits failing, to be started
+// again: the window can't draw on the GPU it had.
 
 import Gdk from "gi://Gdk?version=4.0";
 import Gio from "gi://Gio";
@@ -13,6 +14,9 @@ import GLib from "gi://GLib";
 import Gtk from "gi://Gtk?version=4.0";
 import WebKit from "gi://WebKit?version=6.0";
 import System from "system";
+
+// Hears from the kernel's devices (libgudev): without it, the GPU isn't watched.
+const GUdev = await import("gi://GUdev?version=1.0").then((m) => m.default).catch(() => null);
 
 const base = (ARGV[0] ?? "http://127.0.0.1:8484/").replace(/\/?$/, "/");
 const url = `${base}?kiosk`;
@@ -61,6 +65,20 @@ function hasGpu() {
   return false;
 }
 
+/**
+ * Calls `f` once a GPU was reset, as i915 tells (RESET=1 on its card): the
+ * window's renderer lost its GPU then, and draws nothing more, for good.
+ * Returns what watches, to keep.
+ */
+function onGpuReset(f) {
+  if (!GUdev) return null;
+  const client = GUdev.Client.new(["drm"]);
+  client.connect("uevent", (_client, action, device) => {
+    if (action === "change" && device.get_property("RESET") === "1") f();
+  });
+  return client;
+}
+
 function makeView() {
   const view = new WebKit.WebView();
   // Without one (a VM's screen, say), WebKit's GPU path shows nothing: the
@@ -94,6 +112,12 @@ function makeView() {
 }
 
 const app = new Gtk.Application({ application_id: "io.github.ericdallo.grog.Skin" });
+
+// Failing, so that whoever runs it (systemd, cage's service) starts it again.
+const gpu = onGpuReset(() => {
+  printerr("The GPU was reset: exiting, to be started again.");
+  System.exit(1);
+});
 
 app.connect("activate", () => {
   const open = app.get_active_window();

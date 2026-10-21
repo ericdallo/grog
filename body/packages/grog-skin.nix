@@ -3,6 +3,7 @@
 , gjs
 , glib
 , gtk4
+, libgudev
 , webkitgtk_6_0
 , gobject-introspection
 , wrapGAppsHook4
@@ -30,8 +31,8 @@ stdenvNoCC.mkDerivation {
 
   nativeBuildInputs = [ gobject-introspection wrapGAppsHook4 makeWrapper qrencode ];
   # The window's libraries, whose typelibs the wrapper points gjs at. GNOME
-  # has them already.
-  buildInputs = [ gjs glib gtk4 webkitgtk_6_0 ];
+  # has them already. libgudev: to hear when the GPU was reset.
+  buildInputs = [ gjs glib gtk4 libgudev webkitgtk_6_0 ];
 
   # What the page shows (view.js), without a browser.
   nativeCheckInputs = [ nodejs-slim ];
