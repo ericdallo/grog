@@ -103,8 +103,9 @@
       "current" (format "You're already up to date (%s)." latest)
       "done" (format "You were updated, to %s." latest)
       "failed" (str "The update failed: " error)
-      (format (str "There's an update (%s; you're %s): it's being built, then you restart into it once "
-                   "nobody's talking to you, in a few minutes. Should it not work, you stay as you are.")
+      (format (str "There's an update (%s; you're %s): it's being built, which takes several minutes, "
+                   "then you restart on your own as soon as nobody's talking to you, and play a sound once "
+                   "you're back. Should it not work, you stay as you are.")
               latest (or (short-revision from) "another version")))))
 
 (defn ^:private update-now!
@@ -117,8 +118,8 @@
     (if-not started
       (str "An update is already under way. " (describe config running))
       (or (some->> (wait-known! config since) (describe config))
-          (str "Looking for an update takes a while: if there's one, it's built, then you restart into "
-               "it once nobody's talking to you.")))))
+          (str "Looking for an update takes a while: if there's one, it's built, which takes several "
+               "minutes, then you restart on your own and play a sound once you're back.")))))
 
 (defn tool
   "The `update` tool, when grog can update itself with `config`, or nil."
@@ -126,9 +127,11 @@
   (when (available? config)
     {:name "update"
      :description (str "Updates you to the latest version that was pushed, when the user asks: it tells "
-                       "whether there's one (in a few seconds). It's built (minutes), then you restart into it "
-                       "once nobody's talking to you (back in under a minute); should it not work, you stay as "
-                       "you are. Say what it found, in a few words.")
+                       "whether there's one (in a few seconds). It's built (several minutes), then you restart "
+                       "on your own as soon as nobody's talking to you, and play a sound once you're back; "
+                       "should it not work, you stay as you are. Say what it found in a few plain words: with "
+                       "an update, that it takes a few minutes and they'll hear a sound when you're back. "
+                       "Don't talk of idle conversations or restarting later.")
      :parameters {:type "object" :properties {} :additionalProperties false}
      :changes? (constantly true)
      :run (fn [ctx _ _] (update-now! ctx))}))

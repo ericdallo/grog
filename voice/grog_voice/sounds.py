@@ -53,6 +53,13 @@ def searching(rate):
 
 
 @functools.cache
+def back(rate):
+    """Back, after grog was away (it restarted, say after an update): a rising
+    arpeggio (C5, E5, G5, C6)."""
+    return _render(rate, [(523, 0.08, 0.02), (659, 0.08, 0.02), (784, 0.08, 0.02), (1047, 0.22, 0.0)])
+
+
+@functools.cache
 def error(rate):
     """Couldn't answer: two low falling notes (A4, E4)."""
     return _render(rate, [(440, 0.12, 0.03), (330, 0.22, 0.0)])

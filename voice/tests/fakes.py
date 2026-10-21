@@ -15,8 +15,8 @@ SETTINGS = {"endSilenceMs": 600, "speculateMs": 250, "partialMs": 0, "maxUtteran
 # Partials: what was said so far, transcribed while they talk.
 PARTIAL = {**SETTINGS, "partialMs": 300}
 HEARD, ANSWER = "que horas são", "São dez e quinze. Mais alguma coisa?"
-ACK, LISTENING, SEARCHING, ERROR = (
-    s(22050) for s in (sounds.ack, sounds.listening, sounds.searching, sounds.error)
+ACK, LISTENING, SEARCHING, ERROR, BACK = (
+    s(22050) for s in (sounds.ack, sounds.listening, sounds.searching, sounds.error, sounds.back)
 )
 
 

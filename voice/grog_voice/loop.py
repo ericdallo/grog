@@ -23,6 +23,10 @@ AWAKE_S = 8.0
 # What it tells grog while it answers.
 ANSWERING = ("answering", "speaking")
 
+# How often, at most, its sound says grog is back: grog may come and go a few
+# times as it restarts.
+BACK_EVERY_S = 60.0
+
 
 @dataclass
 class Result:
@@ -70,6 +74,7 @@ class Voice:
         self.no_mic = False
         self.muted = False  # its mic is switched off (see set_mic)
         self._telling = threading.Lock()
+        self._back_at = None  # when its sound last said grog is back
         self.mouth = Mouth(tts=tts, player=player, ask=ask, tell=self.tell, captions=captions)
         self.ears = Ears(
             settings,
@@ -170,6 +175,18 @@ class Voice:
         self.mouth.stop()
         self.wake_up("awake")
         self.mouth.chime("listening")
+
+    def back(self):
+        """grog answers, at first or again after it was away (it restarted,
+        say after an update): its sound says so, unless it played a moment
+        ago or grog-voice is answering."""
+        now = time.monotonic()
+        with self._telling:
+            if self.told in ANSWERING or (self._back_at is not None and now - self._back_at < BACK_EVERY_S):
+                return
+            self._back_at = now
+        log.info("grog is back")
+        self.mouth.chime("back")
 
     def stop(self):
         """Stops answering, if it is: what it says is cut off."""

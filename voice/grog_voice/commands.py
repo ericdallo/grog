@@ -16,25 +16,29 @@ log = logging.getLogger("grog_voice")
 class Commands:
     """Takes what grog asks: `connect()` yields it as (type, data), raising
     GrogError once it can't. It goes to the Voice `attach`ed (set_mic,
-    listen_now, stop); until then, only whether the mic is on is kept:
-    `mic_on`, None until grog said."""
+    listen_now, stop, and back: grog answers, at first or again after it was
+    away); until then, only whether the mic is on, and whether grog is back,
+    are kept: `mic_on`, None until grog said."""
 
     def __init__(self, connect, *, retry_min_s=1.0, retry_max_s=10.0):
         self._connect = connect
         self.retry_min_s, self.retry_max_s = retry_min_s, retry_max_s
         self.mic_on = None
         self._voice = None
+        self._back = False
         self._lock = threading.Lock()
         self._closed = threading.Event()
         threading.Thread(target=self._run, daemon=True, name="commands").start()
 
     def attach(self, voice):
         """What grog asks goes to `voice` from now on, starting with whether
-        its mic is on, when grog said."""
+        its mic is on, when grog said, and whether grog is back."""
         with self._lock:
-            self._voice, mic_on = voice, self.mic_on
+            self._voice, mic_on, back, self._back = voice, self.mic_on, self._back, False
         if mic_on is not None:
             voice.set_mic(mic_on)
+        if back:
+            voice.back()
 
     def close(self):
         self._closed.set()
@@ -43,6 +47,7 @@ class Commands:
         wait, failing = self.retry_min_s, False
         while not self._closed.is_set():
             try:
+                first = True
                 for kind, data in self._connect():
                     if self._closed.is_set():
                         return
@@ -51,6 +56,9 @@ class Commands:
                         log.info("hearing from grog again what to do")
                     wait = self.retry_min_s
                     self._take(kind, data)
+                    if first:
+                        first = False
+                        self._came_back()
             except Exception as e:  # a bug too: the thread goes on, and only says its type
                 if not failing:
                     failing = True
@@ -59,6 +67,15 @@ class Commands:
             if self._closed.wait(wait):
                 return
             wait = min(wait * 2, self.retry_max_s)
+
+    def _came_back(self):
+        """grog answers: tells the Voice, or keeps it for the Voice to come."""
+        with self._lock:
+            voice = self._voice
+            if voice is None:
+                self._back = True
+        if voice is not None:
+            voice.back()
 
     def _take(self, kind, data):
         """Does what grog asks, or keeps it for the Voice to come."""

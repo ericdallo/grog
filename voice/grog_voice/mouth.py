@@ -23,6 +23,7 @@ SOUNDS = {
     "listening": sounds.listening,
     "searching": sounds.searching,
     "error": sounds.error,
+    "back": sounds.back,
 }
 
 # What a turn's line says of its marks, in the order they came.

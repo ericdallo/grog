@@ -5,6 +5,7 @@ from unittest import mock
 from fakes import (
     ACK,
     ANSWER,
+    BACK,
     FRAME,
     FRAME_S,
     HEARD,
@@ -344,6 +345,32 @@ class AskedByGrogTest(unittest.TestCase):
         self.assertEqual("awake", v.awake())
         v.mouth.quiet()
         self.assertEqual([[LISTENING]], written(v), "its sound says it listens")
+
+    def test_its_sound_says_grog_is_back(self):
+        v = voice()
+        with self.assertLogs("grog_voice", "INFO") as logs:
+            v.back()
+        v.mouth.quiet()
+        self.assertEqual([[BACK]], written(v))
+        self.assertEqual(["INFO:grog_voice:grog is back"], logs.output)
+
+    def test_grog_back_again_a_moment_later_plays_nothing_more(self):
+        v = voice()
+        v.back()
+        v.back()
+        v.mouth.quiet()
+        self.assertEqual([[BACK]], written(v))
+        v._back_at -= loop.BACK_EVERY_S
+        v.back()
+        v.mouth.quiet()
+        self.assertEqual([[BACK], [BACK]], written(v), "once it's been a while")
+
+    def test_grog_back_while_it_answers_plays_nothing(self):
+        v = voice()
+        v.tell("speaking")
+        v.back()
+        v.mouth.quiet()
+        self.assertEqual([], written(v))
 
     def test_a_question_cut_off_waits_for_its_name_again(self):
         ask = hanging("Quer que eu continue?")

@@ -20,6 +20,9 @@ class FakeVoice:
     def stop(self):
         self.did.append("stop")
 
+    def back(self):
+        self.did.append("back")
+
 
 def grog(*connections, gate=None):
     """A fake grog's GET /v1/voice/commands: each connection says the next
@@ -51,14 +54,16 @@ class CommandsTest(unittest.TestCase):
         self.addCleanup(c.close)
         return c
 
-    def test_whether_the_mic_is_on_waits_for_the_voice(self):
+    def test_what_grog_said_waits_for_the_voice(self):
         connect = grog([("snapshot", {"mic": "off"})])
         c = self.commands(connect)
         self.assertTrue(connect.said_all.wait(5))
         self.assertIs(False, c.mic_on)
         v = FakeVoice()
         c.attach(v)
-        self.assertEqual([("mic", False)], v.did)
+        self.assertEqual([("mic", False), "back"], v.did)
+        c.attach(v)
+        self.assertEqual([("mic", False), "back", ("mic", False)], v.did, "back only once")
 
     def test_nothing_before_grog_says(self):
         connect = grog(gate=threading.Event())
@@ -89,7 +94,10 @@ class CommandsTest(unittest.TestCase):
         with self.assertLogs("grog_voice", "INFO") as logs:
             attached.set()
             self.assertTrue(connect.said_all.wait(5))
-        self.assertEqual([("mic", True), "listen", "stop", ("mic", False), ("mic", True)], v.did)
+        self.assertEqual(
+            [("mic", True), "back", "listen", "stop", ("mic", False), ("mic", True), "back"],
+            v.did,
+        )
         self.assertEqual(
             [
                 "WARNING:grog_voice:not hearing from grog what to do (grog went away): it'll try again",
@@ -105,7 +113,7 @@ class CommandsTest(unittest.TestCase):
         v = FakeVoice()
         c.attach(v)
         self.assertTrue(connect.said_all.wait(5))
-        self.assertEqual(([], None), (v.did, c.mic_on))
+        self.assertEqual((["back"], None), (v.did, c.mic_on), "but grog is there")
 
 
 if __name__ == "__main__":

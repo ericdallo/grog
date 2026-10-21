@@ -29,7 +29,8 @@ up to it.
    (`tts.engine`): lighter and quicker to start, but flatter.
 
 It doesn't listen while it talks. A low sound means something went wrong,
-and the log says what.
+and the log says what. A rising one means the brain is there: at start, or
+back after it restarted (after an update, say).
 
 The brain can also ask it (`GET /v1/voice/commands`), for someone at grog's
 screen: to listen now, without its name (touching its face), to stop
