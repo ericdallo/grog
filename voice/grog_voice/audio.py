@@ -40,9 +40,10 @@ class Mic:
     thread so that PipeWire never waits on us. Without a mic to record from
     (unplugged, say), it tries again, less and less often, up to every
     `retry_max_s`: plugging one in is enough, and the models stay loaded.
-    What it watches (see watch) hears when there's none, and when it's back."""
+    What it watches (see watch) hears when there's none, and when it's back.
+    Switched off (`on`, switch), it records nothing at all."""
 
-    def __init__(self, target=None, *, argv=None, retry_min_s=1.0, retry_max_s=30.0):
+    def __init__(self, target=None, *, argv=None, retry_min_s=1.0, retry_max_s=30.0, on=True):
         self.argv = argv or _pw_cat("--record", RATE, "32ms", target)
         self.retry_min_s, self.retry_max_s = retry_min_s, retry_max_s
         self.frames = queue.Queue()
@@ -50,7 +51,24 @@ class Mic:
         self.closed = threading.Event()
         self._lock = threading.Lock()  # what watches it, and whether there's a mic
         self._report, self._failing = (lambda state: None), False
+        self._on = threading.Event()
+        if on:
+            self._on.set()
+        self._switching = threading.Lock()  # whether it's on, and pw-cat starting
         threading.Thread(target=self._record, daemon=True, name="mic").start()
+
+    def switch(self, on):
+        """Records again (`on`), dropping what it heard before, or stops
+        recording: pw-cat goes, until it's switched on."""
+        with self._switching:
+            if on:
+                self.flush()
+                self._on.set()
+                return
+            self._on.clear()
+            proc = self.proc
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
 
     def watch(self, report):
         """Tells `report` "no-mic" when there's no mic, and "listening" when
@@ -70,8 +88,15 @@ class Mic:
     def _record(self):
         wait = self.retry_min_s
         while not self.closed.is_set():
+            self._on.wait()
+            with self._switching:
+                if self.closed.is_set():
+                    return
+                if not self._on.is_set():
+                    continue
+                self.proc = subprocess.Popen(self.argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             recorded = False
-            with subprocess.Popen(self.argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as self.proc:
+            with self.proc:
                 while len(frame := self.proc.stdout.read(FRAME_BYTES)) == FRAME_BYTES:
                     if not recorded:
                         recorded, wait = True, self.retry_min_s
@@ -84,6 +109,9 @@ class Mic:
             status = self.proc.returncode
             if self.closed.is_set():
                 return
+            if not self._on.is_set():
+                # Switched off: not a mic gone.
+                continue
             if not self._failing:
                 log.warning(
                     "no mic to record from (pw-cat exited with %s%s): trying again until there's one",
@@ -109,6 +137,7 @@ class Mic:
 
     def close(self):
         self.closed.set()
+        self._on.set()
         if self.proc:
             self.proc.terminate()
             self.proc.wait()
@@ -157,6 +186,11 @@ class Player:
         self.proc.stdin.write(pcm)
         self.proc.stdin.flush()
 
+    def stop(self):
+        """Stops playing at once: what's left isn't played, and writing
+        fails."""
+        self.proc.kill()
+
     def close(self):
         """Returns once everything was played, or pw-cat is gone (it failed)."""
         try:
@@ -176,6 +210,9 @@ class NullPlayer:
         pass
 
     def write(self, pcm):
+        pass
+
+    def stop(self):
         pass
 
     def close(self):

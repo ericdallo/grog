@@ -6,30 +6,36 @@ import {
   CAPTIONS_MS,
   capitalize,
   captions,
+  closes,
   DOZING_MS,
   duration,
   elapsed,
   ERROR_MS,
   face,
+  GOING_MS,
   isNight,
   level,
+  menu,
   mode,
   pipeline,
   PLEASED_MS,
   qrFile,
   reaction,
   recent,
+  request,
   seconds,
   signIn,
   STALE_MS,
   stale,
   STILL_MS,
+  tap,
   timeFormats,
   tool,
   usage,
   usd,
   VOICE_GRACE_MS,
   VOICE_STALE_MS,
+  VOLUME_STEP,
   wordChanges,
 } from "../web/view.js";
 
@@ -610,5 +616,153 @@ describe("signing in", () => {
       [qrFile("https://auth.openai.com/codex/device"), qrFile("http://Example.com/A_b?c=d#e"), qrFile(""), qrFile(null)],
       ["qr/auth-openai-com-codex-device.svg", "qr/example-com-a-b-c-d-e.svg", null, null],
     );
+  });
+});
+
+const voiceIn = (s) => ({ state: s, since: NOW, seen: NOW, conversation: "voice" });
+
+describe("going away, asked to", () => {
+  it("says it, also once grog can't be reached, for a while", () => {
+    const going = state({ restarting: { action: "restart", at: NOW - 1000 } });
+    assert.deepEqual(mode(going, NOW), { mode: "restarting", label: "Restarting", detail: "back in a moment" });
+    assert.equal(mode(going, NOW, true).mode, "restarting", "offline");
+    assert.equal(mode(going, NOW - 1000 + GOING_MS + 1, true).mode, "offline", "not forever");
+    assert.equal(mode(state({ restarting: { action: "reboot", at: NOW } }), NOW).label, "Restarting the machine");
+    const off = mode(state({ restarting: { action: "power-off", at: NOW } }), NOW);
+    assert.deepEqual([off.label, off.detail], ["Turning off", "someone has to turn it on again"]);
+  });
+
+  it("its eye closes", () => {
+    const going = state({ restarting: { action: "restart", at: NOW } });
+    assert.deepEqual(face(mode(going, NOW), going, NOW), { state: "offline", icon: null });
+  });
+
+  it("offline otherwise", () => {
+    assert.equal(mode(state(), NOW, true).mode, "offline");
+  });
+});
+
+describe("its mic off", () => {
+  it("says so, and how to turn it on", () => {
+    const muted = state({ voice: voiceIn("muted") });
+    assert.deepEqual(mode(muted, NOW), { mode: "muted", label: "Mic off", detail: "tap to turn it on" });
+    assert.equal(mode(state({ mic: "off" }), NOW).mode, "muted", "before grog-voice says");
+    assert.deepEqual(face(mode(muted, NOW), muted, NOW), { state: "muted", icon: "no-mic" });
+    assert.equal(reaction("idle", "muted", null, "no-mic"), "swap");
+  });
+});
+
+describe("a turn asked to stop", () => {
+  it("didn't fail", () => {
+    const stopped = turn([["thinking", NOW - 2000], ["answering", NOW - 1500]], {
+      doneAt: NOW - 1000,
+      ok: false,
+      stopped: true,
+    });
+    assert.equal(mode(state({ turn: stopped }), NOW).mode, "idle");
+    assert.deepEqual(pipeline(stopped).at(-1), { label: "Stopped", icon: "stop", offset: "1.0 s", status: "done" });
+    assert.equal(recent(state({ recent: [{ at: NOW, ms: 900, tools: [], ok: false, stopped: true }] }))[0].ok, true);
+  });
+});
+
+describe("touching its face", () => {
+  const actions = ["listen", "stop", "mic"];
+
+  it("talks to it, without its name", () => {
+    assert.deepEqual(tap(state({ actions }), NOW), { action: "listen", label: "Talk to Grog" });
+    assert.equal(tap(state({ actions, voice: voiceIn("asked") }), NOW).action, "listen");
+  });
+
+  it("stops it while it answers", () => {
+    assert.deepEqual(tap(state({ actions, voice: voiceIn("speaking") }), NOW), { action: "stop", label: "Stop" });
+    assert.equal(tap(state({ actions, voice: voiceIn("answering") }), NOW).action, "stop");
+  });
+
+  it("turns its mic on", () => {
+    const on = { action: "listen", label: "Turn the mic on and listen" };
+    assert.deepEqual(tap(state({ actions, voice: voiceIn("muted") }), NOW), on);
+    assert.deepEqual(tap(state({ actions, mic: "off" }), NOW), on);
+  });
+
+  it("does nothing when it can't", () => {
+    assert.equal(tap(null, NOW), null);
+    assert.equal(tap(state({ actions }), NOW, true), null, "offline");
+    assert.equal(tap(state(), NOW), null, "grog can't");
+    assert.equal(tap(state({ actions, voice: null }), NOW), null, "no voice");
+    assert.equal(tap(state({ actions, voice: voiceIn("loading") }), NOW), null);
+    assert.equal(tap(state({ actions, voice: voiceIn("no-mic") }), NOW), null);
+    assert.equal(tap(state({ actions, restarting: { action: "restart", at: NOW } }), NOW), null);
+  });
+});
+
+describe("the actions sheet", () => {
+  const all = ["listen", "stop", "mic", "new-conversation", "volume", "restart", "reboot", "power-off"];
+
+  it("lists what grog can do there", () => {
+    const items = menu(state({ actions: all, auth: "subscription", volume: { level: 40, muted: false } }));
+    assert.deepEqual(
+      items.map((i) => i.id),
+      ["volume", "mic", "new-conversation", "sign-out", "restart", "reboot", "power-off"],
+    );
+    assert.deepEqual(items[0], {
+      id: "volume",
+      kind: "volume",
+      label: "Volume",
+      level: 40,
+      muted: false,
+      confirm: false,
+      armed: false,
+    });
+    assert.deepEqual([items[1].kind, items[1].on], ["toggle", true]);
+    assert.equal(items[4].label, "Restart Grog");
+    assert.deepEqual(
+      items.filter((i) => i.confirm).map((i) => i.id),
+      ["sign-out", "restart", "reboot", "power-off"],
+    );
+    assert.deepEqual(
+      menu(state({ actions: ["listen", "stop", "mic", "new-conversation"] })).map((i) => i.id),
+      ["mic", "new-conversation"],
+    );
+    assert.deepEqual(menu(null), []);
+  });
+
+  it("the volume, unknown at first, and the mic as it is", () => {
+    assert.equal(menu(state({ actions: ["volume"] }))[0].level, null);
+    assert.equal(menu(state({ actions: ["mic"], mic: "off" }))[0].on, false);
+  });
+
+  it("asks for a second tap for what can't be undone", () => {
+    const [restart] = menu(state({ actions: ["restart"] }), "restart");
+    assert.deepEqual([restart.label, restart.armed], ["Tap again to restart", true]);
+    assert.equal(menu(state({ actions: ["mic"] }), "mic")[0].armed, false, "not what can be undone");
+  });
+});
+
+describe("what's asked of grog", () => {
+  it("its actions", () => {
+    assert.deepEqual(request("restart", state()), { method: "POST", path: "/v1/actions/restart", body: {} });
+    assert.deepEqual(request("listen", state()), { method: "POST", path: "/v1/actions/listen", body: {} });
+    assert.deepEqual(request("mic", state({ mic: "on" })).body, { on: false });
+    assert.deepEqual(request("mic", state({ mic: "off" })).body, { on: true });
+  });
+
+  it("the volume", () => {
+    const s = state({ volume: { level: 40, muted: true } });
+    assert.deepEqual(request("volume", s, 1).body, { change: VOLUME_STEP });
+    assert.deepEqual(request("volume", s, -1).body, { change: -VOLUME_STEP });
+    assert.deepEqual(request("volume", s, "mute").body, { mute: false });
+    assert.deepEqual(request("volume", s).body, {});
+  });
+
+  it("signing out", () => {
+    assert.deepEqual(request("sign-out", state({ provider: "openai" })), {
+      method: "DELETE",
+      path: "/v1/auth/openai",
+      body: {},
+    });
+  });
+
+  it("which close the sheet", () => {
+    assert.deepEqual(["volume", "mic", "new-conversation", "restart"].map(closes), [false, false, true, true]);
   });
 });

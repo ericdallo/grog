@@ -14,6 +14,12 @@ said otherwise.
 - Piper stays available (`tts.engine = "piper"`, `tts.voice` = a `.onnx`).
 - It hears with Parakeet TDT 0.6B v3 in int8, or fp32 with
   `services.grog.voice.sttPrecision` (see "The ears" below).
+- grog can ask it to listen now (someone touched its face on the skin), to
+  stop answering (pw-cat killed, the connection to grog shut down, which
+  ends grog's turn), or to switch its mic off (pw-cat for the mic stopped:
+  nothing recorded), over `GET /v1/voice/commands`
+  (`voice/grog_voice/commands.py`). Until then grog-voice could only tell
+  grog what it was doing.
 - Code: `voice/grog_voice/supertonic.py` (text handling, pure), the
   `Supertonic` and `Piper` classes in `voice/grog_voice/speech.py`, the
   `tts.*` settings in `voice/grog_voice/config.py`, the models in

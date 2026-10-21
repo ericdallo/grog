@@ -19,7 +19,7 @@
           </div>
         </div>
 
-        <div class="avatar" id="avatar" aria-hidden="true"></div>
+        <div class="avatar" id="avatar" role="button"></div>
 
         <div>
           <div class="label" id="label"></div>
@@ -32,6 +32,7 @@
         <div class="time">
           <div class="clock" id="clock"></div>
           <div class="date" id="date"></div>
+          <button class="round" id="open-actions" type="button" aria-label="Actions" hidden></button>
         </div>
 
         <section class="signin" id="signin" hidden>
@@ -70,6 +71,15 @@
           <section class="panel usage" id="usage" hidden></section>
         </div>
       </main>
+
+      <section class="sheet" id="sheet" aria-label="Actions">
+        <div class="sheet-top">
+          <h2>Actions</h2>
+          <button class="round" id="close-actions" type="button" aria-label="Close"></button>
+        </div>
+        <div class="items" id="items"></div>
+        <div class="sheet-error" id="sheet-error"></div>
+      </section>
     </div>
   </body>
 </html>

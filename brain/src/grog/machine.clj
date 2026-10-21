@@ -1,9 +1,11 @@
 (ns grog.machine
   "Tools that act on the machine grog runs on, through its hands (grog.hands,
   the `hands.socket` setting): the speaker's volume, how the machine is
-  doing, and a shell, which runs what the model asks right away."
+  doing, and a shell, which runs what the model asks right away. Restarting
+  is grog.actions'."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
+            [grog.events :as events]
             [grog.hands :as hands]))
 
 (defn ^:private on-machine!
@@ -39,11 +41,17 @@
                                [(str "wpctl set-volume -l 1 " sink " " (abs change) "%" (if (neg? change) "-" "+"))])
                              [(str "wpctl get-volume " sink)]))))
 
-(defn ^:private volume! [{:keys [config]} args _]
+(defn set-volume!
+  "Tells the speaker's volume, or changes it as `args` say (see
+  `volume-command`), telling whoever watches grog (grog.events): {:level
+  :muted}."
+  [{:keys [config events]} args]
   (let [{:keys [exit output]} (on-machine! @config (volume-command args))
         [_ level muted] (re-find #"Volume: ([\d.]+)( \[MUTED\])?" (str output))]
     (if (and (zero? exit) level)
-      {:level (Math/round (* 100 (Double/parseDouble level))) :muted (some? muted)}
+      (let [volume {:level (Math/round (* 100 (Double/parseDouble level))) :muted (some? muted)}]
+        (events/publish! events (assoc volume :type :volume))
+        volume)
       (throw (ex-info (str "the volume couldn't be changed: " (str/trim (str output))) {})))))
 
 (def volume-tool
@@ -57,7 +65,7 @@
                              :mute {:type "boolean" :description "Mute (true) or unmute (false)."}}
                 :additionalProperties false}
    :changes? (fn [args] (boolean (some #(contains? args %) [:level :change :mute])))
-   :run volume!})
+   :run (fn [ctx args _] (set-volume! ctx args))})
 
 (def status-script
   (delay (slurp (io/resource "grog/system-status.sh"))))
@@ -83,10 +91,12 @@
 (def shell-tool
   {:name "shell"
    :description (str "Runs a bash command right away on the machine you run on (NixOS), as its user, who can "
-                     "use sudo: for what your other tools don't do. Do what the user asks; only when a command "
-                     "could lose data, or cut you off (like a reboot), and they didn't clearly ask for that, "
-                     "check with them first. Changes to the system's configuration don't last there (it lives "
-                     "elsewhere, in a NixOS configuration), so prefer reading to changing, and say so.")
+                     "use sudo without a password: for what your other tools don't do. Do what the user asks; "
+                     "only when a command could lose data, or cut you off, and they didn't clearly ask for that, "
+                     "check with them first. Restarting you or the machine, or turning it off, goes through "
+                     "power, which waits for your answer to be said. Changes to the system's configuration don't "
+                     "last there (it lives elsewhere, in a NixOS configuration), so prefer reading to changing, "
+                     "and say so.")
    :parameters {:type "object"
                 :properties {:command {:type "string" :description "The bash command."}}
                 :required ["command"]

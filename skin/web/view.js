@@ -22,6 +22,14 @@ export const DOZING_MS = 30 * 60_000;
 // Night, in grog's time zone: from 22:00 to 7:00.
 const NIGHT_FROM = 22;
 const NIGHT_TO = 7;
+// Once grog said it's going away (asked to restart, say), the skin says so
+// for this long while it can't reach it.
+export const GOING_MS = 3 * 60_000;
+// What can't be undone (restarting, signing out) takes a second tap within
+// this long.
+export const CONFIRM_MS = 4_000;
+// How much a tap on the volume's buttons changes it, in points.
+export const VOLUME_STEP = 10;
 
 const TOOLS = {
   web_search: { label: "Searching the web", short: "Web", icon: "web" },
@@ -30,7 +38,21 @@ const TOOLS = {
   shell: { label: "Running a command", short: "Shell", icon: "shell" },
   memory: { label: "Remembering", short: "Memory", icon: "memory" },
   settings: { label: "Changing its settings", short: "Settings", icon: "settings" },
+  microphone: { label: "Switching its mic", short: "Mic", icon: "no-mic" },
+  power: { label: "Getting ready to restart", short: "Power", icon: "power" },
 };
+
+// What grog says going away (POST /v1/actions/<action>) is about.
+const GOING = {
+  restart: { label: "Restarting", detail: "back in a moment" },
+  reboot: { label: "Restarting the machine", detail: "back in a minute or two" },
+  "power-off": { label: "Turning off", detail: "someone has to turn it on again" },
+};
+
+// What grog-voice says while it waits for someone to talk.
+const WAITING = ["listening", "awake", "asked", "error"];
+
+const MUTED = { mode: "muted", label: "Mic off", detail: "tap to turn it on" };
 
 /** `s` with its first letter in upper case. */
 export function capitalize(s) {
@@ -62,14 +84,24 @@ function lastStep(turn) {
   return turn.steps?.[turn.steps.length - 1] ?? {};
 }
 
-/** Whether the last turn failed, or grog-voice had an error, just now. */
+/** Whether the last turn failed (not stopped), or grog-voice had an error, just now. */
 function failed(state, now) {
   const turn = state.turn;
   const voice = state.voice;
   return Boolean(
-    (turn?.doneAt && turn.ok === false && now - turn.doneAt < ERROR_MS) ||
+    (turn?.doneAt && turn.ok === false && !turn.stopped && now - turn.doneAt < ERROR_MS) ||
       (voice?.errorAt && now - voice.errorAt < ERROR_MS),
   );
+}
+
+/**
+ * What grog said it's going away for (asked to restart, say), lately:
+ * {label, detail}, or null. It says so even once it can't be reached.
+ */
+export function goingAway(state, now) {
+  const going = state?.restarting;
+  if (!going?.action || now - going.at > GOING_MS) return null;
+  return GOING[going.action] ?? GOING.restart;
 }
 
 /**
@@ -83,10 +115,13 @@ function saying(state) {
 
 /**
  * What grog is doing now, for its block of color and the words in it:
- * {mode, label, detail, icon}.
+ * {mode, label, detail, icon}. `offline`: grog can't be reached, `state`
+ * being the last it said.
  */
-export function mode(state, now) {
-  if (!state) return { mode: "offline", label: "Offline", detail: "waiting for grog" };
+export function mode(state, now, offline = false) {
+  const going = goingAway(state, now);
+  if (going) return { mode: "restarting", ...going };
+  if (!state || offline) return { mode: "offline", label: "Offline", detail: "waiting for grog" };
   const voice = voiceState(state, now);
   const turn = activeTurn(state);
   if (turn) {
@@ -115,6 +150,8 @@ export function mode(state, now) {
   if (failed(state, now)) {
     return { mode: "error", label: "Something went wrong", detail: state.turn?.error ?? "it couldn't answer" };
   }
+  // Switched off, which grog-voice may not have said yet.
+  if (voice === "muted" || (state.mic === "off" && WAITING.includes(voice))) return MUTED;
   const name = state.name ?? "";
   const waking = { mode: "loading", label: "Waking up", detail: "loading its ears and voice" };
   switch (voice) {
@@ -158,8 +195,12 @@ export function face(m, state, now, night = false) {
       return { state: "tool", icon: m.icon ?? "tool" };
     case "no-mic":
       return { state: "no-mic", icon: "no-mic" };
+    case "muted":
+      return { state: "muted", icon: "no-mic" };
     case "login":
       return { state: "login", icon: "key" };
+    case "restarting":
+      return { state: "offline", icon: null };
     default:
       return { state: m?.mode ?? "offline", icon: null };
   }
@@ -271,12 +312,12 @@ export function pipeline(turn, offline = false) {
   if (turn.doneAt) {
     // grog-voice may start speaking once grog is done.
     const end = Math.max(turn.doneAt, steps[steps.length - 1].at);
-    out.push({
-      label: turn.ok === false ? "Failed" : "Done",
-      icon: turn.ok === false ? "failed" : "done",
-      offset: seconds(end - start),
-      status: turn.ok === false ? "failed" : "done",
-    });
+    const how = turn.stopped
+      ? { label: "Stopped", icon: "stop", status: "done" }
+      : turn.ok === false
+        ? { label: "Failed", icon: "failed", status: "failed" }
+        : { label: "Done", icon: "done", status: "done" };
+    out.push({ label: how.label, icon: how.icon, offset: seconds(end - start), status: how.status });
   }
   return out;
 }
@@ -323,7 +364,7 @@ export function wordChanges(shown, text) {
   };
 }
 
-/** The last turns: {at, icon, label, took, ok}, newest first. */
+/** The last turns: {at, icon, label, took, ok}, newest first. A turn stopped didn't fail. */
 export function recent(state) {
   return (state?.recent ?? []).map((r) => {
     const tools = (r.tools ?? []).map((t) => tool(t));
@@ -332,9 +373,98 @@ export function recent(state) {
       icon: tools[0]?.icon ?? (r.conversation === state.voice?.conversation ? "voice" : "answering"),
       label: tools.length ? [...new Set(tools.map((t) => t.short))].join(" · ") : "Answer",
       took: seconds(r.ms ?? 0),
-      ok: r.ok !== false,
+      ok: r.ok !== false || Boolean(r.stopped),
     };
   });
+}
+
+/**
+ * What touching grog's face does, by what it's doing: {action, label}, the
+ * action one of grog's (POST /v1/actions/<action>): to listen without its
+ * name (its mic off, grog turns it on first), or to stop answering. null
+ * when it does nothing: grog, or its voice, isn't there or ready.
+ */
+export function tap(state, now, offline = false) {
+  if (!state || offline || goingAway(state, now)) return null;
+  const voice = voiceState(state, now);
+  const can = (action) => (state.actions ?? []).includes(action);
+  if (!voice || voice === "loading" || voice === "no-mic") return null;
+  if (voice === "answering" || voice === "speaking") return can("stop") ? { action: "stop", label: "Stop" } : null;
+  if (!can("listen")) return null;
+  if (voice === "muted" || state.mic === "off") return { action: "listen", label: "Turn the mic on and listen" };
+  return { action: "listen", label: state.name ? `Talk to ${state.name}` : "Talk" };
+}
+
+/**
+ * What the actions sheet lists, as grog's `state` allows (its actions, and
+ * signing out with a subscription), in order: {id, kind, label, icon,
+ * detail, confirm, armed}. kind: volume ({level, muted}, null levels while
+ * unknown), toggle ({on}), or button; `confirm`: it can't be undone, and
+ * takes a second tap: `armed`, the one waiting for it, asks for it.
+ */
+export function menu(state, armed = null) {
+  const can = (action) => (state?.actions ?? []).includes(action);
+  const items = [];
+  if (can("volume")) {
+    const volume = state.volume ?? {};
+    items.push({ id: "volume", kind: "volume", label: "Volume", level: volume.level ?? null, muted: Boolean(volume.muted) });
+  }
+  if (can("mic")) items.push({ id: "mic", kind: "toggle", label: "Microphone", icon: "voice", on: state.mic !== "off" });
+  if (can("new-conversation")) {
+    items.push({ id: "new-conversation", kind: "button", label: "New conversation", icon: "answering", detail: "what was said is forgotten" });
+  }
+  if (state?.auth === "subscription") {
+    const again = "Tap again to sign out";
+    items.push({ id: "sign-out", kind: "button", label: "Sign out", icon: "sign-out", detail: account(state), confirm: again });
+  }
+  if (can("restart")) {
+    const label = state.name ? `Restart ${state.name}` : "Restart";
+    items.push({ id: "restart", kind: "button", label, icon: "restart", confirm: "Tap again to restart" });
+  }
+  if (can("reboot")) {
+    items.push({ id: "reboot", kind: "button", label: "Restart the machine", icon: "reboot", confirm: "Tap again to restart it" });
+  }
+  if (can("power-off")) {
+    items.push({
+      id: "power-off",
+      kind: "button",
+      label: "Turn the machine off",
+      icon: "power",
+      detail: "someone has to turn it on again",
+      confirm: "Tap again to turn it off",
+    });
+  }
+  return items.map(({ confirm, ...item }) => ({
+    ...item,
+    confirm: Boolean(confirm),
+    armed: item.id === armed && Boolean(confirm),
+    ...(item.id === armed && confirm ? { label: confirm } : {}),
+  }));
+}
+
+/**
+ * The request asking grog for `action` (an item of menu(), or what tap()
+ * says): {method, path, body}. For the volume, `step` is -1 or 1 (quieter or
+ * louder), "mute" (toggles it), or nothing (to tell it).
+ */
+export function request(action, state, step = null) {
+  switch (action) {
+    case "volume": {
+      const body = step === "mute" ? { mute: !state?.volume?.muted } : step ? { change: step * VOLUME_STEP } : {};
+      return { method: "POST", path: "/v1/actions/volume", body };
+    }
+    case "mic":
+      return { method: "POST", path: "/v1/actions/mic", body: { on: state?.mic === "off" } };
+    case "sign-out":
+      return { method: "DELETE", path: `/v1/auth/${state?.provider ?? "openai"}`, body: {} };
+    default:
+      return { method: "POST", path: `/v1/actions/${action}`, body: {} };
+  }
+}
+
+/** Whether `action` (an item of menu()) closes the sheet once grog took it. */
+export function closes(action) {
+  return !["volume", "mic"].includes(action);
 }
 
 /**

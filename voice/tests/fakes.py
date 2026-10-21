@@ -6,6 +6,7 @@ import time
 
 from grog_voice import sounds
 from grog_voice.audio import MicError
+from grog_voice.grog import GrogError
 
 FRAME = 4  # bytes per frame
 FRAME_S = 0.032
@@ -32,12 +33,17 @@ def seconds(pcm):
 
 class FakeMic:
     """Frames, then MicError. `frame_wait_s` between them; `gate`, an Event
-    the frames wait for from frame `gate_at` on."""
+    the frames wait for from frame `gate_at` on. How it was switched on and
+    off is in .switched."""
 
     def __init__(self, frames, frame_wait_s=0, gate=None, gate_at=0):
         self.frames = list(frames)
         self.frame_wait_s, self.gate, self.gate_at = frame_wait_s, gate, gate_at
         self.flushed, self.read_count, self.closed = 0, 0, False
+        self.switched = []
+
+    def switch(self, on):
+        self.switched.append(on)
 
     def read(self):
         if not self.frames:
@@ -123,12 +129,16 @@ class Players:
 class FakePlayer:
     def __init__(self, rate, failing=False, on_close=None):
         self.rate, self.written, self.closed, self.failing = rate, [], False, failing
+        self.stopped = False
         self.on_close = on_close or threading.Event()
 
     def write(self, pcm):
-        if self.failing:
+        if self.failing or self.stopped:
             raise BrokenPipeError("pw-cat is gone")
         self.written.append(pcm)
+
+    def stop(self):
+        self.stopped = True
 
     def close(self):
         self.closed = True
@@ -145,7 +155,7 @@ def answering(*pieces):
     to raise. It keeps what it was asked in .asked, and what was said in
     .said."""
 
-    def ask(text, said=None):
+    def ask(text, said=None, on_connect=None):
         ask.asked.append(text)
         ask.said.append(said)
         for piece in pieces:
@@ -154,6 +164,37 @@ def answering(*pieces):
             yield piece if isinstance(piece, tuple) else ("text", piece)
 
     ask.asked, ask.said = [], []
+    return ask
+
+
+class FakeConnection:
+    """A connection to grog, as grog.ask gives it: `hung_up` once its socket
+    was shut down."""
+
+    def __init__(self):
+        self.hung_up = threading.Event()
+        self.sock = self
+
+    def shutdown(self, how):
+        self.hung_up.set()
+
+
+def hanging(*pieces):
+    """A fake grog answering `pieces`, then nothing more until it's hung up
+    on (see FakeConnection): it stops answering then. `.answered` once it
+    gave them all."""
+    conn, answered = FakeConnection(), threading.Event()
+
+    def ask(text, said=None, on_connect=None):
+        if on_connect is not None:
+            on_connect(conn)
+        yield from (("text", piece) for piece in pieces)
+        answered.set()
+        if not conn.hung_up.wait(5):
+            raise AssertionError("never hung up on")
+        raise GrogError("grog stopped answering: the connection was reset")
+
+    ask.conn, ask.answered = conn, answered
     return ask
 
 

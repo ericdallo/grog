@@ -26,6 +26,7 @@ grog status                # model, account, usage, and settings changed by aski
 grog settings reset        # puts those settings back
 grog models                # the models on offer, * marks the one in use
 grog login / grog logout   # the ChatGPT subscription (--browser: in a browser here)
+grog mic off / grog mic on # off, nothing is heard until it's on again
 ```
 
 It finds the server through `$GROG_URL`.
@@ -66,6 +67,10 @@ It also remembers things when asked ("the trash goes out on Tuesdays",
 "answer more briefly"): up to 50 short notes in `memory.json`, part of every
 prompt. It forgets them when asked, too.
 
+Asked to stop listening, it turns its mic off: nothing is heard until it's
+turned on again, at its skin or with `grog mic on`, even after restarts
+(`voice.json`).
+
 Nothing changes in a turn where it searched the web, since a page could have
 asked for it.
 
@@ -81,11 +86,21 @@ socket (`hands.socket`). With them, the model can:
   audio and Bluetooth devices, services, last deploy
 - run shell commands. It only asks first when a command could lose data or
   cut it off.
+- restart the machine, or turn it off, once its answer was said.
 
-That user can usually use sudo, so think of grog as trusted with the
-machine. Commands time out after 30 s, and the logs only say how they went,
-never what they ran or printed. On NixOS, what the shell changes is gone at
-the next deploy.
+On NixOS, that user gets sudo without a password, and polkit lets it do
+anything (`services.grog.hands.sudo`): grog can do anything on the machine.
+Commands time out after 30 s, and the logs only say how they went, never
+what they ran or printed. On NixOS, what the shell changes is gone at the
+next deploy.
+
+## Restarting
+
+Asked to, grog restarts itself once its answer was said: its voice, through
+its hands, then its brain, by exiting with status 75. That only works as a
+systemd service that starts it again then: the NixOS module's does
+(`RestartForceExitStatus=75`). Its skin can ask too, right away (`POST
+/v1/actions/restart`).
 
 ## The prompt
 
@@ -129,7 +144,7 @@ says which one.
 | `hands.socket` | `null` | Unix socket of its [hands](#hands) |
 | `skin.dir` | `null` | Files of its [skin](../skin/README.md), served at `/` |
 | `skin.captions` | `false` | Whether the skin shows what's said |
-| `stateDir` | `null` | Credentials, changed settings, memory and usage. `null`: `$STATE_DIRECTORY` or `~/.local/state/grog` |
+| `stateDir` | `null` | Credentials, changed settings, memory, the mic's switch and usage. `null`: `$STATE_DIRECTORY` or `~/.local/state/grog` |
 | `providers.openai.auth` | `"auto"` | `"subscription"` or `"api-key"` to force one |
 | `providers.openai.model` | `"gpt-6-luna"` | Model with an API key |
 | `providers.openai.subscription.model` | `"gpt-6-luna"` | Model with the subscription |
@@ -162,6 +177,8 @@ JSON keys are lowerCamelCase.
 | `DELETE /v1/auth/<provider>` | Signs out |
 | `GET /v1/events` | What it's up to, as server-sent events: a `snapshot`, then each change ([`events.clj`](src/grog/events.clj)) |
 | `POST /v1/voice` `{"state", "conversationId", "heard"}` | grog-voice saying what it's doing, and with captions what it heard. Answers `{"captions", "name"}` |
+| `GET /v1/voice/commands` | What grog-voice is asked, as server-sent events: a `snapshot` with whether its `mic` is `"on"` or `"off"`, then `mic` when that changes, `listen` (now, without its name) and `stop` (answering) |
+| `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice), `mic` `{"on"}`, `volume` (`{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `new-conversation` (forgets them all), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
 | `GET /` | The skin, with `skin.dir` |
 | `GET /health` | `ok` |
 
@@ -176,9 +193,10 @@ middle of it ends the text with `[error] ...`, or comes as an `error` event.
 - On NixOS it runs as a dynamic user, in a tight systemd sandbox.
 - Tokens, changed settings and memory are only readable by it. Logs never
   have what's said, only which tools ran.
-- Its hands can do anything their user can, without asking, except in a
-  turn that searched the web. So can anyone who runs code in grog with
-  `nrepl.enable`.
+- Its hands can do anything their user can (on NixOS, anything at all),
+  without asking, except in a turn that searched the web. So can anyone who
+  runs code in grog with `nrepl.enable`, and any local user can take its
+  actions, like restarting the machine (`POST /v1/actions/<name>`).
 - Any local user can watch `/v1/events`, which has what's said with
   `skin.captions`.
 

@@ -30,6 +30,9 @@ Commands:
                               settings changed by asking grog
   settings reset              puts those back as configured
   models                      models the provider offers
+  mic on|off                  turns grog-voice's mic on or off (off, nothing
+                              is heard until it's on again, even after
+                              restarts)
 
 Server: $GROG_URL or " client/default-url))
 
@@ -87,6 +90,13 @@ Server: $GROG_URL or " client/default-url))
 (defn ^:private reset-settings [{:keys [opts]}]
   (exit (client/reset-settings! (url opts))))
 
+(defn ^:private mic [{:keys [opts args]}]
+  (case (first args)
+    "on" (exit (client/mic! (url opts) true))
+    "off" (exit (client/mic! (url opts) false))
+    (do (binding [*out* *err*] (println "Usage: grog mic on|off"))
+        (System/exit 2))))
+
 (defn ^:private serve-hands [{:keys [opts]}]
   (if (str/blank? (:socket opts))
     (die "Usage: grog hands --socket PATH")
@@ -105,6 +115,7 @@ Server: $GROG_URL or " client/default-url))
    {:cmds ["status"] :fn status}
    {:cmds ["settings" "reset"] :fn reset-settings}
    {:cmds ["models"] :fn models}
+   {:cmds ["mic"] :fn mic}
    {:cmds [] :fn help}])
 
 (defn -main [& args]

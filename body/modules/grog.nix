@@ -189,10 +189,21 @@ in
     hands = {
       enable = lib.mkEnableOption ''
         grog's hands: the tools that act on the machine (the speaker's volume,
-        how the machine is doing, a shell), run by a small service of `user`.
-        That user can usually use sudo, and so then can grog, through them,
-        without asking. And anyone who can run code in grog
-        (`settings.nrepl.enable`) can too'';
+        how the machine is doing, restarting it or grog, a shell), run by a
+        small service of `user`. Whatever that user can do, grog can,
+        through them, without asking (with `sudo`, anything). And so can
+        anyone who can run code in grog (`settings.nrepl.enable`)'';
+
+      sudo = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Whether `user` may use sudo without a password, and do what polkit
+          guards (restarting services, rebooting, networks...) without being
+          asked for one: grog can then do anything on the machine. Off, it
+          can do what `user` could already.
+        '';
+      };
 
       user = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
@@ -268,6 +279,9 @@ in
           EnvironmentFile = lib.mkIf (cfg.environmentFile != null) "-${cfg.environmentFile}";
           Restart = "on-failure";
           RestartSec = 5;
+          # How grog restarts itself, when asked to (grog.actions).
+          SuccessExitStatus = 75;
+          RestartForceExitStatus = 75;
 
           DynamicUser = true;
           # Named apart from the unit: systemd would otherwise reuse an existing
@@ -357,6 +371,26 @@ in
         };
       };
     })
+
+    (lib.mkIf (cfg.hands.enable && cfg.hands.sudo) (
+      let
+        noPassword = [{
+          users = [ cfg.hands.user ];
+          commands = [{ command = "ALL"; options = [ "NOPASSWD" ]; }];
+        }];
+      in
+      {
+        security.sudo.extraRules = lib.mkIf config.security.sudo.enable noPassword;
+        security.sudo-rs.extraRules = lib.mkIf config.security.sudo-rs.enable noPassword;
+        # systemctl, reboot, nmcli... without sudo too.
+        security.polkit.enable = true;
+        security.polkit.extraConfig = ''
+          polkit.addRule(function (action, subject) {
+            if (subject.user == ${builtins.toJSON cfg.hands.user}) return polkit.Result.YES;
+          });
+        '';
+      }
+    ))
 
     (lib.mkIf cfg.skin.enable {
       services.grog.settings.skin.dir = lib.mkDefault "${cfg.skin.package}/share/grog-skin/web";

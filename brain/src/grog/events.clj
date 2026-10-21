@@ -8,6 +8,12 @@
   The state:
     :name :provider :model :auth  who grog is, and how it's paid
     :timezone  grog's time zone (IANA), for clocks to show its time
+    :actions   what can be asked of grog (grog.actions), like \"restart\"
+    :restarting  once grog is going away, asked to: {:action :at}, the
+               action being restart, reboot or power-off; nil otherwise
+    :mic       \"on\" or \"off\": whether grog-voice's mic is on, as asked
+               (grog.voice)
+    :volume    the speaker's volume, once known: {:level :muted}
     :started-at  when grog started: until grog-voice says anything, it may
                be on its way
     :voice     grog-voice's state: {:state :since :seen :conversation
@@ -17,14 +23,17 @@
                reply to it), as it comes: {:text :final :at}, a guess at
                what was said so far until it's final
     :turn      the current turn, or the last one: {:conversation :n :steps
-               :question :said :answer :done-at :ok :error :spoken-at}, :n
-               telling it from the others, :said being what was said aloud
-               for it as grog-voice heard it (the wake word included), its
-               steps {:step :at} (heard, thinking, tool with :name,
-               answering, speaking), in order, :spoken-at when grog-voice
-               was done saying its answer, if it said it
+               :question :said :answer :done-at :ok :stopped :error
+               :spoken-at}, :n telling it from the others, :said being what
+               was said aloud for it as grog-voice heard it (the wake word
+               included), its steps {:step :at} (heard, thinking, tool with
+               :name, answering, speaking), in order, :stopping once it's
+               asked to stop, :stopped when it then ended (not well, without
+               failing), :spoken-at when grog-voice was done saying its
+               answer, if it said it; nil once the conversations were
+               forgotten
     :recent    the last 4 turns, newest first: {:at :conversation :ms :tools
-               :ok}
+               :ok :stopped}
     :login     the last sign-in to the provider's subscription, as
                grog.login/view tells: {:provider :status :method :label},
                and while it waits for a code to be entered, the :code, the
@@ -43,11 +52,14 @@
 ;; it as heard: more than an utterance and its transcription take.
 (def ^:private heard-window-ms 30000)
 
+;; grog-voice says what it's doing at least every 10 s: past this, it's gone.
+(def ^:private voice-gone-ms 35000)
+
 (def ^:private recent-max 4)
 
 (def voice-states
   "What grog-voice says it's doing (voice/grog_voice/reporter.py)."
-  #{"loading" "listening" "hearing" "awake" "asked" "answering" "speaking" "error" "no-mic"})
+  #{"loading" "listening" "hearing" "awake" "asked" "answering" "speaking" "error" "no-mic" "muted"})
 
 (defn now-ms
   "The clock (tests redefine it)."
@@ -127,17 +139,29 @@
       text (update-in [:turn :answer] str text))))
 
 (defn ^:private on-end
-  "The turn is over, well (:done) or not (:failed)."
+  "The turn is over, well (:done) or not (:failed): stopped, when it was
+  asked to (see `on-stop`), rather than failed."
   [state {:keys [type conversation ms tools error at] :as event}]
-  (let [ok? (= :done type)]
-    (cond-> (update state :recent #(vec (take recent-max (cons {:at at
-                                                                :conversation conversation
-                                                                :ms ms
-                                                                :tools (vec tools)
-                                                                :ok ok?}
+  (let [ok? (= :done type)
+        current? (turn-of? state event)
+        stopped? (boolean (and current? (not ok?) (get-in state [:turn :stopping])))]
+    (cond-> (update state :recent #(vec (take recent-max (cons (cond-> {:at at
+                                                                        :conversation conversation
+                                                                        :ms ms
+                                                                        :tools (vec tools)
+                                                                        :ok ok?}
+                                                                 stopped? (assoc :stopped true))
                                                                %))))
-      (turn-of? state event) (update :turn #(cond-> (assoc % :done-at at :ok ok?)
-                                              error (assoc :error error))))))
+      current? (update :turn #(cond-> (dissoc (assoc % :done-at at :ok ok?) :stopping)
+                                stopped? (assoc :stopped true)
+                                (and error (not stopped?)) (assoc :error error))))))
+
+(defn ^:private on-stop
+  "The turn under way was asked to stop: when it ends, it's stopped."
+  [{:keys [turn] :as state}]
+  (if (and turn (not (:done-at turn)))
+    (assoc-in state [:turn :stopping] true)
+    state))
 
 (defn step
   "The state after `event` (with its :type and :at)."
@@ -150,7 +174,13 @@
             state)
     :text (on-text state event)
     (:done :failed) (on-end state event)
-    :status (merge state (select-keys event [:name :provider :model :auth :timezone]))
+    :stop (on-stop state)
+    :forgot (assoc state :turn nil :heard nil)
+    :status (merge state (select-keys event [:name :provider :model :auth :timezone :actions :mic]))
+    :mic (assoc state :mic (:mic event))
+    :volume (assoc state :volume (select-keys event [:level :muted]))
+    ;; Without an action, it stays after all.
+    :restarting (assoc state :restarting (when (:action event) (select-keys event [:action :at])))
     :login (assoc state :login (:login event))
     :usage (assoc state :usage (:usage event))
     state))
@@ -174,6 +204,15 @@
   "Whether what's said goes to the watchers (`skin.captions`)."
   [{:keys [captions?]}]
   (boolean (and captions? (captions?))))
+
+(defn saying?
+  "Whether grog-voice, as it last said, is answering in `conversation`, or
+  saying the answer."
+  [{:keys [state]} conversation]
+  (let [{voice-state :state :keys [seen] :as voice} (:voice @state)]
+    (and (= conversation (:conversation voice))
+         (contains? #{"answering" "speaking"} voice-state)
+         (< (- (now-ms) seen) voice-gone-ms))))
 
 (defn snapshot
   "The state, as watchers get it."

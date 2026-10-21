@@ -10,18 +10,25 @@
     :run       (fn [ctx args turn]): the result for the model, text or data
                (sent as JSON). Throws ex-info to tell it what went wrong.
                `turn`: {:id the conversation, :n its turn number, :searched?
-               (fn [])}."
+               (fn []), :later an atom of the actions to take once its
+               answer is out, when its caller takes them (grog.actions)}."
   (:require [cheshire.core :as json]
+            [grog.actions :as actions]
             [grog.log :as log]
             [grog.machine :as machine]
             [grog.memory :as memory]
-            [grog.settings :as settings]))
+            [grog.settings :as settings]
+            [grog.voice :as voice]))
 
 (defn available
-  "The tools for a turn: grog's own, and the machine's when it has hands."
+  "The tools for a turn: grog's own (its settings, memory and microphone),
+  the machine's when it has hands, and `power` when it can restart itself or
+  the machine."
   [config]
-  (cond-> [settings/tool memory/tool]
-    (get-in config [:hands :socket]) (into machine/tools)))
+  (let [power (actions/tool config)]
+    (cond-> [settings/tool memory/tool voice/tool]
+      (get-in config [:hands :socket]) (into machine/tools)
+      power (conj power))))
 
 (defn definitions
   "What the provider tells the model about `tools`."

@@ -5,8 +5,8 @@
 ;; and in the answers' headers). Answers say what was
 ;; received, so the tests can check the credentials, the system prompt and the
 ;; conversation history. Asked for the forecast, it searches the web first,
-;; like the real model; asked to be called Jarvis, who runs the commands, or
-;; for the volume, it uses grog's tools (see `calls`).
+;; like the real model; asked to be called Jarvis, who runs the commands, for
+;; the volume, or to restart, it uses grog's tools (see `calls`).
 (require '[cheshire.core :as json]
          '[clojure.string :as str]
          '[org.httpkit.server :as http])
@@ -76,7 +76,8 @@
   the phrase."
   [["Jarvis" "settings" "{\"name\":\"Jarvis\"}"]
    ["quem roda" "shell" "{\"command\":\"id -un | tee /tmp/hands-ran\"}"]
-   ["volume em 30" "volume" "{\"level\":30}"]])
+   ["volume em 30" "volume" "{\"level\":30}"]
+   ["reinicie-se" "power" "{\"action\":\"restart\"}"]])
 
 (defn tool-call
   "[tool arguments] the model calls for the request, or nil."

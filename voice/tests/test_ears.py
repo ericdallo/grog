@@ -133,6 +133,20 @@ class ListenTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             e.listen()
 
+    def test_forgets_what_was_being_said(self):
+        # Someone talks, and the mic is switched off and on again meanwhile:
+        # what they said before is forgotten.
+        class Switched(FakeMic):
+            def read(self):
+                if self.read_count == 20:
+                    e.forget()
+                return super().read()
+
+        e = ears(mic=Switched(frames(("S", 2.0), (".", 1.0))), settings={**SETTINGS, "speculateMs": 0})
+        heard = e.listen()
+        self.assertEqual(SPEECH * 42 + SILENCE * 6, heard.pcm, "only what came after")
+        self.assertFalse(e.forgetting)
+
 
 class AddressTest(unittest.TestCase):
     def test_what_a_text_asks_grog(self):

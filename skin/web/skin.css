@@ -60,10 +60,13 @@ body[data-mode="error"] { --mode: var(--red); }
 body[data-mode="no-mic"],
 body[data-mode="deaf"],
 body[data-mode="login"] { --mode: var(--amber); }
-body[data-mode="loading"] { --mode: #a4b0be; }
+body[data-mode="loading"],
+body[data-mode="restarting"] { --mode: #a4b0be; }
+body[data-mode="muted"] { --mode: #747d8c; }
 body[data-mode="offline"] { --mode: #57606f; --on: #a4b0be; }
 
-.content {
+.content,
+.sheet {
   --accent: var(--tint);
 }
 
@@ -86,7 +89,8 @@ body[data-mode="offline"] { --mode: #57606f; --on: #a4b0be; }
   --on: #52555c;
 }
 
-.night .content {
+.night .content,
+.night .sheet {
   --accent: color-mix(in srgb, var(--tint) 75%, var(--bg));
   --on: var(--bg);
 }
@@ -108,6 +112,40 @@ body {
 .kiosk,
 .kiosk * {
   cursor: none !important;
+}
+
+button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+/* What can be touched, its face included: no highlight, no zoom. */
+button,
+.avatar {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* A round button with an icon: the actions, closing them, the volume. */
+.round {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 8vmin;
+  height: 8vmin;
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--ink);
+}
+
+.round svg {
+  width: 3.6vmin;
+  height: 3.6vmin;
 }
 
 [hidden] {
@@ -218,6 +256,13 @@ ol {
   opacity: 0.75;
 }
 
+/* What grog says and does, and over it, when they show, its actions: its
+   face keeps showing what it's up to, next to them. */
+.content,
+.sheet {
+  grid-area: 1 / 2;
+}
+
 .content {
   display: flex;
   flex-direction: column;
@@ -229,6 +274,11 @@ ol {
   display: flex;
   align-items: baseline;
   gap: 3vmin;
+}
+
+.time .round {
+  align-self: center;
+  margin-left: auto;
 }
 
 .clock {
@@ -583,6 +633,187 @@ ol {
   background: var(--accent);
 }
 
+/* The actions (view.js menu), over what was said and done: everyday ones,
+   then those that can't be undone, which take a second tap (armed, red).
+   They slide in and fade, and only then. Their closing button sits where
+   the one opening them was. */
+.sheet {
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 6vmin 6vmin 5.5vmin;
+  background: var(--bg);
+  opacity: 0;
+  transform: translateX(3vmin);
+  visibility: hidden;
+  transition: opacity 0.2s, transform 0.2s, visibility 0s 0.2s;
+}
+
+.sheet.open {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.sheet-top {
+  display: flex;
+  align-items: center;
+  min-height: 9vmin;
+}
+
+.sheet-top h2 {
+  margin: 0;
+  font: 800 4.6vmin/1 var(--text);
+  letter-spacing: -0.02em;
+}
+
+.sheet-top .round {
+  margin-left: auto;
+}
+
+.items {
+  display: flex;
+  flex-direction: column;
+  gap: 3vmin;
+  margin-top: 3vmin;
+}
+
+.items .group {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4vmin;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.items .group:empty {
+  display: none;
+}
+
+.item .row,
+.item.volume {
+  display: flex;
+  align-items: center;
+  gap: 2vmin;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 8.5vmin;
+  padding: 1.2vmin 2.8vmin;
+  border-radius: 1.4vmin;
+  background: var(--card);
+  font-size: 2.6vmin;
+  font-weight: 600;
+}
+
+.item .row > svg {
+  flex: none;
+  width: 3.4vmin;
+  height: 3.4vmin;
+  color: var(--accent);
+}
+
+.item .text {
+  flex: 1;
+  min-width: 0;
+}
+
+.item .more {
+  display: block;
+  margin-top: 0.4vmin;
+  color: var(--muted);
+  font-size: 1.9vmin;
+  font-weight: 400;
+}
+
+.item .row.armed {
+  background: var(--red);
+  color: #ffffff;
+}
+
+.item .row.armed > svg {
+  color: #ffffff;
+}
+
+/* A switch: its knob moves (transform), its color changes at once. */
+.switch {
+  position: relative;
+  flex: none;
+  width: 7vmin;
+  height: 4vmin;
+  border-radius: 2vmin;
+  background: var(--line);
+}
+
+.switch::after {
+  position: absolute;
+  top: 0.5vmin;
+  left: 0.5vmin;
+  width: 3vmin;
+  height: 3vmin;
+  border-radius: 50%;
+  background: var(--ink);
+  content: "";
+  transition: transform 0.15s;
+}
+
+.switch.on {
+  background: var(--accent);
+}
+
+.switch.on::after {
+  transform: translateX(3vmin);
+}
+
+.item.volume .text {
+  flex: none;
+  width: 14vmin;
+}
+
+.item.volume .round {
+  width: 6.5vmin;
+  height: 6.5vmin;
+  background: var(--bg);
+}
+
+.item.volume .round.on {
+  background: var(--accent);
+  color: var(--on);
+}
+
+.item.volume .track {
+  flex: 1;
+  height: 1vmin;
+  overflow: hidden;
+  border-radius: 0.5vmin;
+  background: var(--line);
+}
+
+.item.volume .fill {
+  height: 100%;
+  background: var(--accent);
+  transform-origin: 0 50%;
+}
+
+.item.volume.muted .fill {
+  opacity: 0.35;
+}
+
+.item.volume .value {
+  width: 7vmin;
+  font: 400 2.3vmin var(--mono);
+  text-align: right;
+}
+
+.sheet-error {
+  min-height: 3vmin;
+  margin-top: 2vmin;
+  color: var(--red);
+  font-size: 2.2vmin;
+}
+
 /* grog's face (face.js): Lid, drawn in the block's ink (--on) on its color
    (--accent). Each state (data-state) is a pose of the same parts, through
    custom properties (--lid, --pupil...): from one state to the next, each part
@@ -678,6 +909,7 @@ ol {
 
 .face[data-state="tool"] .sym,
 .face[data-state="no-mic"] .sym,
+.face[data-state="muted"] .sym,
 .face[data-state="login"] .sym {
   opacity: 1;
   transform: none;
@@ -685,6 +917,7 @@ ol {
 
 .face[data-state="tool"] .pupil,
 .face[data-state="no-mic"] .pupil,
+.face[data-state="muted"] .pupil,
 .face[data-state="login"] .pupil {
   --pupil: 0.3;
   opacity: 0;
@@ -812,6 +1045,14 @@ ol {
   --lid: 30px;
   --tilt: 8deg;
   --head: 6deg;
+}
+
+/* Its mic off, on purpose: calm, its lid half down, its pupil a mic struck
+   through. */
+.face[data-state="muted"] {
+  --lid: 36px;
+  --smile: -4px;
+  --rest-y: 4px;
 }
 
 /* Its voice stopped: wide-eyed, its pupil small, it looks around now and then. */

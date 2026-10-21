@@ -1,9 +1,9 @@
 (ns grog.server
   "The server: grog's HTTP API (grog.api) and, when enabled, an nREPL, with
   what runs in the background: pings to whoever watches what grog is up
-  to, keeping what they know of its usage current, and a sign-in with a code
-  going while grog has nothing to pay with, for its skin to show
-  (grog.login)."
+  to, and to grog-voice, keeping what they know of its usage current, and a
+  sign-in with a code going while grog has nothing to pay with, for its
+  skin to show (grog.login)."
   (:require [babashka.nrepl.server :as nrepl]
             [grog.api :as api]
             [grog.assistant :as assistant]
@@ -12,6 +12,7 @@
             [grog.login :as login]
             [grog.provider :as provider]
             [grog.usage :as usage]
+            [grog.voice :as voice]
             [org.httpkit.server :as http]))
 
 ;; Context of the running server, handy from the nREPL, e.g.
@@ -78,7 +79,8 @@
     {:ctx ctx
      :server server
      :port port
-     :background [(every! ping-ms false #(events/ping! (:events ctx)))
+     :background [(every! ping-ms false #(do (events/ping! (:events ctx))
+                                             (voice/ping! (:voice ctx))))
                   (every! usage-check-ms true #(usage/refresh! ctx quota-max-age-s
                                                                (quot (System/currentTimeMillis) 1000)))
                   (every! login-check-ms true #(keep-up-login! ctx))]

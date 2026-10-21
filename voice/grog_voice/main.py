@@ -141,7 +141,9 @@ def build(settings, open_mic, play, report=None, name=lambda: None, partials=Tru
         stt=stt,
         tts=tts,
         player=lambda rate: make_player(rate, settings["speaker"]),
-        ask=lambda text, said=None: grog.ask(settings["grogUrl"], settings["conversationId"], text, said),
+        ask=lambda text, said=None, on_connect=None: grog.ask(
+            settings["grogUrl"], settings["conversationId"], text, said, on_connect=on_connect
+        ),
         wake=wake,
         report=report or (lambda state: None),
         report_heard=report.heard if report is not None else lambda text, final: None,
@@ -151,14 +153,22 @@ def build(settings, open_mic, play, report=None, name=lambda: None, partials=Tru
 
 
 def run(settings):
+    from . import grog
     from .audio import Mic
+    from .commands import Commands
 
     report = reporter(settings)
     report("loading")
-    voice = build(settings, lambda: Mic(settings["mic"]), play=True, report=report)
+    # Whether the mic is on comes before it's opened: models take a while.
+    commands = Commands(lambda: grog.commands(settings["grogUrl"]))
+    voice = build(
+        settings, lambda: Mic(settings["mic"], on=commands.mic_on is not False), play=True, report=report
+    )
+    commands.attach(voice)
     try:
         voice.run()
     finally:
+        commands.close()
         voice.close()
 
 

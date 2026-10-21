@@ -31,6 +31,11 @@ up to it.
 It doesn't listen while it talks. A low sound means something went wrong,
 and the log says what.
 
+The brain can also ask it (`GET /v1/voice/commands`), for someone at grog's
+screen: to listen now, without its name (touching its face), to stop
+answering, or to switch its mic off. Off, it records nothing at all until
+it's switched on again, even after restarts: the brain keeps that.
+
 On grognix, a Celeron N5095, Supertonic takes ~0.5 s per second of speech
 (Piper: 0.2), so it starts answering 1 to 3 s after the LLM's first words,
 which take 2 to 3 s, more when it searches the web. What was tried for its
@@ -67,7 +72,8 @@ spelling to `wakeWord`.
 It keeps no recordings and logs no words, only timings and levels. What's
 said to grog goes to the brain as the question. With `skin.captions`, it
 also goes as it's said, for the skin to show. What anyone else says never
-leaves it.
+leaves it. With its mic switched off ("stop listening", grog's skin, or
+`grog mic off`), nothing is recorded.
 
 ## Settings
 

@@ -1,6 +1,7 @@
 (ns grog.tools-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [grog.actions :as actions]
             [grog.config :as config]
             [grog.tools :as tools]))
 
@@ -21,10 +22,14 @@
          (tools/definitions [echo]))))
 
 (deftest offers-the-machine-only-with-hands
-  (let [names #(mapv :name (tools/available %))]
-    (is (= ["settings" "memory"] (names config/defaults)))
-    (is (= ["settings" "memory" "volume" "system_status" "shell"]
-           (names (assoc-in config/defaults [:hands :socket] "/run/grog-hands/hands.sock"))))))
+  (let [names #(mapv :name (tools/available %))
+        hands (assoc-in config/defaults [:hands :socket] "/run/grog-hands/hands.sock")]
+    (with-redefs [actions/service? (constantly false)]
+      (is (= ["settings" "memory" "microphone"] (names config/defaults)))
+      (is (= ["settings" "memory" "microphone" "volume" "system_status" "shell" "power"] (names hands))))
+    (testing "as a service, it can restart itself"
+      (with-redefs [actions/service? (constantly true)]
+        (is (= ["settings" "memory" "microphone" "power"] (names config/defaults)))))))
 
 (deftest runs-tools-for-the-model
   (let [searched? (atom false)

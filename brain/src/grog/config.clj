@@ -44,7 +44,8 @@
    :skin {:dir nil :captions false}
    ;; Where grog keeps its files: the credentials of `grog login`
    ;; (auth.json), the settings changed by asking (settings.json), what it
-   ;; was told to remember (memory.json) and what it consumed (usage.json).
+   ;; was told to remember (memory.json), whether grog-voice's mic is on
+   ;; (voice.json) and what it consumed (usage.json).
    ;; nil: $STATE_DIRECTORY (set by systemd) or ~/.local/state/grog.
    :state-dir nil
    ;; Settings per provider (see grog.provider).

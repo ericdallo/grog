@@ -1,3 +1,4 @@
+import threading
 import unittest
 from unittest import mock
 
@@ -19,6 +20,7 @@ from fakes import (
     Saying,
     answering,
     frames,
+    hanging,
     slow_mic,
 )
 
@@ -231,7 +233,7 @@ class RunTest(unittest.TestCase):
         utterances = frames(*[part for _ in range(3) for part in (("S", 1.0), (".", 1.0))])
         answers = iter([["Vou limpar o lixo do Nix. Posso?"], ["Pronto."], ["Não era comigo."]])
 
-        def ask(text, said=None):
+        def ask(text, said=None, on_connect=None):
             ask.asked.append(text)
             yield from (("text", piece) for piece in next(answers))
 
@@ -300,6 +302,62 @@ class RunTest(unittest.TestCase):
         )
         self.assertEqual(["listening", "hearing", "answering", "speaking", "listening"], v.reported)
         self.assertEqual(0, v.ears.partial_stt.holds, "it went on once it listened again")
+
+
+class AskedByGrogTest(unittest.TestCase):
+    def test_its_mic_off_and_on_again(self):
+        v = voice()
+        v.tell("listening")
+        v.set_mic(False)
+        self.assertEqual([False], v.ears.mic.switched)
+        self.assertTrue(v.ears.forgetting, "what was being said is forgotten")
+        self.assertEqual(["listening", "muted"], v.reported, "grog is told at once")
+        for state in ("listening", "awake", "asked"):
+            v.tell(state)
+        self.assertEqual(["listening", "muted"], v.reported, "muted, whatever it waits for")
+        v.set_mic(False)
+        self.assertEqual([False], v.ears.mic.switched, "once")
+        v.set_mic(True)
+        self.assertEqual([False, True], v.ears.mic.switched)
+        self.assertEqual(["listening", "muted", "listening"], v.reported)
+
+    def test_switched_off_while_it_speaks_it_says_so_once_done(self):
+        v = voice()
+        v.tell("speaking")
+        v.set_mic(False)
+        self.assertEqual(["speaking"], v.reported)
+        v.tell("listening")
+        self.assertEqual(["speaking", "muted"], v.reported)
+
+    def test_switched_off_while_someone_talks_it_says_so_at_once(self):
+        # It hears nothing more, so it wouldn't say anything else.
+        v = voice()
+        v.tell("hearing")
+        v.set_mic(False)
+        self.assertEqual(["hearing", "muted"], v.reported)
+
+    def test_listens_now_without_its_name(self):
+        v = voice()
+        with mock.patch.object(v.mouth, "stop", wraps=v.mouth.stop) as stop:
+            v.listen_now()
+        stop.assert_called_once()
+        self.assertEqual("awake", v.awake())
+        v.mouth.quiet()
+        self.assertEqual([[LISTENING]], written(v), "its sound says it listens")
+
+    def test_a_question_cut_off_waits_for_its_name_again(self):
+        ask = hanging("Quer que eu continue?")
+        v = voice(mic=slow_mic(("S", 1.0), (".", 1.0)), ask=ask)
+
+        def stop_once_asked():
+            ask.answered.wait(5)
+            v.stop()
+
+        threading.Thread(target=stop_once_asked).start()
+        result = v.turn()
+        self.assertTrue(result.turn.stopped)
+        self.assertIsNone(v.awake())
+        self.assertTrue(ask.conn.hung_up.is_set())
 
 
 class WatchedMic(FakeMic):

@@ -4,6 +4,7 @@
   `server.allowedHosts`, and POST and DELETE take Content-Type:
   application/json: web pages can't use grog (see `refusal`)."
   (:require [clojure.string :as str]
+            [grog.actions :as actions]
             [grog.assistant :as assistant]
             [grog.config :as config]
             [grog.events :as events]
@@ -14,6 +15,7 @@
             [grog.skin :as skin]
             [grog.sse :as sse]
             [grog.usage :as usage]
+            [grog.voice :as voice]
             [org.httpkit.server :as http]))
 
 (defn ^:private json-response [status body]
@@ -48,9 +50,11 @@
   or server-sent events when `events?` (text, tool, then done or error). The
   200 status is only sent with the first chunk, so failures before any answer
   (bad key, network, API errors) become a 502 with a JSON error; later ones are
-  appended inline. When the client goes away, the turn stops."
+  appended inline. When the client goes away, the turn stops. Once the
+  answer is out, the actions the model asked for are taken."
   [ctx ch gone request events?]
-  (let [started? (volatile! false)
+  (let [later (atom [])
+        started? (volatile! false)
         headers (if events? event-headers text-headers)
         send! (fn [data]
                 (when (or (realized? gone) (not (http/send! ch data false)))
@@ -69,10 +73,11 @@
                     (send! (sse/message "tool" {:name name}))))]
     (try
       ;; An answer always started: there's no answer without text.
-      (assistant/reply! ctx request on-text on-tool)
+      (assistant/reply! ctx (assoc request :later later) on-text on-tool)
       (when events?
         (send! (sse/message "done" {})))
       (http/close ch)
+      (actions/after-answer! ctx (:id request) @later)
       (catch Throwable e
         (let [msg (or (ex-message e) (str e))]
           (cond
@@ -126,20 +131,32 @@
                               ;; leaving, and send! keeps returning true.
                               :on-close (fn [_ _] (deliver gone true))})))))
 
-(defn ^:private watch
-  "Streams what grog is up to (grog.events): the state, then each change."
-  [ctx req]
+(defn ^:private stream
+  "Streams server-sent events to whoever asked: `watch!` gets a key and a
+  function sending an event's text (false once they're gone), `unwatch!`
+  the key once they go."
+  [req watch! unwatch!]
   (http/as-channel req {:on-open (fn [ch]
                                    ;; The headers go with the first event.
                                    (let [started? (volatile! false)]
-                                     (events/watch! (:events ctx) ch
-                                                    (fn [text]
-                                                      (if @started?
-                                                        (http/send! ch text false)
-                                                        (do (vreset! started? true)
-                                                            (http/send! ch {:status 200 :headers event-headers :body text}
-                                                                        false)))))))
-                        :on-close (fn [ch _] (events/unwatch! (:events ctx) ch))}))
+                                     (watch! ch (fn [text]
+                                                  (if @started?
+                                                    (http/send! ch text false)
+                                                    (do (vreset! started? true)
+                                                        (http/send! ch {:status 200 :headers event-headers :body text}
+                                                                    false)))))))
+                        :on-close (fn [ch _] (unwatch! ch))}))
+
+(defn ^:private watch
+  "Streams what grog is up to (grog.events): the state, then each change."
+  [{:keys [events]} req]
+  (stream req #(events/watch! events %1 %2) #(events/unwatch! events %)))
+
+(defn ^:private voice-commands
+  "Streams what grog asks of grog-voice (grog.voice): whether its mic is on,
+  then what it's asked to do."
+  [{:keys [voice]} req]
+  (stream req #(voice/watch! voice %1 %2) #(voice/unwatch! voice %)))
 
 (defn ^:private heard?
   "Whether `heard` is what grog-voice heard for grog: {:text :final}."
@@ -190,6 +207,21 @@
     (catch Exception e
       (json-response 502 {:error (or (ex-message e) (str e))}))))
 
+(defn ^:private action
+  "Takes the action `name` (grog.actions) a request asks for, with what its
+  JSON body says, if anything."
+  [ctx name req]
+  (let [args (read-json req)]
+    (cond
+      (not (contains? actions/known name))
+      (json-response 404 {:error (format "There's no action called %s." name)})
+
+      (not (or (nil? args) (map? args)))
+      (json-response 400 {:error "Send a JSON object, or nothing."})
+
+      :else
+      (api-call #(actions/perform! ctx name (or args {}))))))
+
 (defn ^:private host-name
   "A Host header without the port: \"[::1]:8484\" -> \"[::1]\"."
   [host]
@@ -213,7 +245,8 @@
   "Answers `req`, with what the context `ctx` holds (grog.assistant)."
   [ctx {:keys [request-method uri] :as req}]
   (let [config @(:config ctx)
-        [_ provider login?] (re-matches #"/v1/auth/([a-z]+)(/login)?" uri)]
+        [_ provider login?] (re-matches #"/v1/auth/([a-z]+)(/login)?" uri)
+        [_ action-name] (re-matches #"/v1/actions/([a-z-]+)" uri)]
     (or
      (refusal config req)
      (cond
@@ -256,6 +289,12 @@
 
        (= [:post "/v1/voice"] [request-method uri])
        (voice-report ctx req)
+
+       (= [:get "/v1/voice/commands"] [request-method uri])
+       (voice-commands ctx req)
+
+       (and action-name (= :post request-method))
+       (action ctx action-name req)
 
        :else
        (or (when (= :get request-method)

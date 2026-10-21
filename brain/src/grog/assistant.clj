@@ -2,6 +2,7 @@
   "A turn of conversation: the history, the system prompt, the tools and the
   provider's answer. The HTTP API (grog.api) goes through `reply!`."
   (:require [clojure.string :as str]
+            [grog.actions :as actions]
             [grog.config :as config]
             [grog.conversation :as conversation]
             [grog.events :as events]
@@ -11,14 +12,16 @@
             [grog.provider :as provider]
             [grog.settings :as settings]
             [grog.tools :as tools]
-            [grog.usage :as usage]))
+            [grog.usage :as usage]
+            [grog.voice :as voice]))
 
 (defn new-context
   "What turns need: the settings (an atom, so they can change live) with
   those changed through the `settings` tool over `config`, what grog was told
   to remember, the conversation histories, how many turns there were (each
-  turn's number), what grog is up to, for whoever watches (grog.events), and
-  what it consumed (grog.usage)."
+  turn's number), what grog is up to, for whoever watches (grog.events),
+  what it asks of grog-voice (grog.voice), and what it consumed
+  (grog.usage)."
   [config]
   (let [overrides (settings/load-overrides config)
         live-config (atom (settings/apply-overrides config overrides))]
@@ -26,21 +29,28 @@
      :overrides (atom overrides)
      :config live-config
      :memory (atom (memory/load-facts config))
-     ;; Changes to the settings, the memory and the usage, one at a time.
+     ;; Changes to the settings, the memory, the mic and the usage, one at a
+     ;; time.
      :lock (Object.)
      :store (conversation/new-store)
      :turns (atom 0)
      :events (events/new-hub #(get-in @live-config [:skin :captions]))
+     :voice (voice/new-channel config)
      :usage (atom (usage/load-days config))
      :quota (atom nil)
      :quota-failing? (atom false)}))
 
 (defn publish-status!
   "Tells whoever watches (grog.events) who grog is, how it's paid, its time
-  zone, and what it consumed, now."
+  zone, what can be asked of it, whether its mic is on, and what it
+  consumed, now."
   [ctx]
   (let [config @(:config ctx)]
-    (events/publish! (:events ctx) (merge {:type :status :name (:name config) :timezone (config/timezone config)}
+    (events/publish! (:events ctx) (merge {:type :status
+                                           :name (:name config)
+                                           :timezone (config/timezone config)
+                                           :actions (actions/available config)
+                                           :mic (voice/mic (:voice ctx))}
                                           (select-keys (provider/describe-quietly config) [:provider :model :auth])))
     (usage/publish! ctx)))
 
@@ -56,10 +66,12 @@
   "Answers `message` within conversation `id`, streaming the text through
   `on-text`, and telling `on-tool` ({:name}) when the model uses a tool.
   `new?` forgets the conversation first, even if answering fails. `said`:
-  what was said aloud for it, when it was, as grog-voice heard it. Returns
-  the full answer; throws when there's none. Whoever watches sees the turn
-  go (grog.events)."
-  [{:keys [store memory turns] :as ctx} {:keys [id message new? said]} on-text on-tool]
+  what was said aloud for it, when it was, as grog-voice heard it. `later`:
+  an atom getting the actions the model asks for, for the caller to take
+  once the answer is out (grog.actions/after-answer!); without it, the
+  model can't. Returns the full answer; throws when there's none. Whoever
+  watches sees the turn go (grog.events)."
+  [{:keys [store memory turns] :as ctx} {:keys [id message new? said later]} on-text on-tool]
   (let [lock (turn-lock id)]
     (locking lock
       (when new?
@@ -85,7 +97,7 @@
                 on-text (fn [text]
                           (publish! {:type :text :text text})
                           (on-text text))
-                turn {:id id :n n :searched? #(boolean (some #{"web_search"} @used))}
+                turn {:id id :n n :searched? #(boolean (some #{"web_search"} @used)) :later later}
                 {:keys [text stop-reason usage quota]} (provider/stream-reply!
                                                         config
                                                         {:system (prompt/system-prompt

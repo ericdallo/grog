@@ -210,6 +210,17 @@
           true)
       (fail body))))
 
+(defn mic!
+  "Turns grog-voice's mic on or off (`on?`), for good."
+  [url on?]
+  (let [[ok? body] (call :post url "/v1/actions/mic" {:on on?})]
+    (if ok?
+      (do (println (if (= "on" (:mic body))
+                     "The mic is on."
+                     "The mic is off: nothing is heard until it's on again, even after restarts."))
+          true)
+      (fail body))))
+
 (defn models! [url]
   (let [[ok? body] (call :get url "/v1/models")]
     (if-not ok?

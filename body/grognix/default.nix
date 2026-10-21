@@ -108,8 +108,8 @@
     # Hands-free, through the default mic and speaker of grog's session
     # (GNOME's sound settings, or wpctl).
     voice.enable = true;
-    # The volume, how the machine is doing, and a shell (as grog, who can use
-    # sudo).
+    # The volume, how the machine is doing, restarting it or grog, and a
+    # shell (as grog, with sudo without a password).
     hands.enable = true;
     # What it's up to, at its address, and on the desktop fullscreen, over
     # GNOME's overview, keeping the screen on: Super still opens the

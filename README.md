@@ -43,7 +43,8 @@ bb chat
 
 ## Using it
 
-Talk to it ("Grog, ..."), or use the CLI:
+Talk to it ("Grog, ..."), touch its screen (its face, or its actions), or use
+the CLI:
 
 ```sh
 grog chat
@@ -58,6 +59,8 @@ in `/etc/grog/secrets.env`). See [paying for it](brain/README.md#paying-for-it).
 ## Privacy
 
 - Nothing it hears is recorded, and the logs never have what was said.
+- Its mic can be switched off: ask it to stop listening, or use its screen
+  or `grog mic off`. It stays off, even after restarts, until switched on.
 - Speech to text runs on the machine. Only what's said to grog goes to OpenAI, as text.
 - The screen only shows what's said with `skin.captions`, off by default but on in grognix.
 

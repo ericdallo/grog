@@ -1,7 +1,9 @@
 """The voice loop: waits for an utterance (see ears.py) and, when it's for
 grog ("Grog, ..."), asks grog and speaks the answer as it streams in (see
 mouth.py). Half duplex: what the mic hears while grog answers is dropped
-(hearing someone over grog's own voice would take echo cancellation)."""
+(hearing someone over grog's own voice would take echo cancellation). grog
+may also ask it to listen now, to stop answering, or to turn its mic off
+(see commands.py)."""
 
 import logging
 import threading
@@ -17,6 +19,9 @@ log = logging.getLogger("grog_voice")
 # After just the wake word, or a question from grog ("Posso?"), how long what's
 # said next needs none.
 AWAKE_S = 8.0
+
+# What it tells grog while it answers.
+ANSWERING = ("answering", "speaking")
 
 
 @dataclass
@@ -63,6 +68,7 @@ class Voice:
         self.awake_why = None  # why what's said until then needs no wake word (see awake)
         self.told = None  # what it last told grog it's doing
         self.no_mic = False
+        self.muted = False  # its mic is switched off (see set_mic)
         self._telling = threading.Lock()
         self.mouth = Mouth(tts=tts, player=player, ask=ask, tell=self.tell, captions=captions)
         self.ears = Ears(
@@ -137,7 +143,7 @@ class Voice:
                 self.mouth.play("listening")
             return Result("woken", heard, command)
         turn = self.mouth.answer(heard, command)
-        if turn.answer.rstrip().endswith("?"):
+        if turn.answer.rstrip().endswith("?") and not turn.stopped:
             # It asked something: the reply needs no wake word.
             self.wake_up("asked")
         return Result("answered", heard, command, turn)
@@ -157,12 +163,44 @@ class Voice:
         """Closes the mic, and what transcribes partials."""
         self.ears.close()
 
-    def tell(self, state):
-        """Tells grog what it's doing, when that changed: no mic, while
-        there's none and it would be listening."""
+    def listen_now(self):
+        """Listens to what's said next without its name, as if called, once
+        it stopped what it was saying, if anything: its sound says it
+        listens."""
+        self.mouth.stop()
+        self.wake_up("awake")
+        self.mouth.chime("listening")
+
+    def stop(self):
+        """Stops answering, if it is: what it says is cut off."""
+        self.mouth.stop()
+
+    def set_mic(self, on):
+        """Switches the mic on or off: off, it records nothing, and grog is
+        told it's muted, once it's done answering if it is. What was being
+        said is forgotten."""
+        if self.muted == (not on):
+            return
+        self.muted = not on
+        if (switch := getattr(self.ears.mic, "switch", None)) is not None:
+            switch(on)
+        self.ears.forget()
+        log.info("mic %s", "on" if on else "off")
         with self._telling:
-            if self.no_mic and state in ("listening", "awake", "asked"):
-                state = "no-mic"
+            answering = self.told in ANSWERING
+        if not answering:
+            self.tell(self.awake() or "listening")
+
+    def tell(self, state):
+        """Tells grog what it's doing, when that changed: muted, while the
+        mic is switched off, or no mic, while there's none, when it would be
+        listening."""
+        with self._telling:
+            if state in ("listening", "awake", "asked"):
+                if self.muted:
+                    state = "muted"
+                elif self.no_mic:
+                    state = "no-mic"
             if state != self.told:
                 self.told = state
                 self.report(state)

@@ -20,6 +20,11 @@
   [store id]
   (swap! store dissoc id))
 
+(defn forget-all!
+  "Drops every conversation's history."
+  [store]
+  (reset! store {}))
+
 (defn trim
   "The `max-messages` most recent messages, starting at a user message (the
   APIs expect the conversation to start with the user)."

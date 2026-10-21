@@ -193,6 +193,52 @@
         (is (= {:text "Grog, will it rain?" :final true :at 5000} (:heard state)))
         (is (true? (:captions state)))))))
 
+(deftest a-turn-asked-to-stop-is-stopped-not-failed
+  (let [state (run [1000 {:type :turn :conversation "voice" :n 1}]
+                   [1500 {:type :stop}]
+                   [1600 {:type :failed :conversation "voice" :n 1 :ms 600 :error "The client went away."}])]
+    (is (= {:done-at 1600 :ok false :stopped true} (select-keys (:turn state) [:done-at :ok :stopped :error :stopping])))
+    (is (true? (:stopped (first (:recent state))))))
+  (testing "stopping nothing changes nothing, and what went well went well"
+    (let [state (run [1000 {:type :turn :conversation "voice" :n 1}]
+                     [1500 {:type :done :conversation "voice" :n 1 :ms 500}]
+                     [1600 {:type :stop}])]
+      (is (= {:ok true} (select-keys (:turn state) [:ok :stopped :stopping]))))))
+
+(deftest the-mic-the-volume-and-forgetting
+  (let [state (run [1000 {:type :status :name "grog" :mic "on"}]
+                   [1100 {:type :turn :conversation "voice" :n 1}]
+                   [1200 {:type :mic :mic "off"}]
+                   [1300 {:type :volume :level 40 :muted false}])]
+    (is (= ["off" {:level 40 :muted false}] ((juxt :mic :volume) state)))
+    (testing "forgetting the conversations, the last turn goes too"
+      (is (nil? (:turn (events/step state {:type :forgot :at 1400})))))))
+
+(deftest what-can-be-asked-and-going-away
+  (let [state (run [1000 {:type :status :name "grog" :actions ["restart" "reboot"]}]
+                   [2000 {:type :restarting :action "reboot"}])]
+    (is (= ["restart" "reboot"] (:actions state)))
+    (is (= {:action "reboot" :at 2000} (:restarting state)))
+    (testing "the machine refused: it stays"
+      (is (nil? (:restarting (events/step state {:type :restarting :at 3000})))))))
+
+(deftest whether-grog-voice-is-saying-an-answer
+  (let [now (atom 1000)]
+    (with-redefs [events/now-ms #(deref now)]
+      (let [hub (events/new-hub (constantly false))
+            voice! #(events/publish! hub {:type :voice :state % :conversation "voice"})]
+        (is (not (events/saying? hub "voice")) "it never said anything")
+        (voice! "answering")
+        (is (events/saying? hub "voice"))
+        (is (not (events/saying? hub "default")) "not another conversation's answer")
+        (voice! "speaking")
+        (is (events/saying? hub "voice"))
+        (testing "not once it's gone quiet for long: it's gone"
+          (reset! now 40000)
+          (is (not (events/saying? hub "voice"))))
+        (voice! "asked")
+        (is (not (events/saying? hub "voice")))))))
+
 (deftest watchers-gone-are-forgotten
   (let [hub (events/new-hub (constantly false))
         calls (atom 0)]

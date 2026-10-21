@@ -5,6 +5,7 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [grog.actions :as actions]
             [grog.client :as client]
             [grog.config :as config]
             [grog.hands :as hands]
@@ -178,6 +179,43 @@
         (is (str/starts-with? (:output (last (sent fake 1)))
                               "error: nothing is changed in a turn that searched the web"))))))
 
+(deftest restarting-once-the-answer-is-out
+  (h/with-fake [fake [(function-call "c1" "power" "{\"action\":\"restart\"}")
+                      (answer "Tá, já volto.")]]
+    (let [exited (promise)]
+      (with-redefs [actions/service? (constantly true)
+                    actions/exit! #(deliver exited %)]
+        (with-hands fake
+          (fn [url ran]
+            (is (= [true "Tá, já volto."] (ask url "c" "se reinicia")))
+            (testing "the model was told when"
+              (is (= "it happens once your answer was said" (:output (last (sent fake 1))))))
+            (testing "then its voice restarts, and so does it"
+              (is (= actions/restart-exit-code (deref exited 5000 :not-yet)))
+              (is (= ["systemctl --user restart --no-block grog-voice.service"] @ran)))))))))
+
+(deftest actions-asked-for-directly
+  (h/with-fake [fake []]
+    (let [exited (promise)]
+      (with-redefs [actions/service? (constantly true)
+                    actions/exit! #(deliver exited %)]
+        (with-hands fake
+          (fn [url _]
+            (let [post #(http-client/post (str url "/v1/actions/" %) {:headers {"content-type" "application/json"}
+                                                                      :body "{}"
+                                                                      :throw false})]
+              (testing "only those there are"
+                (is (= 404 (:status (post "dance")))))
+              (testing "and can be taken here"
+                (with-redefs [actions/service? (constantly false)]
+                  (let [{:keys [status body]} (post "restart")]
+                    (is (= 400 status))
+                    (is (str/includes? body "not running as a service")))))
+              (testing "right away"
+                (let [{:keys [status body]} (post "restart")]
+                  (is (= [200 {:ok true}] [status (json/parse-string body true)])))
+                (is (= actions/restart-exit-code (deref exited 5000 :not-yet)))))))))))
+
 (deftest new-conversation
   (h/with-fake [fake [(answer "Hi.")
                       (answer "Hello again.")
@@ -254,23 +292,25 @@
             (server/stop! srv)))))))
 
 (defn ^:private watch-events
-  "Watches `url`'s /v1/events in the background. Returns [got close!], got
-  being an atom of the events so far, as [type data]."
-  [url]
-  (let [got (atom [])
-        resp (http-client/get (str url "/v1/events") {:headers {"accept" "text/event-stream"} :as :stream})
-        reader (io/reader (:body resp))]
-    (future
-      (try
-        (loop [type nil]
-          (when-let [line (.readLine ^java.io.BufferedReader reader)]
-            (cond
-              (str/starts-with? line "event: ") (recur (subs line 7))
-              (str/starts-with? line "data: ") (do (swap! got conj [type (json/parse-string (subs line 6) true)])
-                                                   (recur nil))
-              :else (recur type))))
-        (catch java.io.IOException _ nil)))
-    [got #(.close reader)]))
+  "Watches `url`'s /v1/events (or `path`) in the background. Returns [got
+  close!], got being an atom of the events so far, as [type data]."
+  ([url]
+   (watch-events url "/v1/events"))
+  ([url path]
+   (let [got (atom [])
+         resp (http-client/get (str url path) {:headers {"accept" "text/event-stream"} :as :stream})
+         reader (io/reader (:body resp))]
+     (future
+       (try
+         (loop [type nil]
+           (when-let [line (.readLine ^java.io.BufferedReader reader)]
+             (cond
+               (str/starts-with? line "event: ") (recur (subs line 7))
+               (str/starts-with? line "data: ") (do (swap! got conj [type (json/parse-string (subs line 6) true)])
+                                                    (recur nil))
+               :else (recur type))))
+         (catch java.io.IOException _ nil)))
+     [got #(.close reader)])))
 
 (defn ^:private eventually
   "Whether `pred` holds within a few seconds."
@@ -281,6 +321,54 @@
   (:status (http-client/post (str url "/v1/voice") {:headers {"content-type" content-type}
                                                     :body (json/generate-string body)
                                                     :throw false})))
+
+(deftest grog-voice-is-asked-to-listen-stop-and-mind-its-mic
+  (let [state-dir (h/temp-dir)
+        poster (fn [url]
+                 (fn [action body]
+                   (http-client/post (str url "/v1/actions/" action) {:headers {"content-type" "application/json"}
+                                                                      :body body
+                                                                      :throw false})))
+        srv (start-server-at "http://127.0.0.1:1" state-dir)
+        url (str "http://127.0.0.1:" (:port srv))
+        post (poster url)]
+    (try
+      (testing "without grog-voice there, there's no one to ask"
+        (let [{:keys [status body]} (post "listen" "{}")]
+          (is (= 400 status))
+          (is (str/includes? body "voice isn't there"))))
+      (let [[got close!] (watch-events url "/v1/voice/commands")]
+        (try
+          (testing "it's told first whether its mic is on"
+            (is (eventually #(= [["snapshot" {:mic "on"}]] @got))))
+          (testing "then to listen, or to stop"
+            (is (= 200 (:status (post "listen" ""))))
+            (is (= 200 (:status (post "stop" "{}"))))
+            (is (eventually #(= ["snapshot" "listen" "stop"] (map first @got)))))
+          (testing "and that its mic is off"
+            (is (= {:mic "off"} (json/parse-string (:body (post "mic" "{\"on\": false}")) true)))
+            (is (eventually #(= ["mic" {:mic "off"}] (last @got))))
+            (is (= 400 (:status (post "mic" "{\"on\": \"no\"}"))))
+            (is (= 400 (:status (post "mic" "[false]")))))
+          (testing "asked to listen then, its mic goes on first"
+            (post "listen" "{}")
+            (is (eventually #(= [["mic" {:mic "on"}] ["listen" {}]] (take-last 2 @got)))))
+          (testing "or with the CLI"
+            (is (str/includes? (with-out-str (client/mic! url false)) "The mic is off"))
+            (is (eventually #(= ["mic" {:mic "off"}] (last @got)))))
+          (finally
+            (close!))))
+      (finally
+        (server/stop! srv)))
+    (testing "the mic stays off after a restart"
+      (let [srv (start-server-at "http://127.0.0.1:1" state-dir)
+            url (str "http://127.0.0.1:" (:port srv))
+            [got close!] (watch-events url "/v1/voice/commands")]
+        (try
+          (is (eventually #(= [["snapshot" {:mic "off"}]] @got)))
+          (finally
+            (close!)
+            (server/stop! srv)))))))
 
 (deftest grog-voice-learns-whether-what-it-hears-is-shown-and-the-name
   (doseq [captions [false true]]

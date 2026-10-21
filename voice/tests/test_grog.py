@@ -2,10 +2,11 @@ import json
 import socket
 import sys
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from grog_voice.grog import GrogError, ask, report, status
+from grog_voice.grog import GrogError, ask, commands, report, status
 
 
 def event(kind, data):
@@ -13,11 +14,12 @@ def event(kind, data):
     return f"event: {kind}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
 
 
-def fake_grog(test, status=200, chunks=(), error=None, status_body=None, voice_body=None):
+def fake_grog(test, status=200, chunks=(), error=None, status_body=None, voice_body=None, commands=None):
     """grog's API on a free port. POST /v1/chat answers `status`, then `chunks`
-    (bytes) one by one with chunked transfer encoding, or `error` as JSON; GET
-    /v1/status answers `status_body`, POST /v1/voice `voice_body` when given.
-    Returns (url, requests)."""
+    (bytes, or seconds to wait) one by one with chunked transfer encoding, or
+    `error` as JSON; GET /v1/status answers `status_body`, POST /v1/voice
+    `voice_body` when given, GET /v1/voice/commands `commands` (chunks),
+    when given. Returns (url, requests)."""
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -31,7 +33,24 @@ def fake_grog(test, status=200, chunks=(), error=None, status_body=None, voice_b
             self.end_headers()
             self.wfile.write(payload)
 
+        def stream(self, chunks):
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            for chunk in chunks:
+                if isinstance(chunk, float):
+                    time.sleep(chunk)
+                    continue
+                self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
+                self.wfile.flush()
+            self.wfile.write(b"0\r\n\r\n")
+
         def do_GET(self):
+            if commands is not None and self.path == "/v1/voice/commands":
+                requests.append({"path": self.path, "accept": self.headers["Accept"]})
+                self.send_response(200)
+                self.stream(commands)
+                return
             self.reply_json(200, status_body)
 
         def do_POST(self):
@@ -51,13 +70,7 @@ def fake_grog(test, status=200, chunks=(), error=None, status_body=None, voice_b
                 self.reply_json(200, voice_body)
                 return
             self.send_response(status)
-            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-            self.send_header("Transfer-Encoding", "chunked")
-            self.end_headers()
-            for chunk in chunks:
-                self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
-                self.wfile.flush()
-            self.wfile.write(b"0\r\n\r\n")
+            self.stream(chunks)
 
         def log_message(self, *args):
             pass
@@ -134,6 +147,17 @@ class AskTest(unittest.TestCase):
         with self.assertRaisesRegex(GrogError, "stopped answering"):
             list(ask(url, "voice", "previsão?"))
 
+    def test_hanging_up_stops_the_answer(self):
+        url, _ = fake_grog(self, chunks=[event("text", {"text": "Amanhã"}), 3.0, event("done", {})])
+        connections, got = [], []
+        started = time.monotonic()
+        with self.assertRaisesRegex(GrogError, "stopped answering"):
+            for e in ask(url, "voice", "previsão?", on_connect=connections.append):
+                got.append(e)
+                connections[0].sock.shutdown(socket.SHUT_RDWR)
+        self.assertEqual([("text", "Amanhã")], got)
+        self.assertLess(time.monotonic() - started, 2, "right away")
+
     def test_unreachable(self):
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
@@ -175,6 +199,32 @@ class GarbledTest(unittest.TestCase):
                 report(url, "listening", "voice")
             with self.assertRaises(GrogError):
                 list(ask(url, "voice", "oi"))
+
+
+class CommandsTest(unittest.TestCase):
+    def test_what_grog_asks_as_it_comes(self):
+        said = (
+            event("snapshot", {"mic": "on"})
+            + b": ping\n\n"
+            + event("listen", {})
+            + event("mic", {"mic": "off"})
+        )
+        url, requests = fake_grog(self, commands=[said])
+        got = []
+        with self.assertRaisesRegex(GrogError, "^grog went away$"):
+            for e in commands(url):
+                got.append(e)
+        self.assertEqual(
+            [("snapshot", {"mic": "on"}), ("listen", {}), ("mic", {"mic": "off"})], got, "pings aren't"
+        )
+        self.assertEqual([{"path": "/v1/voice/commands", "accept": "text/event-stream"}], requests)
+
+    def test_unreachable(self):
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        with self.assertRaisesRegex(GrogError, "Couldn't reach grog"):
+            list(commands(f"http://127.0.0.1:{port}"))
 
 
 class StatusTest(unittest.TestCase):

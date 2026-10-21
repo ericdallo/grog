@@ -84,6 +84,11 @@ export class Face {
     if (!this.quiet && (this.state === "idle" || this.state === "sleepy")) MOVES.clock(this);
   }
 
+  /** Touched: a quick squash, before grog does what that asks. */
+  poke() {
+    MOVES.poke(this);
+  }
+
   /** Its state's pose, and what it does there. `swap`: the pupil and the icon change at once. */
   pose(swap) {
     if (swap) this.svg.classList.add("swap");
@@ -176,6 +181,7 @@ const BLINKS = {
   writing: { every: [3000, 7000], ms: 210, twice: 0.1 },
   deaf: { every: [1800, 4200], ms: 190, twice: 0.4 },
   login: { every: [2400, 6500], ms: 210, twice: 0.25 },
+  muted: { every: [4000, 9000], ms: 300, twice: 0.1 },
 };
 
 // Where it looks by state, [x, y]; straight ahead in the others.
@@ -319,6 +325,12 @@ const HOP = [
   { transform: "translateY(2px) scale(1.03, 0.97)", offset: 0.76 },
   { transform: "translateY(0) scale(1, 1)" },
 ];
+// Touched: pressed in, and back.
+const POKE = [
+  { transform: "scale(1)" },
+  { transform: "scale(0.92)", offset: 0.3 },
+  { transform: "scale(1)" },
+];
 // Got it: a nod.
 const NOD = [
   { transform: "translateY(0)" },
@@ -340,6 +352,7 @@ const WAKE = [
 // What plays on the way to a state (view.js's reaction()), nodding off while
 // it dozes, and a look at the clock (up and right), on the hour.
 const MOVES = {
+  poke: (face) => face.react(".fx", POKE, 240),
   pop: (face) => face.react(".fx", POP, 460),
   flinch: (face) => face.react(".fx", FLINCH, 480),
   hop: (face) => face.react(".fx", HOP, 560),

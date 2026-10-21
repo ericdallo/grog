@@ -1,3 +1,4 @@
+import threading
 import time
 import unittest
 
@@ -10,9 +11,11 @@ from fakes import (
     SEARCHING,
     SILENCE,
     SPEECH,
+    FakeConnection,
     FakeTts,
     Players,
     answering,
+    hanging,
     played,
 )
 
@@ -117,7 +120,7 @@ class AnswerTest(unittest.TestCase):
     def test_says_what_it_will_do_before_searching(self):
         said_meanwhile = []
 
-        def ask(text, said=None):
+        def ask(text, said=None, on_connect=None):
             yield ("text", "Vou ver o tempo.")
             yield ("tool", "web_search")
             # The search takes a while: what came before it is said meanwhile.
@@ -160,6 +163,84 @@ class AnswerTest(unittest.TestCase):
         self.assertEqual(ERROR, played(m.player)[-1])
 
 
+class StopTest(unittest.TestCase):
+    def answer_until_stopped(self, m, before_stopping):
+        """Starts answering, stops once `before_stopping` is set, and returns
+        the turn."""
+        result = []
+        answering_ = threading.Thread(target=lambda: result.append(m.answer(heard(), HEARD)))
+        answering_.start()
+        self.assertTrue(before_stopping.wait(5))
+        m.stop()
+        answering_.join(5)
+        self.assertFalse(answering_.is_alive())
+        return result[0]
+
+    def test_cuts_the_answer_off_and_hangs_up(self):
+        ask = hanging("Primeira frase. ", "Segunda")
+        m = mouth(ask=ask)
+        turn = self.answer_until_stopped(m, ask.answered)
+        self.assertTrue(ask.conn.hung_up.is_set(), "grog's turn stops too")
+        self.assertTrue(turn.stopped)
+        self.assertNotIn(ERROR, played(m.player), "it's no error")
+        self.assertNotIn("error", m.told + turn.sounds)
+        self.assertTrue(str(turn).endswith("; stopped"))
+
+    def test_cuts_off_what_plays(self):
+        playing = threading.Event()
+
+        class Slow(Players):
+            def __call__(self, rate):
+                player = super().__call__(rate)
+                write = player.write
+
+                def slowly(pcm):
+                    write(pcm)
+                    playing.set()
+                    # pw-cat takes its time: until it's stopped.
+                    while not player.stopped:
+                        time.sleep(0.01)
+
+                player.write = slowly
+                return player
+
+        players = Slow()
+        m = mouth(ask=hanging("Primeira frase. Segunda frase."), players=players)
+        with self.assertNoLogs("grog_voice", "ERROR"):
+            turn = self.answer_until_stopped(m, playing)
+        self.assertTrue(turn.stopped)
+        [player] = players.made
+        self.assertTrue(player.stopped and player.closed)
+        self.assertEqual([ACK], player.written, "what came after got it never played")
+
+    def test_hangs_up_as_soon_as_connected_when_stopped_before(self):
+        asked, connecting, conn = threading.Event(), threading.Event(), FakeConnection()
+
+        def ask(text, said=None, on_connect=None):
+            asked.set()
+            # Stopped while it connects.
+            connecting.wait(5)
+            on_connect(conn)
+            yield ("text", "Dez e quinze.")
+
+        m = mouth(ask=ask)
+        answering_ = threading.Thread(target=lambda: m.answer(heard(), HEARD))
+        answering_.start()
+        self.assertTrue(asked.wait(5))
+        m.stop()
+        connecting.set()
+        answering_.join(5)
+        self.assertTrue(conn.hung_up.is_set())
+        self.assertNotIn(b"Dez e quinze.", played(m.player))
+
+    def test_a_new_answer_isnt_stopped(self):
+        m = mouth()
+        m.stop()
+        turn = m.answer(heard(), HEARD)
+        self.assertFalse(turn.stopped)
+        self.assertEqual(ANSWER, turn.answer)
+
+
 class SoundsTest(unittest.TestCase):
     def test_chimes_play_one_after_the_other(self):
         m = mouth()
@@ -184,7 +265,7 @@ class SoundsTest(unittest.TestCase):
     def test_once_playing_failed_it_stops_synthesizing(self):
         players = Players(failing=True)
 
-        def ask(text, said=None):
+        def ask(text, said=None, on_connect=None):
             # Once the sound saying it got it failed to play.
             players.one_closed.wait(5)
             yield ("text", "Primeira frase. Segunda frase. ")

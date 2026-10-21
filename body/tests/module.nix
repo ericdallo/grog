@@ -2,7 +2,9 @@
 # (fake-llm.clj): no credentials, then an API key and a conversation through
 # the CLI, signing in to the ChatGPT subscription, what they cost, the
 # sandbox, grog-voice: its user service, and a voice turn with the real
-# models, which whoever watches grog sees go; and its skin, served.
+# models, which whoever watches grog sees go; its skin, served; its hands: a
+# shell, the volume, root, and restarting grog when asked; and what grog asks
+# of grog-voice: its mic off, listening without its name.
 # Run: nix build .#checks.x86_64-linux.module -L
 { pkgs, module }:
 
@@ -278,5 +280,57 @@ pkgs.testers.runNixOSTest {
         assert (out := grog('ask --new "volume em 30"')) == 'Feito: {"level":30,"muted":false}', out
         out = machine.succeed("su - grog -c 'XDG_RUNTIME_DIR=/run/user/$(id -u) wpctl get-volume @DEFAULT_AUDIO_SINK@'")
         assert out.strip() == "Volume: 0.30", out
+
+    with subtest("its hands' user may do anything: sudo without a password, and what polkit guards"):
+        def like_hands(command):
+            """`command` run as a service of grog's, like its hands: outside any session."""
+            return machine.succeed(
+                f"su - grog -c 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemd-run --user --wait --pipe --quiet {command}'"
+            ).strip()
+
+        like_hands("sudo -n true")
+        for can in ("CanReboot", "CanPowerOff"):
+            out = like_hands(f"busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager {can}")
+            assert out == 's "yes"', out
+
+    with subtest("asked to, it restarts itself and its voice, once it answered"):
+        def invocation(unit, user=False):
+            systemctl = "systemctl --user -M grog@" if user else "systemctl"
+            return machine.succeed(f"{systemctl} show -p InvocationID --value {unit}").strip()
+
+        snapshot = machine.succeed("curl -sN --max-time 2 http://127.0.0.1:8484/v1/events || true")
+        state = json.loads(snapshot.split("data: ", 1)[1].splitlines()[0])["state"]
+        assert {"restart", "reboot", "power-off"} <= set(state["actions"]), state["actions"]
+        brain, ears = invocation("grog"), invocation("grog-voice", user=True)
+        assert (out := grog('ask --new "reinicie-se"')) == "Feito: it happens once your answer was said", out
+        machine.wait_until_succeeds(f"test \"$(systemctl show -p InvocationID --value grog)\" != {brain}")
+        machine.wait_until_succeeds(
+            f"test \"$(systemctl --user -M grog@ show -p InvocationID --value grog-voice)\" != {ears}"
+        )
+        machine.wait_for_unit("grog.service")
+        machine.wait_for_open_port(8484)
+        # Asked for: not a failure.
+        assert (result := machine.succeed("systemctl show -p Result --value grog").strip()) == "success", result
+        machine.wait_until_succeeds(
+            "test $(journalctl -o cat _SYSTEMD_USER_UNIT=grog-voice.service | grep -cx 'INFO listening') = 2"
+        )
+
+    def recording():
+        return "pgrep -u grog -f 'pw-cat --record'"
+
+    with subtest("asked, grog-voice switches its mic off, recording nothing, and listens without its name"):
+        machine.wait_for_open_port(8484)
+        machine.wait_until_succeeds(recording())
+        machine.succeed("(curl -sN http://127.0.0.1:8484/v1/events > /tmp/events-asked.log 2>&1 &)")
+        assert "The mic is off" in grog("mic off")
+        machine.wait_until_fails(recording())
+        machine.wait_until_succeeds("grep -q '\"state\":\"muted\"' /tmp/events-asked.log")
+        machine.succeed("stat -c %a /var/lib/grog/voice.json | grep -qx 600")
+        # Touching its face: its mic goes on, and it listens without its name.
+        machine.succeed(
+            "curl -sf -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8484/v1/actions/listen"
+        )
+        machine.wait_until_succeeds(recording())
+        machine.wait_until_succeeds("grep -q '\"state\":\"awake\"' /tmp/events-asked.log")
   '';
 }

@@ -135,6 +135,7 @@ class Ears:
         self.frame_bytes, self.frame_s = frame_bytes, frame_s
         self.partial_s = settings["partialMs"] / 1000
         self.held = False  # partials, since the last utterance ended
+        self.forgetting = False  # what was being said is to be forgotten (see forget)
         self.endpointer = Endpointer(
             frame_bytes,
             frame_s,
@@ -173,6 +174,11 @@ class Ears:
         self.tell(self._idle())
         while True:
             t, frame = self.mic.read()
+            if self.forgetting:
+                self.forgetting = False
+                self.endpointer.reset()
+                self.vad.reset()
+                partial = main = pause = utterance = None
             event = self.endpointer.push(frame, self.vad(frame))
             if isinstance(event, End):
                 return self._ended(t, event, utterance, main, partial)
@@ -213,6 +219,11 @@ class Ears:
     def flush(self):
         """Drops what the mic heard so far."""
         self.mic.flush()
+
+    def forget(self):
+        """Forgets what was being said, if anything, with the next frame:
+        after the mic was switched off, what's heard starts afresh."""
+        self.forgetting = True
 
     def close(self):
         """Closes the mic, and what transcribes partials."""
