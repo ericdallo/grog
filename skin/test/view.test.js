@@ -17,6 +17,10 @@ import {
   level,
   menu,
   mode,
+  pairCommand,
+  PAIRED_MS,
+  pairing,
+  PAIRING_PORT,
   pipeline,
   PLEASED_MS,
   qrFile,
@@ -826,5 +830,76 @@ describe("updating", () => {
 
   it("as a step of a turn", () => {
     assert.deepEqual(tool("update"), { label: "Looking for an update", short: "Update", icon: "update" });
+  });
+});
+
+describe("pairing a computer", () => {
+  const paired = (status, extra = {}) =>
+    state({
+      pairing: { status, until: NOW + 4 * 60_000, addresses: ["192.168.15.17"], port: PAIRING_PORT, at: NOW - 1000, ...extra },
+    });
+
+  it("says what to run on it, while grog lets one", () => {
+    assert.deepEqual(pairing(paired("open"), NOW), {
+      stage: "open",
+      title: "Add a computer",
+      detail: "",
+      hint: "On it, run",
+      command: "grog pair 192.168.15.17",
+      code: "",
+      expires: "closes in 4m",
+      note: "It needs grog installed, and an SSH server.",
+      failed: false,
+      buttons: [{ id: "pair-cancel", label: "Cancel", primary: false }],
+    });
+    assert.equal(pairing(paired("open"), NOW + 4 * 60_000), null, "not once it's closed");
+  });
+
+  it("the port too, when it isn't the usual one", () => {
+    assert.equal(pairCommand({ addresses: ["10.0.0.2"], port: 9000 }), "grog pair 10.0.0.2 --port 9000");
+    assert.equal(pairCommand({ addresses: [], port: PAIRING_PORT }), "grog pair <grog's address>");
+  });
+
+  it("shows the code of the computer asking, to allow it or not", () => {
+    const asking = pairing(paired("asking", { name: "deluxe", user: "greg", code: "718945" }), NOW);
+    assert.deepEqual(
+      [asking.title, asking.detail, asking.hint, asking.code],
+      ["deluxe wants to pair", "as greg", "Allow it if it shows the same code", "718 945"],
+    );
+    assert.deepEqual(
+      asking.buttons.map((b) => [b.id, b.label, b.primary]),
+      [
+        ["pair-allow", "Allow", true],
+        ["pair-deny", "Deny", false],
+      ],
+    );
+  });
+
+  it("and how it went, for a moment", () => {
+    const after = (status, extra) => pairing(paired(status, { name: "deluxe", ...extra }), NOW);
+    assert.deepEqual([after("allowed").title, after("allowed").note], ["Pairing deluxe", "waiting for it to finish"]);
+    assert.deepEqual([after("paired").title, after("paired").note], ["deluxe is paired", "ask Grog to act on it"]);
+    assert.equal(after("denied").note, "deluxe wasn't allowed");
+    assert.equal(after("expired").note, "no computer asked in time");
+    const failed = after("failed", { error: "deluxe can't be reached" });
+    assert.deepEqual([failed.title, failed.note, failed.failed], ["Couldn't pair", "deluxe can't be reached", true]);
+    assert.equal(pairing(paired("paired", { name: "deluxe" }), NOW - 1000 + PAIRED_MS + 1), null);
+    assert.equal(after("closed"), null, "nothing to say once someone closed it");
+    assert.equal(pairing(state(), NOW), null);
+  });
+
+  it("from the actions sheet, and what its buttons ask", () => {
+    const items = menu(state({ actions: ["new-conversation", "pair", "restart"] }));
+    assert.deepEqual(items.map((i) => i.id), ["new-conversation", "pair", "restart"]);
+    assert.deepEqual([items[1].label, items[1].icon, items[1].confirm], ["Add a computer", "computer", false]);
+    assert.deepEqual(request("pair", state()), { method: "POST", path: "/v1/actions/pair", body: {} });
+    assert.deepEqual(request("pair-allow", state()), { method: "POST", path: "/v1/pairing/allow", body: {} });
+    assert.deepEqual(request("pair-deny", state()), { method: "POST", path: "/v1/pairing/deny", body: {} });
+    assert.deepEqual(request("pair-cancel", state()), { method: "DELETE", path: "/v1/pairing", body: {} });
+    assert.equal(closes("pair"), true, "the pairing shows instead");
+  });
+
+  it("acting on one, as a step of a turn", () => {
+    assert.deepEqual(tool("computer"), { label: "Using a computer", short: "Computer", icon: "computer" });
   });
 });

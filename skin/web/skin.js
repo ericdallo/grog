@@ -17,6 +17,7 @@ import {
   isNight,
   menu,
   mode,
+  pairing,
   pipeline,
   recent,
   request,
@@ -38,6 +39,7 @@ const EVENTS = ["snapshot", "voice", "turn", "tool", "text", "done", "failed", "
   "stop",
   "forgot",
   "update",
+  "pairing",
 ]);
 // The skin moves a little this often, so that nothing marks the screen.
 const DRIFT_MS = 5 * 60_000;
@@ -52,6 +54,8 @@ const els = Object.fromEntries(
     .concat(["captions", "question", "answer", "pipeline", "recent", "usage"])
     .concat(["signin", "signin-title", "signin-qr", "signin-url", "signin-code", "signin-expires"])
     .concat(["signin-note", "signin-error", "signin-help", "signin-help-text", "signin-help-url"])
+    .concat(["pairing", "pairing-title", "pairing-detail", "pairing-hint", "pairing-command", "pairing-code"])
+    .concat(["pairing-note", "pairing-buttons", "pairing-expires", "pairing-error"])
     .concat(["open-actions", "close-actions", "sheet", "items", "sheet-error", "sheet-version", "notice"])
     .map((id) => [id, $(id)]),
 );
@@ -217,6 +221,35 @@ function drawSignIn(t) {
   setText(els["signin-help-url"], s.help?.shortUrl ?? "");
 }
 
+/**
+ * Pairing a computer: what to run on it, then its code to check, with Allow
+ * and Deny; in place of what was said and done, while it goes.
+ */
+function drawPairing(t) {
+  const p = offline ? null : pairing(state, t);
+  document.body.classList.toggle("adding-computer", Boolean(p));
+  once("pairing", p, (v) => {
+    els.pairing.hidden = !v;
+    if (!v) return;
+    els.pairing.classList.toggle("failed", v.failed);
+    setText(els["pairing-title"], v.title);
+    setText(els["pairing-detail"], v.detail);
+    setText(els["pairing-hint"], v.hint);
+    setText(els["pairing-command"], v.command);
+    setText(els["pairing-code"], v.code);
+    setText(els["pairing-note"], v.note);
+    setText(els["pairing-expires"], v.expires);
+    els["pairing-buttons"].replaceChildren(
+      ...v.buttons.map((b) => {
+        const button = el("button", `choice${b.primary ? " primary" : ""}`, b.label);
+        button.type = "button";
+        button.dataset.action = b.id;
+        return button;
+      }),
+    );
+  });
+}
+
 /** How an update goes, under the time; while grog restarts into it, its block says so. */
 function drawNotice(t) {
   once("notice", offline ? null : updateNotice(state, t), (n) => {
@@ -378,6 +411,7 @@ function draw() {
   drawMode(t);
   drawBrand(t);
   drawSignIn(t);
+  drawPairing(t);
   drawNotice(t);
   drawCaptions(t);
   drawPipeline(t);
@@ -387,8 +421,11 @@ function draw() {
   tick();
 }
 
-/** Asks grog for `action` (see view.js request): its answer, or null after showing what went wrong. */
-async function ask(action, step = null) {
+/**
+ * Asks grog for `action` (see view.js request): its answer, or null after
+ * showing what went wrong (`failed`, in the actions by default).
+ */
+async function ask(action, step = null, failed = showError) {
   const { method, path, body } = request(action, state, step);
   try {
     const resp = await fetch(path, {
@@ -400,9 +437,15 @@ async function ask(action, step = null) {
     if (!resp.ok) throw new Error(answer.error ?? `grog answered ${resp.status}`);
     return answer;
   } catch (e) {
-    showError(e.message);
+    failed(e.message);
     return null;
   }
+}
+
+/** What went wrong pairing, for a moment. */
+function showPairingError(message) {
+  setText(els["pairing-error"], message);
+  later("pairing-error", SHEET_ERROR_MS, () => setText(els["pairing-error"], ""));
 }
 
 function later(name, ms, f) {
@@ -523,6 +566,11 @@ els["close-actions"].addEventListener("click", closeSheet);
 els.items.addEventListener("click", (e) => {
   const button = e.target.closest("button[data-action]");
   if (button) choose(button);
+});
+// Allowing the computer asking to pair, or not, or no longer letting one.
+els["pairing-buttons"].addEventListener("click", (e) => {
+  const button = e.target.closest("button[data-action]");
+  if (button) ask(button.dataset.action, null, showPairingError);
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && sheetOpen) closeSheet();

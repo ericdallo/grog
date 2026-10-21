@@ -8,6 +8,7 @@
             [grog.conversation :as conversation]
             [grog.events :as events]
             [grog.hands :as hands]
+            [grog.pairing :as pairing]
             [grog.test-helpers :as h]
             [grog.voice :as voice]))
 
@@ -21,6 +22,16 @@
 
 (defn ^:private state [ctx]
   (events/snapshot (:events ctx)))
+
+(deftest lets-a-computer-pair
+  (let [ctx (assistant/new-context (-> config/defaults
+                                       (assoc :state-dir (h/temp-dir))
+                                       (assoc-in [:computers :pairing] {:host "127.0.0.1" :port 0})))]
+    (try
+      (is (= "open" (:status (actions/perform! ctx "pair"))))
+      (is (= "open" (get-in (state ctx) [:pairing :status])) "for the skin")
+      (finally
+        (pairing/stop! ctx)))))
 
 (defn ^:private with-machine
   "Runs (f ran exited) with grog as a service (or not, `service?`), its
@@ -38,7 +49,7 @@
 (def ^:private refused (constantly {:exit 1 :output ""}))
 
 (deftest what-it-can-do
-  (let [voice ["listen" "stop" "mic" "new-conversation"]]
+  (let [voice ["listen" "stop" "mic" "new-conversation" "pair"]]
     (with-redefs [actions/service? (constantly false)]
       (is (= voice (actions/available config/defaults)))
       (is (= (into voice ["volume" "reboot" "power-off"])

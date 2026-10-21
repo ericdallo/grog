@@ -25,10 +25,12 @@ On a touch screen, or with a mouse:
 - Touching grog's face talks to it, no name needed. While it answers, it
   stops it. With its mic off, it turns it on and listens.
 - The button by the clock opens its actions: the volume, the mic, a new
-  conversation, signing out, updating grog, restarting it or the machine,
-  and turning the machine off. Those that can't be undone take a second
-  tap. They close by themselves after a while. Its version is at the
-  bottom.
+  conversation, adding a computer, signing out, updating grog, restarting
+  it or the machine, and turning the machine off. Those that can't be
+  undone take a second tap. They close by themselves after a while. Its
+  version is at the bottom.
+- Adding a computer, it shows what to run on it, then the code of the one
+  asking, to allow it if it's the same as on the computer, or not.
 
 They go through the brain's actions (`POST /v1/actions/<name>`).
 

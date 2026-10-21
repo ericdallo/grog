@@ -35,8 +35,14 @@ export const UPDATE_MS = 30 * 60_000;
 // How long how it went shows, once it's over; failing, longer.
 export const UPDATED_MS = 20_000;
 export const UPDATE_FAILED_MS = 60_000;
+// How long how pairing a computer went shows, once it's over.
+export const PAIRED_MS = 10_000;
+// Where grog listens for a computer to pair, unless set otherwise
+// (computers.pairing.port, brain/src/grog/config.clj).
+export const PAIRING_PORT = 8485;
 
 const TOOLS = {
+  computer: { label: "Using a computer", short: "Computer", icon: "computer" },
   update: { label: "Looking for an update", short: "Update", icon: "update" },
   web_search: { label: "Searching the web", short: "Web", icon: "web" },
   volume: { label: "Adjusting the volume", short: "Volume", icon: "volume" },
@@ -471,6 +477,9 @@ export function menu(state, armed = null) {
   if (can("new-conversation")) {
     items.push({ id: "new-conversation", kind: "button", label: "New conversation", icon: "answering", detail: "what was said is forgotten" });
   }
+  if (can("pair")) {
+    items.push({ id: "pair", kind: "button", label: "Add a computer", icon: "computer", detail: "pair one, to act on it" });
+  }
   if (state?.auth === "subscription") {
     const again = "Tap again to sign out";
     items.push({ id: "sign-out", kind: "button", label: "Sign out", icon: "sign-out", detail: account(state), confirm: again });
@@ -520,6 +529,12 @@ export function request(action, state, step = null) {
       return { method: "POST", path: "/v1/actions/mic", body: { on: state?.mic === "off" } };
     case "sign-out":
       return { method: "DELETE", path: `/v1/auth/${state?.provider ?? "openai"}`, body: {} };
+    case "pair-allow":
+      return { method: "POST", path: "/v1/pairing/allow", body: {} };
+    case "pair-deny":
+      return { method: "POST", path: "/v1/pairing/deny", body: {} };
+    case "pair-cancel":
+      return { method: "DELETE", path: "/v1/pairing", body: {} };
     default:
       return { method: "POST", path: `/v1/actions/${action}`, body: {} };
   }
@@ -670,6 +685,85 @@ export function signIn(state, now) {
       return { title, note: "Couldn't get a code: trying again in a minute", error: login.error ?? "" };
     default:
       return { title, note: "Getting a code…" };
+  }
+}
+
+/** What to run on a computer to pair it with grog, as its pairing `p` says. */
+export function pairCommand(p) {
+  const address = p?.addresses?.[0] ?? "<grog's address>";
+  return `grog pair ${address}${p?.port && p.port !== PAIRING_PORT ? ` --port ${p.port}` : ""}`;
+}
+
+/** A pairing code as it's shown: 482 913. */
+export function spacedCode(code) {
+  const s = String(code ?? "");
+  return s.length === 6 ? `${s.slice(0, 3)} ${s.slice(3)}` : s;
+}
+
+/**
+ * Pairing a computer (brain/src/grog/pairing.clj), while it goes and for a
+ * while once it's over, or null: {stage, title, detail, hint, command, code,
+ * expires, note, failed, buttons}, `buttons` being what can be asked then
+ * ({id, label, primary}, see request()).
+ */
+export function pairing(state, now) {
+  const p = state?.pairing;
+  if (!p?.status) return null;
+  const open = (p.until ?? 0) > now;
+  const over = now - (p.at ?? 0) <= PAIRED_MS;
+  const expires = `closes in ${duration(((p.until ?? 0) - now) / 1000)}`;
+  const name = p.name ?? "the computer";
+  const view = (fields) => ({
+    stage: p.status,
+    title: "",
+    detail: "",
+    hint: "",
+    command: "",
+    code: "",
+    expires: "",
+    note: "",
+    failed: false,
+    buttons: [],
+    ...fields,
+  });
+  switch (p.status) {
+    case "open":
+      return open
+        ? view({
+            title: "Add a computer",
+            hint: "On it, run",
+            command: pairCommand(p),
+            note: "It needs grog installed, and an SSH server.",
+            expires,
+            buttons: [{ id: "pair-cancel", label: "Cancel", primary: false }],
+          })
+        : null;
+    case "asking":
+      return open
+        ? view({
+            title: `${name} wants to pair`,
+            detail: p.user ? `as ${p.user}` : "",
+            hint: "Allow it if it shows the same code",
+            code: spacedCode(p.code),
+            expires,
+            buttons: [
+              { id: "pair-allow", label: "Allow", primary: true },
+              { id: "pair-deny", label: "Deny", primary: false },
+            ],
+          })
+        : null;
+    case "allowed":
+      return view({ title: `Pairing ${name}`, note: "waiting for it to finish" });
+    case "paired":
+      return over ? view({ title: `${name} is paired`, note: state.name ? `ask ${state.name} to act on it` : "" }) : null;
+    case "denied":
+      return over ? view({ title: "Not paired", note: `${name} wasn't allowed` }) : null;
+    case "expired":
+      return over ? view({ title: "Not paired", note: "no computer asked in time" }) : null;
+    case "failed":
+      return over ? view({ title: "Couldn't pair", note: p.error ?? "", failed: true }) : null;
+    default:
+      return null;
   }
 }
 

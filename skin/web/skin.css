@@ -434,6 +434,97 @@ ol {
   font-size: 2.2vmin;
 }
 
+/* Pairing a computer (view.js pairing), in place of what was said and done:
+   what to run on it, then the code to check, amber like what needs someone,
+   with Allow and Deny. */
+.adding-computer .captions,
+.adding-computer .pipeline,
+.adding-computer .cards {
+  display: none;
+}
+
+.pairing {
+  margin-top: 4.4vmin;
+}
+
+.pairing h2 {
+  margin: 0;
+  font: 800 4.2vmin/1.1 var(--text);
+  letter-spacing: -0.02em;
+}
+
+.pairing-detail {
+  margin-top: 0.8vmin;
+  color: var(--muted);
+  font-size: 2.6vmin;
+}
+
+.pairing .hint {
+  margin-top: 3vmin;
+  color: var(--muted);
+  font-size: 2.4vmin;
+}
+
+.pairing .command {
+  margin-top: 1vmin;
+  font: 600 4.4vmin/1.2 var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.pairing .code {
+  margin-top: 1vmin;
+  color: var(--amber);
+  font: 700 10vmin/1 var(--mono);
+  letter-spacing: 0.06em;
+}
+
+.pairing-note {
+  margin-top: 2vmin;
+  color: var(--muted);
+  font-size: 2.6vmin;
+}
+
+.pairing.failed .pairing-note,
+.pairing-error {
+  color: var(--red);
+}
+
+.pairing-buttons {
+  display: flex;
+  gap: 2vmin;
+  margin-top: 3.6vmin;
+}
+
+.pairing .choice {
+  min-width: 22vmin;
+  padding: 2.2vmin 4vmin;
+  border-radius: 1.4vmin;
+  background: var(--card);
+  font-size: 3vmin;
+  font-weight: 700;
+  text-align: center;
+}
+
+.pairing .choice.primary {
+  background: var(--amber);
+  color: #111621;
+}
+
+.pairing-error {
+  margin-top: 1.6vmin;
+  font-size: 2.2vmin;
+}
+
+.pairing-detail:empty,
+.pairing .hint:empty,
+.pairing .command:empty,
+.pairing .code:empty,
+.pairing-note:empty,
+.pairing-buttons:empty,
+.pairing-error:empty {
+  display: none;
+}
+
 .captions {
   min-height: 15vmin;
   margin-top: 4.4vmin;
