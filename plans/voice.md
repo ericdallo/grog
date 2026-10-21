@@ -361,8 +361,10 @@ bursts:
   benchmarks with turbo; real use is bursts.
 - The station's config (the dotfiles) asks auto-cpufreq for `turbo =
   "always"` on AC, without TLP, with Parakeet in fp32 on 4 threads and
-  Supertonic on 6 (`sttPrecision`, `stt.threads`, `tts.threads`), from its
-  next rebuild.
+  Supertonic on 6 (`sttPrecision`, `stt.threads`, `tts.threads`). Updated
+  that way, in bursts: Supertonic at speed 1.4, RTF 0.062, first sentences
+  in 0.14 to 0.28 s; Parakeet in fp32, 0.19 s median (0.16 to 0.25) for
+  the same commands, against 0.33 s in int8 on 2 threads before.
 
 ### The Arc iGPU
 
@@ -438,6 +440,15 @@ voices ~85 to 155 Hz).
 
 The samples' page is the lab's `samples/index.html` (in
 `~/.cache/grog-voicelab` on the laptop that made them).
+
+### What the user heard
+
+- Liked: Chatterbox's Brazilian model cloning the "radio" design, and the
+  6-layer Pocket TTS cloning the "deep-calm" one. And Supertonic at 1.4.
+- Chatterbox is far too slow for the station's CPU. Pocket cloning
+  Chatterbox's "radio" sample keeps every word too (24 and 6 layers), with
+  its timbre (169 to 182 Hz, Chatterbox's 188): that voice at Pocket's
+  speed, not heard yet.
 
 ## Where to go from here
 
