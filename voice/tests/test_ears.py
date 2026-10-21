@@ -37,11 +37,12 @@ class Told(list):
 
 
 def ears(
-    mic_frames=(), *, mic=None, stt=None, wake=None, settings=None, partials=None, captions=False, awake=False
+    mic_frames=(), *, mic=None, stt=None, wake=None, settings=None, partials=None, captions=False, awake=None
 ):
     """Ears with fakes, with partials by `partials` (a speech to text) when
-    given; what they tell grog is in .told, the earcons they chime in
-    .chimes, what they heard for grog in .heard_reports ((text, final))."""
+    given, awake for a reason when `awake` says one (awake, asked); what they
+    tell grog is in .told, the earcons they chime in .chimes, what they heard
+    for grog in .heard_reports ((text, final))."""
     told, chimes, heard = Told(), [], []
     e = Ears(
         settings or (PARTIAL if partials is not None else SETTINGS),
@@ -173,11 +174,17 @@ class AddressTest(unittest.TestCase):
         self.assertEqual(([], [], ["listening"]), (e.chimes, e.heard_reports, e.told))
 
     def test_awake_it_needs_no_name(self):
-        e = ears(frames(("S", 1.0), (".", 1.0)), wake=GROG, awake=True, captions=True)
+        e = ears(frames(("S", 1.0), (".", 1.0)), wake=GROG, awake="awake", captions=True)
         heard = e.listen()
         self.assertEqual(HEARD, e.address(heard))
         self.assertEqual(["awake", "hearing", "answering"], e.told)
         self.assertEqual([(HEARD, False), (HEARD, True)], e.heard_reports)
+
+    def test_after_its_question_it_says_so(self):
+        e = ears(frames(("S", 1.0), (".", 1.0)), wake=GROG, awake="asked")
+        heard = e.listen()
+        self.assertEqual(HEARD, e.address(heard), "the reply needs no name either")
+        self.assertEqual(["asked", "hearing", "answering"], e.told)
 
     def test_says_it_heard_when_only_the_whole_shows_its_name(self):
         e = ears(

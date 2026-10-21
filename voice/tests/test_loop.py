@@ -79,7 +79,7 @@ class TurnTest(unittest.TestCase):
         )
         result = v.turn()
         self.assertEqual(("woken", ""), (result.kind, result.command))
-        self.assertTrue(v.awake(), "what's said next needs no wake word")
+        self.assertEqual("awake", v.awake(), "what's said next needs no wake word")
         self.assertEqual([[LISTENING]], written(v), "its sound, played by then")
 
     def test_what_isnt_for_it_is_ignored(self):
@@ -245,9 +245,10 @@ class RunTest(unittest.TestCase):
         self.assertEqual(["limpa o lixo do Nix.", "Pode."], ask.asked)
         self.assertEqual(
             ["listening", "hearing", "answering", "speaking"]
-            + ["awake", "hearing", "answering", "speaking"]
+            + ["asked", "hearing", "answering", "speaking"]
             + ["listening"],
             v.reported,
+            "it says it asked something",
         )
 
     @mock.patch.object(loop, "AWAKE_S", 0)
@@ -272,9 +273,9 @@ class RunTest(unittest.TestCase):
         for words in (HEARD, "quinze", "alguma"):
             self.assertNotIn(words, text)
         self.assertEqual(2, v.ears.mic.flushed, "drops what it heard while answering")
-        # The answer asked something: awake, even after the failed turn.
+        # The answer asked something: so it says, even after the failed turn.
         self.assertEqual(
-            ["listening", "hearing", "answering", "speaking", "awake", "hearing", "error", "awake"],
+            ["listening", "hearing", "answering", "speaking", "asked", "hearing", "error", "asked"],
             v.reported,
         )
 
@@ -332,6 +333,12 @@ class TellTest(unittest.TestCase):
         self.assertEqual(["no-mic", "listening"], v.reported, "and it knows it's back")
         mic.report("no-mic")
         self.assertEqual("no-mic", v.told)
+
+    def test_no_mic_whatever_it_waits_for(self):
+        v = voice(mic=WatchedMic(missing=True))
+        for state in ("listening", "awake", "asked"):
+            v.tell(state)
+        self.assertEqual(["no-mic"], v.reported)
 
     def test_closing_closes_the_mic_and_partials(self):
         v = voice(partials=FakeStt(""))

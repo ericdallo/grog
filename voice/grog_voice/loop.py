@@ -60,6 +60,7 @@ class Voice:
     ):
         self.report = report
         self.awake_until = 0.0
+        self.awake_why = None  # why what's said until then needs no wake word (see awake)
         self.told = None  # what it last told grog it's doing
         self.no_mic = False
         self._telling = threading.Lock()
@@ -120,7 +121,8 @@ class Voice:
     def turn(self):
         """Listens for an utterance and answers it when it's for grog, or
         after just the wake word, listens without it for a while (awake), as
-        after an answer asking something. Returns once its sounds are over."""
+        after an answer asking something (asked). Returns once its sounds are
+        over."""
         heard = self.ears.listen()
         if heard.said:
             self.awake_until = 0.0
@@ -129,7 +131,7 @@ class Voice:
             self.mouth.quiet()
             return Result("ignored", heard)
         if not command:
-            self.awake_until = time.monotonic() + AWAKE_S
+            self.wake_up("awake")
             self.mouth.quiet()
             if not heard.chimed:
                 self.mouth.play("listening")
@@ -137,12 +139,19 @@ class Voice:
         turn = self.mouth.answer(heard, command)
         if turn.answer.rstrip().endswith("?"):
             # It asked something: the reply needs no wake word.
-            self.awake_until = time.monotonic() + AWAKE_S
+            self.wake_up("asked")
         return Result("answered", heard, command, turn)
 
+    def wake_up(self, why):
+        """What's said for a while needs no wake word, `why` being awake (its
+        name came alone) or asked (its answer asked something)."""
+        self.awake_until = time.monotonic() + AWAKE_S
+        self.awake_why = why
+
     def awake(self):
-        """Whether what's said now needs no wake word."""
-        return time.monotonic() < self.awake_until
+        """Why what's said now needs no wake word, awake or asked (see
+        wake_up), or None when it needs one."""
+        return self.awake_why if time.monotonic() < self.awake_until else None
 
     def close(self):
         """Closes the mic, and what transcribes partials."""
@@ -152,7 +161,7 @@ class Voice:
         """Tells grog what it's doing, when that changed: no mic, while
         there's none and it would be listening."""
         with self._telling:
-            if self.no_mic and state in ("listening", "awake"):
+            if self.no_mic and state in ("listening", "awake", "asked"):
                 state = "no-mic"
             if state != self.told:
                 self.told = state

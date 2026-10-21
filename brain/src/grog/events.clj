@@ -8,6 +8,8 @@
   The state:
     :name :provider :model :auth  who grog is, and how it's paid
     :timezone  grog's time zone (IANA), for clocks to show its time
+    :started-at  when grog started: until grog-voice says anything, it may
+               be on its way
     :voice     grog-voice's state: {:state :since :seen :conversation
                :error-at}, nil until it says; :error-at: when it last went
                into \"error\", if it did
@@ -15,11 +17,12 @@
                reply to it), as it comes: {:text :final :at}, a guess at
                what was said so far until it's final
     :turn      the current turn, or the last one: {:conversation :n :steps
-               :question :said :answer :done-at :ok :error}, :n telling it
-               from the others, :said being what was said aloud for it as
-               grog-voice heard it (the wake word included), its steps
-               {:step :at} (heard, thinking, tool with :name, answering,
-               speaking), in order
+               :question :said :answer :done-at :ok :error :spoken-at}, :n
+               telling it from the others, :said being what was said aloud
+               for it as grog-voice heard it (the wake word included), its
+               steps {:step :at} (heard, thinking, tool with :name,
+               answering, speaking), in order, :spoken-at when grog-voice
+               was done saying its answer, if it said it
     :recent    the last 4 turns, newest first: {:at :conversation :ms :tools
                :ok}
     :usage     what it consumed (grog.usage)
@@ -39,7 +42,7 @@
 
 (def voice-states
   "What grog-voice says it's doing (voice/grog_voice/reporter.py)."
-  #{"loading" "listening" "hearing" "awake" "answering" "speaking" "error" "no-mic"})
+  #{"loading" "listening" "hearing" "awake" "asked" "answering" "speaking" "error" "no-mic"})
 
 (defn now-ms
   "The clock (tests redefine it)."
@@ -60,20 +63,32 @@
 (defn ^:private last-step [state]
   (:step (peek (get-in state [:turn :steps]))))
 
+(defn ^:private spoken?
+  "Whether grog-voice, which was saying the current turn's answer, just
+  stopped."
+  [{:keys [voice turn]} voice-state conversation]
+  (and (= "speaking" (:state voice))
+       (not= "speaking" voice-state)
+       (= conversation (:conversation turn))
+       (boolean (some #(= "speaking" (:step %)) (:steps turn)))))
+
 (defn ^:private on-voice
   "grog-voice's new state, and what it heard for grog, if it says. Its first
   words in a turn are a step of it: when it started hearing them is kept
-  for the turn (:heard-at, not sent)."
+  for the turn (:heard-at, not sent). Once it said the turn's answer, the
+  turn says when (:spoken-at)."
   [{:keys [voice turn] :as state} {voice-state :state :keys [at conversation heard]}]
   (let [changed? (not= voice-state (:state voice))
         error-at (if (and changed? (= "error" voice-state)) at (:error-at voice))
+        said? (spoken? state voice-state conversation)
         state (cond-> (assoc state :voice (cond-> {:state voice-state
                                                    :since (if changed? at (:since voice))
                                                    :seen at
                                                    :conversation conversation}
                                             error-at (assoc :error-at error-at)))
                 (and changed? (= "hearing" voice-state)) (assoc :heard-at at)
-                heard (assoc :heard (assoc heard :at at)))]
+                heard (assoc :heard (assoc heard :at at))
+                said? (assoc-in [:turn :spoken-at] at))]
     (if (and changed?
              (= "speaking" voice-state)
              (= conversation (:conversation turn))
@@ -143,7 +158,7 @@
   "Where the state lives and who watches it. `captions?` tells whether what's
   said goes in."
   [captions?]
-  {:state (atom initial-state)
+  {:state (atom (assoc initial-state :started-at (now-ms)))
    :watchers (atom {})
    :captions? captions?
    ;; One event at a time, sent to everyone in the same order.

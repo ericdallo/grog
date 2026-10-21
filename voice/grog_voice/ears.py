@@ -106,11 +106,11 @@ class Ears:
     partials): a speech to text that `stt` holds while it
     transcribes (hold() and release(), see worker.py), as what `stt`
     transcribes may be the end. `wake` gives the WakeWords to answer to
-    (None: anything), `awake` whether none is needed now, `tell` tells grog
-    what it's doing, `chime(name)` plays an earcon in the background,
-    `report_heard(text, final)` tells grog what it heard for it, while
-    `captions` says grog shows that (its skin.captions): only then is it
-    reported, and are partials of what's for grog made to its end."""
+    (None: anything), `awake` why none is needed now (awake, asked) or None,
+    `tell` tells grog what it's doing, `chime(name)` plays an earcon in the
+    background, `report_heard(text, final)` tells grog what it heard for it,
+    while `captions` says grog shows that (its skin.captions): only then is
+    it reported, and are partials of what's for grog made to its end."""
 
     def __init__(
         self,
@@ -121,7 +121,7 @@ class Ears:
         stt,
         partial_stt=None,
         wake=lambda: None,
-        awake=lambda: False,
+        awake=lambda: None,
         tell=lambda state: None,
         chime=lambda name: None,
         report_heard=lambda text, final: None,
@@ -221,9 +221,9 @@ class Ears:
             close()
 
     def _idle(self):
-        """What it does between utterances: listening, or awake when what's
-        said next needs no wake word."""
-        return "awake" if self.awake() else "listening"
+        """What it does between utterances: listening, or awake or asked when
+        what's said next needs no wake word (see `awake`)."""
+        return self.awake() or "listening"
 
     def _report(self, text, final):
         """Tells grog what it heard for it, only while grog shows it."""

@@ -30,13 +30,29 @@
       (is (= [["heard" 2000] ["thinking" 3510] ["answering" 4000] ["tool" 4100] ["speaking" 4200]]
              (steps state)))
       (is (= "web_search" (get-in state [:turn :steps 3 :name]))))
-    (testing "what was said, and how it went"
-      (is (= {:question "will it rain?" :answer "Let me check. Sunny. Warm." :done-at 6200 :ok true}
-             (select-keys (:turn state) [:question :answer :done-at :ok :ms]))))
+    (testing "what was said, how it went, and when grog-voice was done saying it"
+      (is (= {:question "will it rain?" :answer "Let me check. Sunny. Warm." :done-at 6200 :ok true :spoken-at 7000}
+             (select-keys (:turn state) [:question :answer :done-at :ok :ms :spoken-at]))))
     (testing "the recent turns"
       (is (= [{:at 6200 :conversation "voice" :ms 2690 :tools ["web_search"] :ok true}] (:recent state))))
     (testing "grog-voice: since when it's in its state, and when it last said"
       (is (= {:state "listening" :since 7000 :seen 7000 :conversation "voice"} (:voice state))))))
+
+(deftest spoken-only-once-grog-voice-said-it
+  (testing "not a typed turn"
+    (let [state (run [1000 {:type :voice :state "listening" :conversation "voice"}]
+                     [2000 {:type :turn :conversation "default" :n 1}]
+                     [3000 {:type :done :conversation "default" :n 1 :ms 1000}]
+                     [4000 {:type :voice :state "hearing" :conversation "voice"}]
+                     [5000 {:type :voice :state "listening" :conversation "voice"}])]
+      (is (not (contains? (:turn state) :spoken-at)))))
+  (testing "nor one that started while grog-voice was still saying the last"
+    (let [state (run [1000 {:type :turn :conversation "voice" :n 1}]
+                     [1500 {:type :voice :state "speaking" :conversation "voice"}]
+                     [2000 {:type :done :conversation "voice" :n 1 :ms 1000}]
+                     [2500 {:type :turn :conversation "default" :n 2}]
+                     [3000 {:type :voice :state "listening" :conversation "voice"}])]
+      (is (not (contains? (:turn state) :spoken-at))))))
 
 (deftest heard-only-for-its-own-conversation-and-just-before
   (let [heard [[2000 {:type :voice :state "hearing" :conversation "voice"}]]]
@@ -129,11 +145,12 @@
                             :timezone "America/Sao_Paulo"})
       (events/publish! hub {:type :voice :state "hearing" :conversation "voice"})
       (events/watch! hub :w send!)
-      (testing "the state first, with whether there are captions and the time"
+      (testing "the state first, with whether there are captions, the time and when grog started"
         (let [[[type {:keys [state]}]] @got]
           (is (= "snapshot" type))
-          (is (= {:name "grog" :auth "api-key" :timezone "America/Sao_Paulo" :captions false :now 5000 :recent []}
-                 (select-keys state [:name :auth :timezone :captions :now :recent])))
+          (is (= {:name "grog" :auth "api-key" :timezone "America/Sao_Paulo" :captions false :now 5000 :recent []
+                  :startedAt 5000}
+                 (select-keys state [:name :auth :timezone :captions :now :recent :startedAt])))
           (testing "without what's kept for the turns to come"
             (is (= {:state "hearing" :since 5000 :seen 5000 :conversation "voice"} (:voice state)))
             (is (not (contains? state :heardAt)))))))))
