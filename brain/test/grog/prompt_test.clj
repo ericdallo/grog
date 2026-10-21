@@ -24,7 +24,6 @@
                 "- Write numbers, dates, times and units the way they are spoken.\n"
                 "- If you don't know or aren't sure, say so instead of making things up.\n"
                 "- Use web search when the answer depends on recent or changing information, like news, weather, scores, prices and schedules.\n"
-                "- Whenever you use a tool, like web search, always say first, in a few words, what you're about to do (like \"Let me check the forecast.\"), and only then use it. Don't repeat that in the answer.\n"
                 "\n"
                 "Context:\n"
                 "- It is now Thursday, October 15, 2026, 09:05 (America/Sao_Paulo time zone).\n"
@@ -52,11 +51,11 @@
                      (assoc-in [:providers :openai :model] "gpt-6-astra"))]
       (is (str/includes? (prompt/system-prompt config now) "\n- You run on the AI model gpt-6-astra."))))
 
-  (testing "web search disabled isn't mentioned, but tools still are"
+  (testing "web search disabled isn't mentioned"
     (let [p (prompt/system-prompt (assoc-in config/defaults [:providers :openai :web-search :enable] false) now)]
       (is (not (str/includes? p "web search")))
       (is (not (str/includes? p "searching the web")))
-      (is (str/includes? p "\n- Whenever you use a tool, always say first, in a few words,"))
+      (is (str/includes? p "\n- If you don't know or aren't sure, say so instead of making things up.\n\nContext:\n"))
       (is (str/includes? p "they live in, saying you'll save it. When they say it, save it with the settings tool.\n")))))
 
 (deftest what-it-remembers

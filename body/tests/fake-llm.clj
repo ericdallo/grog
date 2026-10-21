@@ -50,8 +50,9 @@
        (str/includes? (str (:content (last (:input body)))) "previsão")))
 
 (defn responses-stream
-  "The answer `text`, streamed. Searching, it says first what it's about to do,
-  and then cites its source in the text, like the real model."
+  "The answer `text`, streamed. Searching, it says first what it's about to do
+  (as the real model still may, unasked), and then cites its source in the
+  text, like the real model."
   [text search?]
   (apply sse (concat (when search?
                        [{:type "response.output_item.added" :item {:type "message"}}
