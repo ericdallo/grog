@@ -46,10 +46,7 @@
         };
 
       # A computer grog acts on, once paired with it: see body/README.md.
-      nixosModules.computer = { pkgs, ... }: {
-        imports = [ ./body/modules/computer.nix ];
-        services.grog.computer.package = lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.grog;
-      };
+      nixosModules.computer = ./body/modules/computer.nix;
 
       # grognix, a PC dedicated to grog: see body/README.md.
       nixosModules.grognix = {

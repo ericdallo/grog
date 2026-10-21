@@ -1,45 +1,42 @@
 (ns grog.pairing-test
+  "Pairing a computer: grog's side, and the computer's (computer.sh), run as
+  a computer runs it, against a grog that reaches computers with a fake
+  ssh."
   (:require [babashka.fs :as fs]
             [babashka.http-client :as http]
+            [babashka.process :as p]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [grog.computers :as computers]
             [grog.config :as config]
             [grog.events :as events]
             [grog.pairing :as pairing]
-            [grog.remote-hands :as remote-hands]
             [grog.server :as server]
-            [grog.test-helpers :as h]))
+            [grog.test-helpers :as h])
+  (:import (java.net InetAddress ServerSocket)))
 
 (def ^:private grog-key "ssh-ed25519 AAAAgrogkey grog")
 (def ^:private deluxe-key "ssh-ed25519 AAAAdeluxekey")
 
-(defn ^:private script!
-  "An executable bash script `name` in `dir`, running `body`."
-  [dir name body]
-  (let [f (str (fs/path dir name))]
-    (spit f (str "#!" (fs/which "bash") "\n" body "\n"))
-    (fs/set-posix-file-permissions f "rwxr-xr-x")
-    f))
-
 (defn ^:private start!
   "A grog whose key is made already, letting computers pair on loopback,
-  reaching them with a fake ssh: `hello` says how they answer grog's hello
-  (a line of JSON, or bash making ssh fail)."
-  [hello]
+  reaching them with a fake ssh running `ssh` (bash)."
+  [ssh]
   (let [dir (h/temp-dir)
-        state-dir (str (fs/path dir "state"))
         srv (server/start! (-> config/defaults
-                               (assoc :name "grog" :state-dir state-dir)
+                               (assoc :name "grog" :state-dir (str (fs/path dir "state")))
                                (assoc-in [:server :port] 0)
                                (assoc-in [:computers :pairing] {:host "127.0.0.1" :port (h/free-port)})
-                               (assoc-in [:computers :ssh] (script! dir "ssh" (str "cat > /dev/null; " hello)))
+                               (assoc-in [:computers :ssh] (h/script! dir "ssh" ssh))
                                ;; Not OpenAI's.
                                (assoc-in [:providers :openai :subscription :auth-url] "http://127.0.0.1:1")))
         config @(:config (:ctx srv))]
     (fs/create-dirs (computers/dir config))
     (spit (str (computers/key-file config) ".pub") (str grog-key "\n"))
-    (assoc srv :config config :url (str "http://127.0.0.1:" (:port srv)))))
+    (assoc srv
+           :config config
+           :url (str "http://127.0.0.1:" (:port srv))
+           :address (str "127.0.0.1:" (get-in config [:computers :pairing :port])))))
 
 (defn ^:private api
   "A request to grog's local API: [status body]."
@@ -49,7 +46,7 @@
     [(:status resp) (config/parse (:body resp))]))
 
 (defn ^:private pairing-view [srv]
-  (second (api :get (str (:url srv) "/v1/computers"))))
+  (:pairing (second (api :get (str (:url srv) "/v1/computers")))))
 
 (defn ^:private eventually [ms pred]
   (let [deadline (+ (System/currentTimeMillis) ms)]
@@ -59,33 +56,69 @@
             :else (do (Thread/sleep 50) (recur))))))
 
 (defn ^:private computer
-  "A computer about to pair, its files in a directory of its own."
+  "A computer about to pair (grog.test-helpers/computer!): its SSH server
+  listening (:sshd, a port), its host key in a file of its own (:key-file),
+  and its network card on the way to grog."
   []
-  (let [dir (h/temp-dir)]
-    {:host-key deluxe-key
-     :hostname "Deluxe.lan"
-     :user "greg"
-     :authorized-keys (str (fs/path dir ".ssh" "authorized_keys"))
-     :policy-file (str (fs/path dir "config" "grog" "hands.json"))
-     :grog "/etc/profiles/per-user/greg/bin/grog"
-     :mac (constantly "a0:c5:89:84:d4:ec")
-     :sshd? (constantly true)}))
+  (let [c (h/computer! {"ip" (str "case \"$1 $2\" in\n"
+                                  "  'route get') echo \"$3 dev eth9 src 127.0.0.1 uid 1000\" ;;\n"
+                                  "  '-o link') echo '2: eth9: <UP> mtu 1500\\    link/ether A0:C5:89:84:D4:EC brd ff:ff:ff:ff:ff:ff' ;;\n"
+                                  "esac")})
+        sshd (ServerSocket. 0 50 (InetAddress/getByName "127.0.0.1"))
+        key-file (str (fs/path (:dir c) "ssh_host_ed25519_key.pub"))]
+    (spit key-file (str deluxe-key " root@deluxe\n"))
+    (assoc c :sshd sshd :key-file key-file)))
 
-(defn ^:private pairing!
-  "Pairs `here` with the grog of `srv` in the background: [the future of
-  whether it worked, what it said]."
-  ([srv here] (pairing! srv here {}))
-  ([srv here opts]
-   (let [said (atom [])]
-     [(future (pairing/pair! "127.0.0.1"
-                             (merge {:port (get-in (:config srv) [:computers :pairing :port])
-                                     :say (fn [& lines] (swap! said into lines))}
-                                    opts)
-                             here))
-      said])))
+(defn ^:private options
+  "What tells the pairing who `computer` is, here."
+  [computer]
+  (str "--name deluxe --ssh-port " (.getLocalPort ^ServerSocket (:sshd computer))
+       " --host-key " (h/sh-quote (:key-file computer))))
 
-(defn ^:private code-said [said]
-  (some #(second (re-matches #"  (\d{3} \d{3})" %)) @said))
+(defn ^:private sshd
+  "What grog's ssh does reaching `computer`: as its SSH server would for
+  grog's key, it runs what its authorized_keys lets the key run, grog's
+  hands there (with bash, as the build sandbox has no /usr/bin/env)."
+  [computer]
+  (str "grep -qF " (h/sh-quote (str "command=\"" (:hands-file computer) " hands\" " grog-key)) " "
+       (h/sh-quote (:authorized-keys computer)) " 2>/dev/null ||\n"
+       "  { echo 'greg@127.0.0.1: Permission denied (publickey).' >&2; exit 255; }\n"
+       "exec env " (h/env-words (:env computer)) " bash " (h/sh-quote (:hands-file computer)) " hands"))
+
+(defn ^:private pair!
+  "Runs `command` (bash) on `computer`, pairing it, in the background: the
+  process, what it says going to :said, a file."
+  [computer command]
+  (let [said (str (fs/path (:dir computer) "said"))]
+    {:proc (p/process {:cmd ["bash" "-c" command] :out :write :out-file (fs/file said) :err :out
+                       :extra-env (:env computer)})
+     :said said}))
+
+(defn ^:private said [{:keys [said]}]
+  (if (fs/exists? said) (slurp said) ""))
+
+(defn ^:private code-said [run]
+  (second (re-find #"\n  (\d{3} \d{3})\n" (said run))))
+
+(defn ^:private exit-of
+  "How the pairing `run` ended: its exit status, once it did."
+  [run]
+  (:exit (deref (:proc run) 20000 {:exit :late})))
+
+(defn ^:private served
+  "Pairing with grog of `srv` as it says: running what it serves."
+  [srv]
+  (str "curl -fsS " (:address srv) " | bash -s -- "))
+
+(defn ^:private kept
+  "Pairing with grog of `srv` with the script a computer keeps, saying where
+  grog is."
+  [srv]
+  (str "bash " (h/sh-quote h/computer-sh) " pair " (:address srv) " "))
+
+(def ^:private user
+  "Who the computer's user is, here."
+  (delay (str/trim (:out (p/shell {:out :string} "id" "-un")))))
 
 (deftest codes
   (testing "the same from the same keys and nonces, only then"
@@ -94,169 +127,225 @@
       (is (= c (pairing/code grog-key "aa" deluxe-key "bb")))
       (is (not= c (pairing/code "ssh-ed25519 AAAAevil grog" "aa" deluxe-key "bb")))
       (is (not= c (pairing/code grog-key "aa" deluxe-key "bc")))))
+  (testing "on the computer, too"
+    (doseq [[key nonce host-key host-nonce] [[grog-key "aa" deluxe-key "bb"]
+                                             ["ssh-ed25519 AAAAgrog Jarvis" "0123456789abcdef" deluxe-key "ff"]]]
+      (is (= (pairing/code key nonce host-key host-nonce)
+             (:out (p/shell {:out :string} "bash" "-c" "source \"$0\" help >/dev/null; pairing_code \"$@\""
+                            h/computer-sh key nonce host-key host-nonce))))))
   (is (= "482 913" (pairing/spaced "482913")))
   (is (= (pairing/commitment "abc") (pairing/commitment "abc")))
   (is (re-matches #"[0-9a-f]{64}" (pairing/commitment "abc"))))
 
-(deftest what-a-computer-writes
-  (is (= "192.168.15.0/24" (pairing/network "192.168.15.17")))
-  (is (= "fe80::1" (pairing/network "fe80::1")))
-  (is (= (str "restrict,from=\"192.168.15.0/24\",command=\"/run/current-system/sw/bin/grog hands --stdio\" "
-              grog-key)
-         (pairing/authorized-line grog-key "192.168.15.0/24" "/run/current-system/sw/bin/grog")))
-  (is (= "deluxe" (pairing/computer-name "Deluxe.lan")))
-  (is (= "greg-s-laptop" (pairing/computer-name "Greg's laptop")))
-  (let [dir (h/temp-dir)
-        ed (str (fs/path dir "ed.pub"))]
-    (spit ed "ssh-ed25519 AAAAhost root@deluxe\n")
-    (is (= "ssh-ed25519 AAAAhost" (pairing/host-key [(str (fs/path dir "none.pub")) ed])))
-    (is (nil? (pairing/host-key [(str (fs/path dir "none.pub"))])))))
-
 (deftest pairing-a-computer
-  (let [srv (start! "echo '{\"v\": 1, \"host\": \"deluxe\", \"user\": \"greg\", \"policy\": {\"allow\": [\"status\"]}}'")
-        here (computer)]
+  (let [c (computer)
+        srv (start! (sshd c))]
     (try
       (is (= 200 (first (api :post (str (:url srv) "/v1/pairing")))))
-      (is (= "open" (:status (:pairing (pairing-view srv)))))
-      (let [[done said] (pairing! srv here)]
+      (is (= "open" (:status (pairing-view srv))))
+      (let [run (pair! c (str (served srv) (options c)))]
         (testing "both screens show the same code"
-          (is (eventually 10000 #(= "asking" (get-in (pairing-view srv) [:pairing :status]))))
-          (let [{:keys [name user code]} (:pairing (pairing-view srv))]
-            (is (= ["deluxe" "greg"] [name user]))
-            (is (eventually 5000 #(code-said said)))
-            (is (= (pairing/spaced code) (code-said said)))
+          (is (eventually 10000 #(= "asking" (:status (pairing-view srv)))))
+          (let [{:keys [name code] :as view} (pairing-view srv)]
+            (is (= ["deluxe" @user] [name (:user view)]))
+            (is (eventually 5000 #(code-said run)))
+            (is (= (pairing/spaced code) (code-said run)))
             (is (= code (get-in (events/snapshot (:events (:ctx srv))) [:pairing :code])) "for the skin")))
-        (testing "allowed at grog, the computer lets grog in"
+        (testing "allowed at grog, the computer lets grog in, to run its hands there"
           (is (= 200 (first (api :post (str (:url srv) "/v1/pairing/allow")))))
-          (is (true? (deref done 20000 :late)))
-          (is (= (str "restrict,from=\"127.0.0.0/24\",command=\"/etc/profiles/per-user/greg/bin/grog hands --stdio\" "
-                      grog-key "\n")
-                 (slurp (:authorized-keys here))))
-          (is (= "rw-------" (fs/posix->str (fs/posix-file-permissions (:authorized-keys here)))))
-          (is (= remote-hands/default-policy (config/parse (slurp (:policy-file here)))) "the default policy")
-          (is (some #(str/includes? % "Paired: grog can act on this computer now") @said)))
-        (testing "and grog keeps it"
-          (is (= {:name "deluxe" :host "127.0.0.1" :port 22 :user "greg" :host-key deluxe-key
-                  :mac "a0:c5:89:84:d4:ec"}
+          (is (= 0 (exit-of run)) (said run))
+          (is (= (str "restrict,from=\"127.0.0.0/24\",command=\"" (:hands-file c) " hands\" " grog-key "\n")
+                 (slurp (:authorized-keys c))))
+          (is (= "rw-------" (fs/posix->str (fs/posix-file-permissions (:authorized-keys c)))))
+          (is (= (pairing/script (str "http://" (:address srv))) (slurp (:hands-file c))) "as grog served them")
+          (is (= "rwx------" (fs/posix->str (fs/posix-file-permissions (:hands-file c)))))
+          (is (= {:allow ["status" "notify" "open" "media" "volume" "lock"] :ask ["suspend" "power-off" "shell"] :deny []}
+                 (config/parse (slurp (:policy-file c))))
+              "the default policy")
+          (is (str/includes? (said run) "Paired: grog can act on this computer now")))
+        (testing "and grog keeps it, to act on it"
+          (is (= {:name "deluxe" :host "127.0.0.1" :port (.getLocalPort ^ServerSocket (:sshd c))
+                  :user @user :host-key deluxe-key :mac "a0:c5:89:84:d4:ec"}
                  (dissoc (computers/by-name (:config srv) "deluxe") :added-at)))
-          (is (= "paired" (get-in (pairing-view srv) [:pairing :status])))))
+          (is (= "paired" (:status (pairing-view srv))))
+          (is (re-find #"(?m)^name: " (computers/act! (:config srv) {:computer "deluxe" :action "status"})))))
       (finally
-        (server/stop! srv)))))
+        (server/stop! srv)
+        (.close ^ServerSocket (:sshd c))))))
 
 (deftest trusting-it
-  (let [srv (start! "echo '{\"v\": 1}'")
-        here (computer)]
-    (try
-      (api :post (str (:url srv) "/v1/pairing"))
-      (let [[done _] (pairing! srv here {:trust true})]
-        (is (eventually 10000 #(= "asking" (get-in (pairing-view srv) [:pairing :status]))))
-        (api :post (str (:url srv) "/v1/pairing/allow"))
-        (is (true? (deref done 20000 :late)))
-        (is (= remote-hands/trusting-policy (config/parse (slurp (:policy-file here))))))
-      (finally
-        (server/stop! srv)))))
+  (testing "from the copy it kept, saying where grog is"
+    (let [c (computer)
+          srv (start! (sshd c))]
+      (try
+        (api :post (str (:url srv) "/v1/pairing"))
+        (let [run (pair! c (str (kept srv) (options c) " --trust"))]
+          (is (eventually 10000 #(= "asking" (:status (pairing-view srv)))))
+          (api :post (str (:url srv) "/v1/pairing/allow"))
+          (is (= 0 (exit-of run)) (said run))
+          (is (= {:allow ["status" "notify" "open" "media" "volume" "lock" "suspend" "power-off" "shell"] :ask [] :deny []}
+                 (config/parse (slurp (:policy-file c))))))
+        (finally
+          (server/stop! srv)
+          (.close ^ServerSocket (:sshd c)))))))
 
 (deftest not-allowing-it
-  (let [srv (start! "echo '{\"v\": 1}'")
-        here (computer)]
+  (let [c (computer)
+        srv (start! (sshd c))]
     (try
       (api :post (str (:url srv) "/v1/pairing"))
-      (let [[done said] (pairing! srv here)]
-        (is (eventually 10000 #(= "asking" (get-in (pairing-view srv) [:pairing :status]))))
+      (let [run (pair! c (str (served srv) (options c)))]
+        (is (eventually 10000 #(= "asking" (:status (pairing-view srv)))))
         (is (= 200 (first (api :post (str (:url srv) "/v1/pairing/deny")))))
-        (is (false? (deref done 20000 :late)))
-        (is (some #(str/includes? % "It wasn't allowed on grog") @said))
-        (is (not (fs/exists? (:authorized-keys here))))
+        (is (= 1 (exit-of run)))
+        (is (str/includes? (said run) "[error] It wasn't allowed on grog."))
+        (is (not (fs/exists? (:authorized-keys c))))
+        (is (not (fs/exists? (:hands-file c))))
         (is (= [] (computers/all (:config srv))))
-        (is (= "denied" (get-in (pairing-view srv) [:pairing :status]))))
+        (is (= "denied" (:status (pairing-view srv)))))
       (testing "nor when nobody asks"
         (is (= [400 {:error "no computer is asking to pair"}] (api :post (str (:url srv) "/v1/pairing/allow")))))
       (finally
-        (server/stop! srv)))))
+        (server/stop! srv)
+        (.close ^ServerSocket (:sshd c))))))
 
 (deftest when-grog-cant-reach-it
-  (let [srv (start! "echo 'ssh: connect to host 127.0.0.1 port 22: Connection refused' >&2; exit 255")
-        here (computer)]
+  (let [c (computer)
+        srv (start! "cat > /dev/null; echo 'ssh: connect to host 127.0.0.1 port 22: Connection refused' >&2; exit 255")]
     (try
       (api :post (str (:url srv) "/v1/pairing"))
-      (let [[done said] (pairing! srv here)]
-        (is (eventually 10000 #(= "asking" (get-in (pairing-view srv) [:pairing :status]))))
+      (fs/create-dirs (fs/parent (:authorized-keys c)))
+      (spit (:authorized-keys c) "ssh-ed25519 AAAAmine me@laptop\n")
+      (let [run (pair! c (str (served srv) (options c)))]
+        (is (eventually 10000 #(= "asking" (:status (pairing-view srv)))))
         (api :post (str (:url srv) "/v1/pairing/allow"))
-        (is (false? (deref done 20000 :late)))
-        (is (some #(str/includes? % "grog can't reach this computer: deluxe doesn't take SSH connections") @said))
-        (is (= "" (slurp (:authorized-keys here))) "grog's line goes")
+        (is (= 1 (exit-of run)))
+        (is (str/includes? (said run) "grog can't reach this computer: deluxe doesn't take SSH connections"))
+        (is (= "ssh-ed25519 AAAAmine me@laptop\n" (slurp (:authorized-keys c))) "grog's line goes, the rest stays")
         (is (= [] (computers/all (:config srv))) "nor does grog keep it")
-        (is (= "failed" (get-in (pairing-view srv) [:pairing :status]))))
+        (is (= "failed" (:status (pairing-view srv)))))
       (finally
-        (server/stop! srv)))))
+        (server/stop! srv)
+        (.close ^ServerSocket (:sshd c))))))
 
 (deftest only-while-its-open
-  (let [srv (start! "echo '{\"v\": 1}'")]
+  (let [c (computer)
+        srv (start! (sshd c))]
     (try
       (testing "nothing listens before"
-        (let [[done said] (pairing! srv (computer))]
-          (is (false? (deref done 20000 :late)))
-          (is (some #(str/includes? % "grog doesn't let a computer pair at") @said))))
+        (let [run (pair! c (str (kept srv) (options c)))]
+          (is (= 1 (exit-of run)))
+          (is (str/includes? (said run) (str "grog doesn't let a computer pair at http://" (:address srv))))))
       (testing "nor once it's closed"
         (api :post (str (:url srv) "/v1/pairing"))
         (is (= "closed" (:status (second (api :delete (str (:url srv) "/v1/pairing")))))))
       (finally
-        (server/stop! srv)))))
+        (server/stop! srv)
+        (.close ^ServerSocket (:sshd c))))))
 
 (deftest one-computer-at-a-time
-  (let [srv (start! "echo '{\"v\": 1}'")]
+  (let [c (computer)
+        attic (computer)
+        srv (start! (sshd c))]
     (try
       (api :post (str (:url srv) "/v1/pairing"))
-      (let [[_ _] (pairing! srv (computer))]
-        (is (eventually 10000 #(= "asking" (get-in (pairing-view srv) [:pairing :status]))))
-        (let [[done said] (pairing! srv (assoc (computer) :hostname "attic"))]
-          (is (false? (deref done 20000 :late)))
-          (is (some #(str/includes? % "another computer is pairing with grog") @said)))
-        (api :post (str (:url srv) "/v1/pairing/deny")))
+      (let [run (pair! c (str (served srv) (options c)))]
+        (is (eventually 10000 #(= "asking" (:status (pairing-view srv)))))
+        (let [other (pair! attic (str (served srv) (str/replace (options attic) "deluxe" "attic")))]
+          (is (= 1 (exit-of other)))
+          (is (str/includes? (said other) "another computer is pairing with grog")))
+        (api :post (str (:url srv) "/v1/pairing/deny"))
+        (exit-of run))
       (finally
-        (server/stop! srv)))))
+        (server/stop! srv)
+        (run! #(.close ^ServerSocket (:sshd %)) [c attic])))))
 
 (deftest a-computer-that-isnt-ready
-  (let [srv (start! "echo '{\"v\": 1}'")]
+  (let [c (computer)
+        srv (start! (sshd c))
+        port (.getLocalPort ^ServerSocket (:sshd c))]
     (try
       (api :post (str (:url srv) "/v1/pairing"))
-      (doseq [[here message] [[(assoc (computer) :host-key nil) "There's no SSH server here"]
-                              [(assoc (computer) :sshd? (constantly false)) "Nothing takes SSH connections here"]
-                              [(assoc (computer) :grog nil) "Install grog here first"]]]
-        (let [[done said] (pairing! srv here)]
-          (is (false? (deref done 5000 :late)))
-          (is (some #(str/includes? % message) @said) message)))
+      (doseq [[args message] [[(str "--name deluxe --ssh-port " port " --host-key /nonexistent")
+                               "There's no SSH host key in /nonexistent"]
+                              [(str "--name deluxe --ssh-port " (h/free-port) " --host-key " (h/sh-quote (:key-file c)))
+                               "Nothing takes SSH connections here on port"]
+                              [(str (options c) " --name 'Deluxe!'") "Say what grog calls this computer with --name"]]]
+        (let [run (pair! c (str (served srv) args))]
+          (is (= 1 (exit-of run)) message)
+          (is (str/includes? (said run) message) (said run))))
+      (testing "nor where grog makes no sense"
+        (let [run (pair! c (str "bash " (h/sh-quote h/computer-sh) " pair 'grog;x' " (options c)))]
+          (is (= 1 (exit-of run)))
+          (is (str/includes? (said run) "grog's address makes no sense"))))
+      (is (= "open" (:status (pairing-view srv))) "none asked")
       (finally
-        (server/stop! srv)))))
+        (server/stop! srv)
+        (.close ^ServerSocket (:sshd c))))))
+
+(defn ^:private fields
+  "What grog answered the computer: a line of key=value each."
+  [body]
+  (into {} (for [line (str/split-lines (str body))
+                 :let [[k v] (str/split line #"=" 2)]
+                 :when v]
+             [(keyword k) v])))
 
 (deftest what-the-network-may-send
-  (let [srv (start! "echo '{\"v\": 1}'")
-        port (get-in (:config srv) [:computers :pairing :port])
-        pair-url (str "http://127.0.0.1:" port "/v1/pair")
-        post (fn [body & [headers]]
-               (let [resp (http/post pair-url {:throw false
-                                               :headers (or headers {"content-type" "application/json"})
-                                               :body (config/generate body)})]
-                 [(:status resp) (config/parse (:body resp))]))
-        request {:v 1 :name "deluxe" :user "greg" :host-key deluxe-key
+  (let [srv (start! "exit 255")
+        pair-url (str "http://" (:address srv) "/v1/pair")
+        post (fn [url body & [headers]]
+               (let [resp (http/post url {:throw false
+                                          :headers (or headers {"content-type" "application/json"})
+                                          :body (config/generate body)})]
+                 [(:status resp) (fields (:body resp))]))
+        request {:v computers/protocol-version :name "deluxe" :user "greg" :host-key deluxe-key
                  :commitment (pairing/commitment "00112233445566778899aabbccddeeff")}]
     (try
       (api :post (str (:url srv) "/v1/pairing"))
       (testing "only JSON: web pages can't"
-        (is (= 415 (first (post request {"content-type" "text/plain"})))))
+        (is (= 415 (first (post pair-url request {"content-type" "text/plain"})))))
       (testing "what makes no sense"
-        (is (= [400 {:error "user: a user's name"}] (post (assoc request :user "-oProxyCommand=x"))))
-        (is (= 400 (first (post (assoc request :host-key "ssh-ed25519 not base64!")))))
-        (is (= 400 (first (post (dissoc request :commitment))))))
+        (is (= [400 {:error "user: a user's name"}] (post pair-url (assoc request :user "-oProxyCommand=x"))))
+        (is (= 400 (first (post pair-url (assoc request :host-key "ssh-ed25519 not base64!")))))
+        (is (= 400 (first (post pair-url (dissoc request :commitment)))))
+        (is (re-find #"this grog speaks version \d+ of pairing"
+                     (str (:error (second (post pair-url (assoc request :v 1))))))))
       (testing "a nonce it didn't commit to"
-        (let [[status {:keys [id key nonce]}] (post request)]
+        (let [[status {:keys [id key nonce expiresIn]}] (post pair-url request)]
           (is (= 200 status))
           (is (= grog-key key))
           (is (re-matches #"[0-9a-f]{32}" nonce))
-          (let [resp (http/post (str pair-url "/" id "/nonce")
-                                {:throw false :headers {"content-type" "application/json"}
-                                 :body (config/generate {:nonce "ffffffffffffffffffffffffffffffff"})})]
-            (is (= 400 (:status resp))))
-          (is (= "open" (get-in (pairing-view srv) [:pairing :status])) "nothing shows at grog")))
+          (is (<= 290 (parse-long expiresIn) 300))
+          (is (= 400 (first (post (str pair-url "/" id "/nonce") {:nonce "ffffffffffffffffffffffffffffffff"}))))
+          (is (= "open" (:status (pairing-view srv))) "nothing shows at grog")))
       (finally
         (server/stop! srv)))))
+
+(deftest what-grog-serves
+  (let [ctx {:config (atom (assoc config/defaults :name "Jarvis & co"))
+             :pairing (atom {:status "open" :addresses ["192.168.15.10"] :port 8485})}
+        serve (fn [uri headers] (pairing/handle ctx {:request-method :get :uri uri :headers headers}))
+        url-in #(second (re-find #"\ngrog_url='([^']*)'\n" %))]
+    (testing "the script, knowing where the computer reaches grog"
+      (let [{:keys [status headers body]} (serve "/" {"host" "grognix.local:8485" "accept" "*/*"})]
+        (is (= 200 status))
+        (is (str/starts-with? (get headers "Content-Type") "text/plain"))
+        (is (str/starts-with? body "#!/usr/bin/env bash\n"))
+        (is (= "http://grognix.local:8485" (url-in body)))
+        (is (= body (:body (serve "/computer.sh" {"host" "grognix.local:8485"}))))))
+    (testing "grog's own address, when the computer says nothing that makes sense"
+      (is (= "http://192.168.15.10:8485" (url-in (:body (serve "/" {"host" "x';rm -rf ~;'"})))))
+      (is (= "http://192.168.15.10:8485" (url-in (:body (serve "/" {}))))))
+    (testing "for a browser, a page saying what to run"
+      (let [{:keys [headers body]} (serve "/" {"host" "192.168.15.10:8485"
+                                               "accept" "text/html,application/xhtml+xml,*/*;q=0.8"})]
+        (is (str/starts-with? (get headers "Content-Type") "text/html"))
+        (is (str/includes? body "<pre>curl -fsS 192.168.15.10:8485 | bash</pre>"))
+        (is (str/includes? body "Pair this computer with Jarvis &amp; co"))))
+    (testing "where it was reached"
+      (is (= "grognix.local:8485" (pairing/reached-at "grognix.local:8485" 8485)))
+      (is (= "192.168.15.10:8485" (pairing/reached-at "192.168.15.10" 8485)))
+      (is (= "[fe80::1]:9000" (pairing/reached-at "[fe80::1]:9000" 8485)))
+      (is (nil? (pairing/reached-at "grog'x" 8485)))
+      (is (nil? (pairing/reached-at nil 8485))))))

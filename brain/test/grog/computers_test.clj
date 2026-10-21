@@ -5,7 +5,8 @@
             [grog.computers :as computers]
             [grog.config :as config]
             [grog.test-helpers :as h]
-            [grog.tools :as tools]))
+            [grog.tools :as tools])
+  (:import (java.util Base64)))
 
 (def ^:private deluxe
   {:name "deluxe" :host "192.168.15.90" :port 22 :user "greg"
@@ -19,26 +20,25 @@
    (-> (assoc config/defaults :state-dir (h/temp-dir) :name "grog")
        (assoc-in [:computers :ssh] ssh))))
 
-(defn ^:private script!
-  "An executable bash script `name` in `dir`, running `body`."
-  [dir name body]
-  (let [f (str (fs/path dir name))]
-    (spit f (str "#!" (fs/which "bash") "\n" body "\n"))
-    (fs/set-posix-file-permissions f "rwxr-xr-x")
-    f))
+(def ^:private script! h/script!)
 
 (defn ^:private hands-ssh!
-  "A fake ssh in `dir` running grog's hands here, as `grog hands --stdio`
-  runs on a computer, with `policy`. It keeps how it was run in ssh-args."
+  "A fake ssh in `dir` running grog's hands on a computer of their own, as
+  its SSH server runs them for grog's key (`computer.sh hands`), with
+  `policy`. It keeps how it was run in ssh-args."
   [dir policy]
-  (let [config-home (str (fs/path dir "config"))
-        bb (str (fs/read-link "/proc/self/exe"))
-        classpath (str/join ":" (map #(str (fs/absolutize %)) ["src" "resources"]))]
-    (fs/create-dirs (fs/path config-home "grog"))
-    (spit (str (fs/path config-home "grog" "hands.json")) (config/generate policy))
-    (script! dir "ssh" (str "printf '%s\\n' \"$@\" > " (fs/path dir "ssh-args") "\n"
-                            "XDG_CONFIG_HOME=" config-home " exec " bb " -cp " classpath
-                            " -m grog.main hands --stdio"))))
+  (let [computer (h/computer!)]
+    (fs/create-dirs (fs/parent (:policy-file computer)))
+    (spit (:policy-file computer) (config/generate policy))
+    (script! dir "ssh" (str "printf '%s\\n' \"$@\" > " (h/sh-quote (fs/path dir "ssh-args")) "\n"
+                            "exec env " (h/env-words (:env computer)) " bash " (h/sh-quote h/computer-sh) " hands"))))
+
+(defn ^:private request-in
+  "What grog asked its hands, the `line` it sent them: {key text}."
+  [line]
+  (into {} (for [field (str/split (str/trim line) #" ")
+                 :let [[k v] (str/split field #"=" 2)]]
+             [(keyword k) (String. (.decode (Base64/getDecoder) ^String v) "UTF-8")])))
 
 (deftest keeping-them
   (let [config (settings)
@@ -92,8 +92,24 @@
   (is (= "deluxe can't be reached (kex_exchange_identification: read: Connection reset by peer)"
          (computers/unreachable "deluxe" "\nkex_exchange_identification: read: Connection reset by peer\n"))))
 
+(deftest what-they-are-asked
+  (let [line (computers/request-line {:v 2 :action "volume" :level 40.0 :mute true :text nil :command "ls -l\necho ação"})
+        fields (request-in line)]
+    (is (str/ends-with? line "\n"))
+    (is (= 1 (count (str/split-lines line))) "a line, whatever the request says")
+    (is (= {:v "2" :action "volume" :level "40" :mute "true" :command "ls -l\necho ação"} fields)
+        "nothing for what's missing, whole numbers without a point"))
+  (is (= {:timeoutMs "5000"} (request-in (computers/request-line {:timeout-ms 5000}))) "keys as they're written"))
+
 (deftest their-answers
-  (is (= {:done true} (computers/answer-in "Welcome to deluxe!\n{\"done\": true}\n")) "past what the shell said")
+  (is (= {:done true} (computers/answer-in "Welcome to deluxe!\ngrog-hands done=dHJ1ZQ==\n")) "past what the shell said")
+  (is (= {:exit 3 :output "hi\n" :timed-out false :truncated true}
+         (computers/answer-in "grog-hands exit=Mw== output=aGkK timedOut=ZmFsc2U= truncated=dHJ1ZQ==\n")))
+  (is (= {:v 2 :host "deluxe" :policy {:allow ["status" "shell"] :ask [] :deny ["lock"]}}
+         (computers/answer-in "grog-hands v=Mg== host=ZGVsdXhl allow=c3RhdHVzIHNoZWxs ask= deny=bG9jaw==\n"))
+      "what it lets grog do")
+  (is (nil? (computers/answer-in "grog-hands done=!!\n")) "not with what isn't base64")
+  (is (nil? (computers/answer-in "{\"done\": true}\n")) "nor from older hands")
   (is (nil? (computers/answer-in "nope")))
   (is (nil? (computers/answer-in ""))))
 
@@ -103,25 +119,29 @@
           config (settings (hands-ssh! dir {:allow ["shell" "status"] :ask [] :deny []}))]
       (computers/add! config deluxe)
       (let [hello (computers/ask! config "deluxe" {:action "hello"} 5000)]
-        (is (= 1 (:v hello)))
+        (is (= computers/protocol-version (:v hello)))
         (is (= {:allow ["shell" "status"] :ask [] :deny []} (:policy hello))))
       (is (= {:exit 0 :output "hi\n"} (computers/act! config {:computer "deluxe" :action "shell" :command "echo hi"})))
+      (is (= {:exit 0 :output (apply str (repeat 8000 "x")) :truncated true}
+             (computers/act! config {:computer "deluxe" :action "shell" :command "head -c 9000 /dev/zero | tr '\\0' x"}))
+          "what the model gets of what it printed")
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"doesn't let grog lock the screen"
                             (computers/act! config {:computer "deluxe" :action "lock"})))
       (is (= ["-l" "greg" "192.168.15.90" "grog"]
              (take-last 4 (str/split-lines (slurp (str (fs/path dir "ssh-args")))))))))
   (testing "saying why it can't be reached"
     (let [dir (h/temp-dir)
-          config (settings (script! dir "ssh" (str "echo 'ssh: connect to host 192.168.15.90 port 22: No route to "
-                                                   "host' >&2; exit 255")))]
+          config (settings (script! dir "ssh" (str "cat > /dev/null; echo 'ssh: connect to host 192.168.15.90 port 22: "
+                                                   "No route to host' >&2; exit 255")))]
       (computers/add! config deluxe)
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"deluxe can't be reached: it may be off or asleep"
                             (computers/ask! config "deluxe" {:action "hello"} 5000)))))
   (testing "or that it said nothing grog understands"
     (let [dir (h/temp-dir)
-          config (settings (script! dir "ssh" "cat > /dev/null; echo 'bash: grog: command not found'; exit 127"))]
+          config (settings (script! dir "ssh" (str "cat > /dev/null; echo 'bash: /home/greg/.local/share/grog/computer.sh: "
+                                                   "No such file or directory'; exit 127")))]
       (computers/add! config deluxe)
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"deluxe gave no answer: is grog still installed there\?"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"deluxe gave no answer grog understands: pair it again"
                             (computers/ask! config "deluxe" {:action "hello"} 5000)))))
   (testing "or not in time"
     (let [dir (h/temp-dir)
@@ -138,12 +158,13 @@
   (testing "asking its hands to forget grog first"
     (let [dir (h/temp-dir)
           request (str (fs/path dir "request"))
-          config (settings (script! dir "ssh" (str "cat > " request "; echo '{\"done\": true}'")))]
+          config (settings (script! dir "ssh" (str "cat > " request "; echo 'grog-hands done=dHJ1ZQ=='")))]
       (fs/create-dirs (computers/dir config))
       (spit (str (computers/key-file config) ".pub") "ssh-ed25519 AAAAgrog grog\n")
       (computers/add! config deluxe)
       (is (= {:name "deluxe" :unpaired true} (computers/forget! config "deluxe")))
-      (is (= {:v 1 :from "grog" :action "unpair" :key "ssh-ed25519 AAAAgrog grog"} (config/parse (slurp request))))
+      (is (= {:v (str computers/protocol-version) :from "grog" :action "unpair" :key "ssh-ed25519 AAAAgrog grog"}
+             (request-in (slurp request))))
       (is (= [] (computers/all config)))))
   (testing "even when it can't be reached"
     (let [dir (h/temp-dir)

@@ -40,7 +40,8 @@ export const UPDATE_FAILED_MS = 60_000;
 // How long how pairing a computer went shows, once it's over.
 export const PAIRED_MS = 10_000;
 // Where grog listens for a computer to pair, unless set otherwise
-// (computers.pairing.port, brain/src/grog/config.clj).
+// (computers.pairing.port, brain/src/grog/config.clj), and serves what pairs
+// it.
 export const PAIRING_PORT = 8485;
 
 // Each tool grog has: what it's doing with it (label), what it did (done).
@@ -700,10 +701,18 @@ export function signIn(state, now) {
   }
 }
 
-/** What to run on a computer to pair it with grog, as its pairing `p` says. */
-export function pairCommand(p) {
+/** Where a computer reaches grog to pair, host:port, as its pairing `p` says. */
+export function pairAddress(p) {
   const address = p?.addresses?.[0] ?? "<grog's address>";
-  return `grog pair ${address}${p?.port && p.port !== PAIRING_PORT ? ` --port ${p.port}` : ""}`;
+  return `${address.includes(":") ? `[${address}]` : address}:${p?.port ?? PAIRING_PORT}`;
+}
+
+/**
+ * What to run on a computer to pair it with grog, as its pairing `p` says:
+ * grog serves what pairs it (brain/resources/grog/computer.sh).
+ */
+export function pairCommand(p) {
+  return `curl -fsS ${pairAddress(p)} | bash`;
 }
 
 /** A pairing code as it's shown: 482 913. */
@@ -743,9 +752,9 @@ export function pairing(state, now) {
       return open
         ? view({
             title: "Add a computer",
-            hint: "On it, run",
+            hint: "In a terminal on it, run",
             command: pairCommand(p),
-            note: "It needs grog installed, and an SSH server.",
+            note: `Or open ${pairAddress(p)} in its browser. It needs an SSH server.`,
             expires,
             buttons: [{ id: "pair-cancel", label: "Cancel", primary: false }],
           })

@@ -1,6 +1,8 @@
 (ns grog.test-helpers
   (:require [babashka.fs :as fs]
             [cheshire.core :as json]
+            [clojure.java.io :as io]
+            [clojure.string :as str]
             [grog.sse :as sse]
             [org.httpkit.server :as http])
   (:import (java.util Base64)))
@@ -80,3 +82,73 @@
 (defn free-port []
   (with-open [socket (java.net.ServerSocket. 0)]
     (.getLocalPort socket)))
+
+(defn sh-quote
+  "`s` quoted for bash."
+  [s]
+  (str "'" (str/replace (str s) "'" "'\\''") "'"))
+
+(defn script!
+  "An executable bash script `name` in `dir`, running `body`."
+  [dir name body]
+  (let [f (str (fs/path dir name))]
+    (fs/create-dirs dir)
+    (spit f (str "#!" (fs/which "bash") "\n" body "\n"))
+    (fs/set-posix-file-permissions f "rwxr-xr-x")
+    f))
+
+(def computer-sh
+  "A computer's side of grog, resources/grog/computer.sh: what pairs it,
+  then grog's hands there."
+  (str (io/file (io/resource "grog/computer.sh"))))
+
+(def quiet-commands
+  "What grog's hands run on a computer, faked: nothing happens, and nobody's
+  in (no sessions, nothing playing). notify-send answers being asked with
+  $ANSWER, and wpctl says the volume is $VOLUME."
+  {"notify-send" "if [[ \" $* \" == *\" --wait \"* ]]; then echo 17; printf '%s\\n' \"${ANSWER-}\"; fi"
+   "systemd-run" ""
+   "xdg-open" ""
+   "playerctl" ""
+   "wpctl" "if [[ $1 == get-volume ]]; then echo \"Volume: ${VOLUME:-0.40}\"; fi"
+   "loginctl" ""
+   "busctl" ""
+   "sudo" "exit 1"})
+
+(defn computer!
+  "A computer of its own, in a temp directory: its user's home, and
+  `commands` (name -> bash, over `quiet-commands`) first in its PATH,
+  keeping how they were run (`ran`). What its hands run with in :env."
+  ([] (computer! {}))
+  ([commands]
+   (let [dir (temp-dir)
+         home (str (fs/path dir "home"))
+         bin (str (fs/path dir "bin"))
+         log (sh-quote (fs/path dir "ran"))]
+     (fs/create-dirs home)
+     (fs/create-dirs (fs/path dir "run"))
+     (doseq [[name body] (merge quiet-commands commands)]
+       (script! bin name (str "printf '%s\\x1f' \"${0##*/}\" \"$@\" >> " log "\nprintf '\\x1e' >> " log "\n" body)))
+     {:dir dir
+      :home home
+      :authorized-keys (str (fs/path home ".ssh" "authorized_keys"))
+      :policy-file (str (fs/path home ".config" "grog" "hands.json"))
+      :hands-file (str (fs/path home ".local" "share" "grog" "computer.sh"))
+      :env {"HOME" home
+            "XDG_CONFIG_HOME" (str (fs/path home ".config"))
+            "XDG_DATA_HOME" (str (fs/path home ".local" "share"))
+            "XDG_RUNTIME_DIR" (str (fs/path dir "run"))
+            "PATH" (str bin ":" (System/getenv "PATH"))}})))
+
+(defn ran
+  "How `computer`'s faked commands were run, in order: [[name arg...]...]."
+  [{:keys [dir]}]
+  (let [log (fs/file dir "ran")]
+    (if (fs/exists? log)
+      (mapv #(vec (butlast (str/split % #"\u001f" -1))) (remove empty? (str/split (slurp log) #"\u001e")))
+      [])))
+
+(defn env-words
+  "`env` as bash words: NAME='value'..."
+  [env]
+  (str/join " " (for [[k v] env] (str k "=" (sh-quote v)))))

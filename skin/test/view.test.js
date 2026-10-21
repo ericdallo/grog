@@ -17,6 +17,7 @@ import {
   level,
   menu,
   mode,
+  pairAddress,
   pairCommand,
   PAIRED_MS,
   pairing,
@@ -841,25 +842,26 @@ describe("pairing a computer", () => {
       pairing: { status, until: NOW + 4 * 60_000, addresses: ["192.168.15.17"], port: PAIRING_PORT, at: NOW - 1000, ...extra },
     });
 
-  it("says what to run on it, while grog lets one", () => {
+  it("says what to run on it, nothing to install, while grog lets one", () => {
     assert.deepEqual(pairing(paired("open"), NOW), {
       stage: "open",
       title: "Add a computer",
       detail: "",
-      hint: "On it, run",
-      command: "grog pair 192.168.15.17",
+      hint: "In a terminal on it, run",
+      command: "curl -fsS 192.168.15.17:8485 | bash",
       code: "",
       expires: "closes in 4m",
-      note: "It needs grog installed, and an SSH server.",
+      note: "Or open 192.168.15.17:8485 in its browser. It needs an SSH server.",
       failed: false,
       buttons: [{ id: "pair-cancel", label: "Cancel", primary: false }],
     });
     assert.equal(pairing(paired("open"), NOW + 4 * 60_000), null, "not once it's closed");
   });
 
-  it("the port too, when it isn't the usual one", () => {
-    assert.equal(pairCommand({ addresses: ["10.0.0.2"], port: 9000 }), "grog pair 10.0.0.2 --port 9000");
-    assert.equal(pairCommand({ addresses: [], port: PAIRING_PORT }), "grog pair <grog's address>");
+  it("where grog listens, whatever its port and address", () => {
+    assert.equal(pairCommand({ addresses: ["10.0.0.2"], port: 9000 }), "curl -fsS 10.0.0.2:9000 | bash");
+    assert.equal(pairAddress({ addresses: ["fe80::1"], port: PAIRING_PORT }), "[fe80::1]:8485");
+    assert.equal(pairAddress({ addresses: [] }), "<grog's address>:8485");
   });
 
   it("shows the code of the computer asking, to allow it or not", () => {

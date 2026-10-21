@@ -110,9 +110,9 @@ in
       type = lib.types.bool;
       default = true;
       description = ''
-        Whether to open the port where grog listens for a computer to pair
-        (`settings.computers.pairing.port`): it only listens while someone
-        at grog lets one, for a few minutes.
+        Whether to open the port where grog listens for a computer to pair,
+        and serves what pairs it (`settings.computers.pairing.port`): it
+        only listens while someone at grog lets one, for a few minutes.
       '';
     };
 

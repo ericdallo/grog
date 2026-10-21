@@ -1,8 +1,10 @@
 { lib
 , stdenvNoCC
 , babashka-unwrapped
+, curl
 , rlwrap
 , runtimeShell
+, shellcheck
 }:
 
 stdenvNoCC.mkDerivation {
@@ -16,16 +18,22 @@ stdenvNoCC.mkDerivation {
 
   # The app only uses libraries built into babashka, so the plain native
   # binary is enough (the `babashka` wrapper would pull a JDK for `bb clojure`).
-  nativeCheckInputs = [ babashka-unwrapped ];
+  # curl: the tests pair computers as they do, with computer.sh.
+  nativeCheckInputs = [ babashka-unwrapped curl shellcheck ];
 
   # The suite includes HTTP round-trips against fake LLM servers on loopback,
   # which the build sandbox allows.
   doCheck = true;
   checkPhase = ''
     runHook preCheck
+    shellcheck resources/grog/*.sh
     HOME="$TMPDIR" bb test
     runHook postCheck
   '';
+
+  # computer.sh is served to other computers as it is: its #!/usr/bin/env
+  # bash stays.
+  dontPatchShebangs = true;
 
   installPhase = ''
     runHook preInstall

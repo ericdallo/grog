@@ -1,38 +1,45 @@
 (ns grog.pairing
   "Pairing a computer with grog, for grog to act on it (grog.computers).
   Someone at grog lets one pair (its skin, `grog computers add`, `POST
-  /v1/computers/pairing`): for a few minutes, grog listens on the network
-  for one asking (`computers.pairing`). Its user runs `grog pair <grog's
-  address>` there (`pair!`); both screens show a code made from both keys,
-  and someone at grog allows it when they're the same. The computer then
-  lets grog's key in, only to run grog's hands there (grog.remote-hands),
-  and only from grog's network.
+  /v1/pairing`): for a few minutes, grog listens on the network for one
+  asking (`computers.pairing`), and serves what pairs it,
+  resources/grog/computer.sh, so there's nothing to install there: its user
+  runs `curl -fsS <grog's address>:8485 | bash`, or opens that address in a
+  browser, which says so. Both screens show a code made from both keys, and
+  someone at grog allows it when they're the same. The computer then lets
+  grog's key in, only to run grog's hands there (a copy of the script), and
+  only from grog's network.
 
   Someone in between, swapping keys, can't make the codes match (but once
   in a million): the computer commits to its nonce (sends its hash) before
-  it gets grog's, and only reveals it then.
+  it gets grog's, and only reveals it then. Someone who can swap the script
+  as it goes, over plain HTTP, could run anything there though: pairing
+  trusts the network for those minutes.
 
-  On the network, while pairing is open:
+  On the network, while pairing is open, answering text the script reads
+  without a JSON parser, a line of key=value each (`answer-text`):
+    GET  /                    the script; a page saying to run it, for
+                              browsers (Accept: text/html)
+    GET  /computer.sh         the script
     POST /v1/pair             {v, name, user, hostKey, mac, sshPort,
-                              commitment} -> {id, key, nonce, name,
-                              expiresAt}: grog's key and nonce
-    POST /v1/pair/<id>/nonce  {nonce} -> {status}: grog shows the code
-    GET  /v1/pair/<id>        -> {status}: asking, allowed (with from, the
-                              address grog comes from), denied, expired,
-                              closed, failed (with error), paired
+                              commitment} -> id, key, nonce, name,
+                              expiresIn: grog's key and nonce
+    POST /v1/pair/<id>/nonce  {nonce} -> status: grog shows the code
+    GET  /v1/pair/<id>        -> status: started, asking, allowed (with
+                              from, the address grog comes from), denied,
+                              expired, closed, failed (with error), paired
     POST /v1/pair/<id>/check  once the computer let grog in, grog says
-                              hello -> {status: paired, policy}"
-  (:require [babashka.fs :as fs]
-            [babashka.http-client :as http]
-            [babashka.process :as p]
+                              hello -> status: paired
+  What fails answers error."
+  (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [grog.computers :as computers]
             [grog.config :as config]
             [grog.events :as events]
             [grog.log :as log]
-            [grog.remote-hands :as remote-hands]
-            [org.httpkit.server :as server])
-  (:import (java.net DatagramSocket InetAddress InetSocketAddress Socket)
+            [org.httpkit.server :as server]
+            [selmer.parser :as selmer])
+  (:import (java.net DatagramSocket InetAddress)
            (java.nio ByteBuffer)
            (java.security MessageDigest SecureRandom)))
 
@@ -83,7 +90,7 @@
 
 (defn code
   "The 6 digits both screens show: from grog's key and nonce, and the
-  computer's host key and nonce."
+  computer's host key and nonce (computer.sh's `pairing_code` too)."
   [key nonce host-key host-nonce]
   (let [digest (sha-256 (str/join "\n" [key nonce host-key host-nonce]))]
     (format "%06d" (mod (bit-and (.getInt (ByteBuffer/wrap digest)) 0x7fffffff) 1000000))))
@@ -156,10 +163,18 @@
    (publish! ctx)
    (later! ctx linger-ms #(stop-listener! ctx))))
 
-(defn ^:private json-response [status body]
+(defn answer-text
+  "`fields` as the computer's script reads them (computer.sh's `call`): a
+  line each, key=value, keys in lowerCamelCase, values on one line."
+  [fields]
+  (apply str (for [[k v] fields
+                   :when (some? v)]
+               (str (config/kebab->camel (name k)) "=" (str/replace (str v) #"[\r\n]+" " ") "\n"))))
+
+(defn ^:private text-response [status fields]
   {:status status
-   :headers {"Content-Type" "application/json; charset=utf-8"}
-   :body (config/generate body)})
+   :headers {"Content-Type" "text/plain; charset=utf-8"}
+   :body (answer-text fields)})
 
 (defn ^:private read-json [req]
   (try (some-> (:body req) slurp config/parse)
@@ -178,9 +193,9 @@
   (let [{:keys [v name user host-key mac ssh-port commitment]} (when (map? body) body)
         ssh-port (or ssh-port 22)]
     (cond
-      (not= remote-hands/protocol-version v)
-      (problem 400 (format "this grog speaks version %d of pairing: update the older grog"
-                           remote-hands/protocol-version))
+      (not= computers/protocol-version v)
+      (problem 400 (format "this grog speaks version %d of pairing: run what it serves now, curl -fsS <its address> | bash"
+                           computers/protocol-version))
 
       (not (and (string? name) (re-matches computers/name-pattern name)))
       (problem 400 "name: lowercase letters, digits and dashes, up to 32")
@@ -227,7 +242,7 @@
       (cond
         (= session (:session state))
         {:id (:id session) :key (computers/public-key! config) :nonce (:nonce session) :name (:name config)
-         :expires-at (:until state)}
+         :expires-in (max 0 (quot (- (:until state) at) 1000))}
 
         (contains? #{"asking" "allowed"} (:status state))
         (problem 409 "another computer is pairing with grog: try again in a minute")
@@ -286,14 +301,64 @@
     (when-not (= "allowed" (:status state))
       (problem 409 "it isn't allowed"))
     (try
-      (let [hello (computers/ask! config computer {:action "hello"} 10000)]
-        (log/info (format "pairing: %s paired" computer))
-        (finish! ctx "paired")
-        {:status "paired" :policy (:policy hello)})
+      (computers/ask! config computer {:action "hello"} 10000)
+      (log/info (format "pairing: %s paired" computer))
+      (finish! ctx "paired")
+      {:status "paired"}
       (catch clojure.lang.ExceptionInfo e
         (computers/remove! config computer)
         (finish! ctx "failed" (ex-message e))
         (problem 502 (str "grog can't reach this computer: " (ex-message e)))))))
+
+(defn reached-at
+  "Where a computer reached grog, `host:port`, as the Host its request says:
+  where it reaches grog again. `port` when it doesn't say one. nil when it
+  makes no sense."
+  [host port]
+  (cond
+    (nil? host) nil
+    (re-matches #"(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+):\d{1,5}" host) host
+    (re-matches #"\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+" host) (str host ":" port)))
+
+(defn ^:private address-of
+  "Where the computer asking reaches grog, `host:port`: as it says, or
+  else grog's own address."
+  [ctx req]
+  (let [{:keys [addresses port]} @(:pairing ctx)
+        own (or (first addresses) "127.0.0.1")]
+    (or (reached-at (get-in req [:headers "host"]) port)
+        (str (if (str/includes? own ":") (str "[" own "]") own) ":" port))))
+
+(defn script
+  "What grog serves for a computer to pair, resources/grog/computer.sh,
+  knowing grog is at `url` (http://host:port): run without saying where
+  grog is, it pairs with grog there."
+  [url]
+  (str/replace-first (slurp (io/resource "grog/computer.sh"))
+                     "\ngrog_url=''\n"
+                     (str "\ngrog_url='" url "'\n")))
+
+(defn command
+  "What to run on a computer to pair it with grog at `address`
+  (host:port)."
+  [address]
+  (str "curl -fsS " address " | bash"))
+
+(defn ^:private page
+  "What a browser on the computer shows at grog's `address`: what to run."
+  [config address]
+  (selmer/render (slurp (io/resource "grog/pairing.html"))
+                 {:name (:name config) :command (command address)}))
+
+(defn ^:private served
+  "The script, or for a browser asking for a page (`page?`), the page
+  saying to run it."
+  [ctx req page?]
+  (let [address (address-of ctx req)]
+    {:status 200
+     :headers {"Content-Type" (if page? "text/html; charset=utf-8" "text/plain; charset=utf-8")
+               "Cache-Control" "no-store"}
+     :body (if page? (page @(:config ctx) address) (script (str "http://" address)))}))
 
 (defn ^:private refusal
   "A response refusing `req`, or nil: web pages can't post here, as they
@@ -302,22 +367,26 @@
   [{:keys [request-method headers]}]
   (when (and (= :post request-method)
              (not (some-> (get headers "content-type") str/lower-case (str/starts-with? "application/json"))))
-    (json-response 415 {:error "Send requests with Content-Type: application/json."})))
+    (text-response 415 {:error "Send requests with Content-Type: application/json."})))
 
 (defn handle
   "Answers a computer asking to pair, on the network (see the ns)."
-  [ctx {:keys [request-method uri] :as req}]
+  [ctx {:keys [request-method uri headers] :as req}]
   (let [[_ id step] (re-matches #"/v1/pair/([0-9a-f]{32})(?:/(nonce|check))?" uri)]
     (or (refusal req)
         (try
           (cond
-            (= [:post "/v1/pair"] [request-method uri]) (json-response 200 (start! ctx req))
-            (and id (= "nonce" step) (= :post request-method)) (json-response 200 (reveal! ctx id (read-json req)))
-            (and id (nil? step) (= :get request-method)) (json-response 200 (status-of ctx id))
-            (and id (= "check" step) (= :post request-method)) (json-response 200 (check! ctx id))
-            :else (json-response 404 {:error "Not found."}))
+            (= [:get "/"] [request-method uri])
+            (served ctx req (str/includes? (str (get headers "accept")) "text/html"))
+
+            (= [:get "/computer.sh"] [request-method uri]) (served ctx req false)
+            (= [:post "/v1/pair"] [request-method uri]) (text-response 200 (start! ctx req))
+            (and id (= "nonce" step) (= :post request-method)) (text-response 200 (reveal! ctx id (read-json req)))
+            (and id (nil? step) (= :get request-method)) (text-response 200 (status-of ctx id))
+            (and id (= "check" step) (= :post request-method)) (text-response 200 (check! ctx id))
+            :else (text-response 404 {:error "Not found."}))
           (catch clojure.lang.ExceptionInfo e
-            (json-response (:status (ex-data e) 400) {:error (ex-message e)}))))))
+            (text-response (:status (ex-data e) 400) {:error (ex-message e)}))))))
 
 (defn ^:private expire!
   "Pairing's time is up: over, unless a computer was allowed and finishes."
@@ -390,221 +459,3 @@
                                    (finish! ctx "failed" "the computer didn't finish pairing"))))
       (finish! ctx "denied"))
     (view @(:pairing ctx))))
-
-(def host-key-files
-  "Where a computer's SSH host keys are, the ones grog prefers first."
-  ["/etc/ssh/ssh_host_ed25519_key.pub" "/etc/ssh/ssh_host_ecdsa_key.pub" "/etc/ssh/ssh_host_rsa_key.pub"])
-
-(defn host-key
-  "The computer's SSH host key, from the first of `files` there is: its
-  type and base64, or nil."
-  [files]
-  (some (fn [file]
-          (when (fs/readable? file)
-            (let [[type blob] (str/split (str/trim (slurp file)) #"\s+")
-                  key (str type " " blob)]
-              (when (re-matches host-key-pattern key) key))))
-        files))
-
-(defn computer-name
-  "What grog calls a computer whose host name is `hostname`."
-  [hostname]
-  (let [n (-> (str/lower-case (str hostname))
-              (str/replace #"\..*$" "")
-              (str/replace #"[^a-z0-9-]+" "-")
-              (str/replace #"^-+|-+$" ""))]
-    (subs n 0 (min 32 (count n)))))
-
-(defn network
-  "Where grog's key may come from, around grog's `address` as the computer
-  sees it: its /24 for IPv4 (a new address on the same network still
-  works), only itself otherwise."
-  [address]
-  (if-let [[_ prefix] (re-matches #"(\d+\.\d+\.\d+)\.\d+" (str address))]
-    (str prefix ".0/24")
-    (str address)))
-
-(defn authorized-line
-  "The line of authorized_keys letting grog's `key` in: from `network` only,
-  to run its hands (`grog`, the command, here) only, without a terminal or
-  forwarding anything."
-  [key network grog]
-  (format "restrict,from=\"%s\",command=\"%s hands --stdio\" %s" network grog key))
-
-(defn ^:private let-in!
-  "Lets grog in with `line` (its `key`) in authorized_keys at `file`, in
-  place of the lines letting it in before."
-  [file line key]
-  (let [dir (fs/parent file)]
-    (when-not (fs/exists? dir)
-      (fs/create-dirs dir)
-      (fs/set-posix-file-permissions dir "rwx------"))
-    (let [before (if (fs/exists? file) (remote-hands/without-key (slurp file) key) "")]
-      (spit file (str before line "\n"))
-      (fs/set-posix-file-permissions file "rw-------"))))
-
-(defn ^:private keep-out!
-  "Takes grog's `key` out of authorized_keys at `file`."
-  [file key]
-  (when (fs/exists? file)
-    (spit file (remote-hands/without-key (slurp file) key))))
-
-(defn ^:private write-policy!
-  "What grog may do here, the default, unless its user already said; or
-  everything (`trust`)."
-  [file trust]
-  (when (or trust (not (fs/exists? file)))
-    (fs/create-dirs (fs/parent file))
-    (spit file (str (config/generate (if trust remote-hands/trusting-policy remote-hands/default-policy)
-                                     {:pretty true})
-                    "\n"))))
-
-(defn mac-toward
-  "The address of the network card on the way to `address`, or nil: what
-  grog wakes it with (Linux)."
-  [address]
-  (try
-    (let [{:keys [out]} @(p/process {:cmd ["ip" "route" "get" address] :out :string :err :string})
-          dev (second (re-find #"\bdev (\S+)" (str out)))
-          mac (when dev (str/trim (slurp (str "/sys/class/net/" dev "/address"))))]
-      (when (and mac (re-matches computers/mac-pattern mac) (not= "00:00:00:00:00:00" mac))
-        mac))
-    (catch Exception _ nil)))
-
-(defn ^:private listening?
-  "Whether something takes connections on `port` here."
-  [port]
-  (try
-    (with-open [socket (Socket.)]
-      (.connect socket (InetSocketAddress. "127.0.0.1" (int port)) 1000)
-      true)
-    (catch Exception _ false)))
-
-(defn here
-  "This computer, for `pair!`: its SSH host key, its host name, its user,
-  their authorized_keys, its policy file, the grog the key runs, the
-  network card on the way to grog (`mac`), and whether it takes SSH
-  connections (`sshd?`)."
-  []
-  {:host-key (host-key host-key-files)
-   :hostname (remote-hands/hostname)
-   :user (System/getProperty "user.name")
-   :authorized-keys (str (fs/path (System/getProperty "user.home") ".ssh" "authorized_keys"))
-   :policy-file (remote-hands/policy-file)
-   :grog (some-> (fs/which "grog") str)
-   :mac mac-toward
-   :sshd? listening?})
-
-(defn ^:private call
-  "A request to grog's pairing at `url`: [true body] or [false why]."
-  [method url path body]
-  (try
-    (let [resp (http/request (cond-> {:method method :uri (str url path) :throw false :timeout 15000}
-                               body (assoc :headers {"content-type" "application/json"}
-                                           :body (config/generate body))))
-          parsed (try (config/parse (:body resp)) (catch Exception _ nil))]
-      (if (= 200 (:status resp))
-        [true parsed]
-        [false (or (:error parsed) (str "HTTP " (:status resp)))]))
-    (catch java.io.IOException e
-      [false (format "grog doesn't let a computer pair at %s (%s): let one pair on grog first (its menu, or grog computers add)"
-                     url (or (ex-message e) (.getSimpleName (class e))))])))
-
-(defn ^:private wait-for-grog
-  "Waits until someone at grog allowed this computer, or not, for pairing
-  `id` going on until `until`: its status then."
-  [url id until]
-  (loop []
-    (let [[ok? body] (call :get url (str "/v1/pair/" id) nil)]
-      (cond
-        (not ok?) {:status "failed" :error body}
-        (not (contains? #{"started" "asking"} (:status body))) body
-        (> (now) (+ until finish-ms)) {:status "expired"}
-        :else (do (Thread/sleep 1000) (recur))))))
-
-(defn ^:private resolve-address
-  "`address` as an IP address, or itself when it can't be resolved."
-  [address]
-  (try (.getHostAddress (InetAddress/getByName address))
-       (catch Exception _ address)))
-
-(defn ^:private finish-here!
-  "grog allowed this computer: lets its `key` in from `from`, saying what it
-  may do here, then asks grog to check it can come in: whether it worked."
-  [{:keys [authorized-keys policy-file grog]} {:keys [url id key from trust say]}]
-  (let [line (authorized-line key (network from) grog)]
-    (let-in! authorized-keys line key)
-    (write-policy! policy-file trust)
-    (let [[ok? body] (call :post url (str "/v1/pair/" id "/check") {})]
-      (if ok?
-        (do (say "" (str "Paired: grog can act on this computer now. What it may do here, and what it asks first: "
-                         policy-file))
-            true)
-        (do (keep-out! authorized-keys key)
-            (say (str "[error] " body))
-            false)))))
-
-(defn pair!
-  "Pairs this computer (`here`) with grog at `address`, listening on `port`
-  for it, saying how it goes (`say`, lines): whether it worked. `name`:
-  what grog calls it (its host name by default); `ssh-port`: where its SSH
-  server listens; `trust`: grog may do anything here, without asking."
-  [address {:keys [port name ssh-port trust say]} here]
-  (let [say (or say (fn [& lines] (run! println lines) (flush)))
-        fail (fn [message] (say (str "[error] " message)) false)
-        ssh-port (or ssh-port 22)
-        name (or name (computer-name (:hostname here)))
-        url (format "http://%s:%d" (if (str/includes? address ":") (str "[" address "]") address)
-                    (or port (get-in config/defaults [:computers :pairing :port])))]
-    (cond
-      (not (:host-key here))
-      (fail (str "There's no SSH server here: grog reaches computers over SSH. Install one and start it "
-                 "(on NixOS: services.openssh.enable = true)."))
-
-      (not ((:sshd? here) ssh-port))
-      (fail (format (str "Nothing takes SSH connections here on port %d: start the SSH server (on NixOS: "
-                         "services.openssh.enable = true), or say its port with --ssh-port.")
-                    ssh-port))
-
-      (not (:grog here))
-      (fail (str "Install grog here first: its hands run here when grog connects (nix profile install "
-                 "github:ericdallo/grog, or on NixOS, environment.systemPackages)."))
-
-      (not (re-matches computers/name-pattern name))
-      (fail "Say what grog calls this computer with --name: lowercase letters, digits and dashes, up to 32.")
-
-      :else
-      (let [nonce (random-hex 16)
-            grog-ip (resolve-address address)
-            mac ((:mac here) grog-ip)
-            [ok? started] (call :post url "/v1/pair" (cond-> {:v remote-hands/protocol-version :name name
-                                                              :user (:user here) :host-key (:host-key here)
-                                                              :ssh-port ssh-port :commitment (commitment nonce)}
-                                                       mac (assoc :mac mac)))
-            {:keys [id key expires-at]} started]
-        (cond
-          (not ok?)
-          (fail started)
-
-          (not (and (string? key) (re-matches host-key-pattern (str/join " " (take 2 (str/split key #"\s+"))))
-                    (string? (:nonce started)) (re-matches #"[0-9a-f]{32}" (:nonce started))
-                    (string? id) (re-matches #"[0-9a-f]{32}" id)))
-          (fail "grog's answer makes no sense: is it grog there?")
-
-          :else
-          (let [[ok? revealed] (call :post url (str "/v1/pair/" id "/nonce") {:nonce nonce})]
-            (if-not ok?
-              (fail revealed)
-              (do (say (format "Pairing %s with %s. On grog's screen, check the code is" name (or (:name started) "grog"))
-                       ""
-                       (str "  " (spaced (code key (:nonce started) (:host-key here) nonce)))
-                       ""
-                       "and allow it there. Waiting (Ctrl-C to stop)...")
-                  (let [{:keys [status error from]} (wait-for-grog url id (or expires-at (now)))]
-                    (case status
-                      "allowed" (finish-here! here {:url url :id id :key key :from (or from grog-ip)
-                                                    :trust trust :say say})
-                      "denied" (fail "It wasn't allowed on grog.")
-                      "expired" (fail "Pairing closed on grog before it was allowed.")
-                      "closed" (fail "Pairing closed on grog before it was allowed.")
-                      (fail (or error (str "Pairing " status)))))))))))))

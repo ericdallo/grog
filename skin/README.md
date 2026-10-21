@@ -33,8 +33,9 @@ On a touch screen, or with a mouse:
   it or the machine, and turning the machine off. Those that can't be
   undone take a second tap. They close by themselves after a while. Its
   version is at the bottom.
-- Adding a computer, it shows what to run on it, then the code of the one
-  asking, to allow it if it's the same as on the computer, or not.
+- Adding a computer, it shows what to run on it (`curl ... | bash`: nothing
+  to install there), then the code of the one asking, to allow it if it's
+  the same as on the computer, or not.
 
 They go through the brain's actions (`POST /v1/actions/<name>`).
 

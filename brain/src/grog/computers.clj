@@ -1,20 +1,42 @@
 (ns grog.computers
   "The user's computers grog acts on, paired with it (grog.pairing), and the
   `computer` tool. grog reaches them over SSH, with a key of its own that
-  each one only lets run grog's hands there (grog.remote-hands), which
-  decide what grog may do. Their host keys are pinned, by name: one whose
-  key changed has to be paired again. They're kept in computers.json, the
-  key and their host keys in computers/, in the state directory, which only
-  grog can read."
+  each one only lets run grog's hands there (`computer.sh hands`, a copy of
+  resources/grog/computer.sh that pairing left there), which decide what
+  grog may do. Their host keys are pinned, by name: one whose key changed
+  has to be paired again. They're kept in computers.json, the key and their
+  host keys in computers/, in the state directory, which only grog can
+  read.
+
+  grog sends its hands a line of key=value fields, apart by spaces, each
+  value in base64 (`request-line`), and they answer with one too, after
+  `grog-hands` (`answer-in`): nothing a bash script can't read or write."
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
             [clojure.string :as str]
             [grog.config :as config]
+            [grog.hands :as hands]
             [grog.log :as log]
             [grog.machine :as machine]
-            [grog.remote-hands :as remote-hands]
             [grog.state :as state])
-  (:import (java.net DatagramPacket DatagramSocket InetAddress)))
+  (:import (java.net DatagramPacket DatagramSocket InetAddress)
+           (java.util Base64)))
+
+(def protocol-version
+  "Grows when grog and its hands on a computer would stop understanding each
+  other, or pairing it (computer.sh's `protocol`)."
+  2)
+
+(def media-commands
+  "What playerctl does with what plays, as grog's hands take it."
+  #{"play-pause" "play" "pause" "next" "previous" "stop"})
+
+;; How long whoever is at a computer has to allow what grog asks there
+;; (computer.sh's `ask_s`).
+(def ^:private ask-timeout-ms 30000)
+
+;; What a command takes at most there (computer.sh's `default_timeout_ms`).
+(def ^:private shell-timeout-ms 30000)
 
 ;; How long ssh tries to connect.
 (def connect-timeout-s 5)
@@ -164,14 +186,62 @@
    ;; Its hands run whatever this says (the key's command).
    "grog"])
 
+(defn ^:private base64 [^String s]
+  (.encodeToString (Base64/getEncoder) (.getBytes s "UTF-8")))
+
+(defn ^:private text-of
+  "What a request's value says: whole numbers without a point."
+  [v]
+  (if (and (float? v) (== v (Math/rint v)) (< (abs v) 1e15))
+    (str (long v))
+    (str v)))
+
+(defn request-line
+  "`request` as grog's hands read it (computer.sh): a line of key=value
+  fields apart by spaces, keys in lowerCamelCase, each value in base64."
+  [request]
+  (str (str/join " " (for [[k v] request
+                           :when (some? v)]
+                       (str (config/kebab->camel (name k)) "=" (base64 (text-of v)))))
+       "\n"))
+
+(def ^:private answer-types
+  "What grog's hands answer besides text: numbers, yes or no, and the names
+  of what a computer lets grog do (`hello`)."
+  {:v :number :exit :number :level :number
+   :done :boolean :muted :boolean :timed-out :boolean :truncated :boolean
+   :allow :names :ask :names :deny :names})
+
+(defn ^:private field
+  "A field of an answer, `key=value` (in base64), as [key value], or nil."
+  [s]
+  (when-let [[_ k v] (re-matches #"([A-Za-z]+)=([A-Za-z0-9+/]*={0,2})" s)]
+    (try
+      (let [k (keyword (config/camel->kebab k))
+            v (String. (.decode (Base64/getDecoder) ^String v) "UTF-8")]
+        [k (case (answer-types k)
+             :number (parse-long v)
+             :boolean (= "true" v)
+             :names (vec (remove str/blank? (str/split v #"\s+")))
+             v)])
+      (catch IllegalArgumentException _ nil))))
+
 (defn answer-in
-  "The answer in what grog's hands printed: their last line of JSON, or nil."
+  "The answer in what grog's hands printed: their last line saying
+  `grog-hands`, then its fields (see `request-line`), past anything the
+  computer's shell said first. What the computer lets grog do comes as its
+  :policy. nil without one."
   [out]
-  (some->> (str/split-lines (str out))
-           (map str/trim)
-           (filter #(str/starts-with? % "{"))
-           last
-           (#(try (config/parse %) (catch Exception _ nil)))))
+  (when-let [line (->> (str/split-lines (str out))
+                       (map str/trim)
+                       (filter #(re-matches #"grog-hands( .*)?" %))
+                       last)]
+    (let [fields (map field (rest (str/split line #" +")))]
+      (when (every? some? fields)
+        (let [answer (into {} fields)
+              policy (select-keys answer [:allow :ask :deny])]
+          (cond-> (apply dissoc answer (keys policy))
+            (seq policy) (assoc :policy policy)))))))
 
 (defn unreachable
   "Why computer `name` can't be reached, from what ssh said (`err`)."
@@ -195,20 +265,21 @@
                                                   "ssh failed")))))
 
 (defn ^:private sender
-  "grog's name, as its hands take it (grog.remote-hands/check)."
+  "grog's name, as its hands show it: a short name on a line."
   [config]
   (let [n (str/replace (str (:name config)) #"[^\p{L}\p{N} ._-]" "")]
     (if (str/blank? n) "grog" (subs n 0 (min 40 (count n))))))
 
 (defn ask!
-  "Asks grog's hands on computer `name` for `request` (grog.remote-hands),
-  giving them `timeout-ms` (and the time to reach them): what they answer.
-  Throws ex-info saying why, when they can't be reached, or refuse."
+  "Asks grog's hands on computer `name` for `request` (computer.sh, its
+  `hands`), giving them `timeout-ms` (and the time to reach them): what
+  they answer. Throws ex-info saying why, when they can't be reached, or
+  refuse."
   [config name request timeout-ms]
   (let [computer (or (by-name config name)
                      (throw (ex-info (str "there's no computer called " name) {:type ::unknown})))
-        line (config/generate (assoc request :v remote-hands/protocol-version :from (sender config)))
-        proc (p/process {:cmd (ssh-command config computer) :in (str line "\n") :out :string :err :string})
+        line (request-line (assoc request :v protocol-version :from (sender config)))
+        proc (p/process {:cmd (ssh-command config computer) :in line :out :string :err :string})
         result (deref proc (+ timeout-ms reach-ms) nil)]
     (when-not result
       (p/destroy-tree proc)
@@ -219,7 +290,7 @@
         (and (map? answer) (:error answer)) (throw (ex-info (str (:error answer)) {:type ::refused}))
         (map? answer) answer
         (= 255 exit) (throw (ex-info (unreachable name err) {:type ::unreachable}))
-        :else (throw (ex-info (format "%s gave no answer: is grog still installed there?" name)
+        :else (throw (ex-info (format "%s gave no answer grog understands: pair it again" name)
                               {:type ::no-answer}))))))
 
 (defn magic-packet
@@ -267,15 +338,17 @@
     (if (= "wake" action)
       (wake! found)
       (let [started (System/nanoTime)
-            timeout (+ remote-hands/ask-timeout-ms (if (= "shell" action) remote-hands/default-timeout-ms action-ms))]
+            timeout (+ ask-timeout-ms (if (= "shell" action) shell-timeout-ms action-ms))]
         (try
           (let [answer (ask! config computer (merge {:action action} (select-keys args (get sent action))) timeout)]
             (log/info (format "computer %s: %s, in %d ms" computer action (quot (- (System/nanoTime) started) 1000000)))
             (case action
               "status" (:status answer)
-              "shell" (cond-> (select-keys answer [:exit :output])
-                        (:timed-out answer) (assoc :timed_out true)
-                        (:truncated answer) (assoc :truncated true))
+              "shell" (let [output (str (:output answer))
+                            more? (> (count output) hands/max-output-chars)]
+                        (cond-> {:exit (:exit answer) :output (cond-> output more? (subs 0 hands/max-output-chars))}
+                          (:timed-out answer) (assoc :timed_out true)
+                          (or more? (:truncated answer)) (assoc :truncated true)))
               answer))
           (catch clojure.lang.ExceptionInfo e
             ;; Not its message: a computer's could say what a command printed.
@@ -318,7 +391,7 @@
                                :target {:type "string"
                                         :description "open: a link (https://...), or the path of a file there."}
                                :media {:type "string"
-                                       :enum (vec (sort remote-hands/media-commands))
+                                       :enum (vec (sort media-commands))
                                        :description "media: what to do with what plays."}
                                :level {:type "integer" :minimum 0 :maximum 100
                                        :description "volume: set it to this percentage."}

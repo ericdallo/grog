@@ -4,8 +4,6 @@
             [grog.client :as client]
             [grog.config :as config]
             [grog.hands :as hands]
-            [grog.pairing :as pairing]
-            [grog.remote-hands :as remote-hands]
             [grog.server :as server]
             [grog.update :as update]
             [grog.updater :as updater]
@@ -44,14 +42,9 @@ Commands:
                               grog-update service runs)
   computers                   the computers grog acts on, paired with it
   computers add               lets a computer pair for 5 minutes, saying what
-                              to run on it, then asks to allow it
+                              to run on it (nothing to install there), then
+                              asks to allow it
   computers forget NAME       forgets a computer, which stops letting grog in
-  pair ADDRESS [--trust] [--name NAME] [--port PORT] [--ssh-port PORT]
-                              on a computer: pairs it with grog at ADDRESS,
-                              for grog to act on it as it allows
-                              (~/.config/grog/hands.json); --trust allows
-                              anything without asking
-  hands --stdio               what grog runs on a paired computer, over SSH
 
 Server: $GROG_URL or " client/default-url))
 
@@ -117,10 +110,9 @@ Server: $GROG_URL or " client/default-url))
         (System/exit 2))))
 
 (defn ^:private serve-hands [{:keys [opts]}]
-  (cond
-    (:stdio opts) (remote-hands/serve!)
-    (str/blank? (:socket opts)) (die "Usage: grog hands --socket PATH, or grog hands --stdio")
-    :else (hands/serve! (:socket opts))))
+  (if (str/blank? (:socket opts))
+    (die "Usage: grog hands --socket PATH")
+    (hands/serve! (:socket opts))))
 
 (defn ^:private update-grog [{:keys [opts]}]
   (exit (client/update! (url opts))))
@@ -144,19 +136,14 @@ Server: $GROG_URL or " client/default-url))
     (die "Usage: grog computers forget NAME")
     (exit (client/forget-computer! (url opts) (:name opts)))))
 
-(defn ^:private pair [{:keys [opts]}]
-  (if (str/blank? (:address opts))
-    (die "Usage: grog pair ADDRESS [--trust] [--name NAME] [--port PORT] [--ssh-port PORT]")
-    (exit (pairing/pair! (:address opts) (select-keys opts [:port :name :ssh-port :trust]) (pairing/here)))))
-
 (defn ^:private help [_]
   (println usage))
 
 ;; Positional arguments become options (:args->opts), for the options after
-;; them to be read too: grog pair 192.168.15.17 --trust.
+;; them to be read too: grog login openai --browser.
 (def commands
   [{:cmds ["serve"] :fn serve}
-   {:cmds ["hands"] :fn serve-hands :spec {:stdio {:coerce :boolean}}}
+   {:cmds ["hands"] :fn serve-hands}
    {:cmds ["chat"] :fn chat}
    {:cmds ["ask"] :fn ask :spec {:new {:coerce :boolean :alias :n}}}
    {:cmds ["login"] :fn login :args->opts [:provider] :spec {:provider {:coerce :string}
@@ -174,11 +161,6 @@ Server: $GROG_URL or " client/default-url))
    {:cmds ["computers" "add"] :fn add-computer}
    {:cmds ["computers" "forget"] :fn forget-computer :args->opts [:name] :spec {:name {:coerce :string}}}
    {:cmds ["computers"] :fn list-computers}
-   {:cmds ["pair"] :fn pair :args->opts [:address] :spec {:address {:coerce :string}
-                                                          :port {:coerce :long}
-                                                          :name {:coerce :string}
-                                                          :ssh-port {:coerce :long}
-                                                          :trust {:coerce :boolean}}}
    {:cmds [] :fn help}])
 
 (defn -main [& args]

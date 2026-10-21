@@ -128,8 +128,11 @@ By hand, on grognix: `sudo nix flake update --flake /etc/nixos`, then
 
 ## Computers
 
-grog can act on your other computers ([Computers](../brain/README.md#computers)).
-On a NixOS one, with grog's flake as an input:
+grog can act on your other computers ([Computers](../brain/README.md#computers)),
+with nothing of grog installed there: let one pair at grog (Add a computer,
+on its screen), and on the computer, as the user grog acts as, run what its
+screen says, `curl -fsS <grognix's address>:8485 | bash`. It takes an SSH
+server running there. On a NixOS one, with grog's flake as an input:
 
 ```nix
 imports = [ grog.nixosModules.computer ];
@@ -139,14 +142,12 @@ services.grog.computer = {
 };
 ```
 
-That turns its SSH server on, installs grog, and lets alice suspend it and
-turn it off from anywhere, through polkit (`power = false` doesn't). Then
-let a computer pair at grog (Add a computer, on its screen), and as alice,
-run `grog pair grognix.local`. On other Linux machines, start an SSH server
-and install grog (`nix profile install github:ericdallo/grog`) first.
+That turns its SSH server on, and lets alice suspend it and turn it off from
+anywhere, through polkit (`power = false` doesn't).
 
 grog listens for it on port 8485, opened in its firewall
-(`services.grog.computers.openFirewall`), only while it lets one pair.
+(`services.grog.computers.openFirewall`), only while it lets one pair: it
+serves what pairs it there.
 
 ## Audio
 

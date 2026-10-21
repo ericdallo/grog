@@ -29,7 +29,6 @@ grog login / grog logout   # the ChatGPT subscription (--browser: in a browser h
 grog mic off / grog mic on # off, nothing is heard until it's on again
 grog update                # to the latest grog pushed, saying how it goes
 grog computers             # the computers it acts on (computers add, computers forget NAME)
-grog pair 192.168.15.17    # on a computer: pairs it with grog at that address
 ```
 
 It finds the server through `$GROG_URL`.
@@ -133,14 +132,23 @@ if it's wired and set up for it), or run a command. Linux ones, for now.
 
 To pair one, let it at grog: "Add a computer" on its screen, or `grog
 computers add`. For 5 minutes, grog listens on the network for it
-(`computers.pairing`). On the computer, with grog installed and an SSH
-server running, run `grog pair <grog's address>`. Both screens show a code:
+(`computers.pairing`), and serves what pairs it. In a terminal on the
+computer, run what grog's screen says:
+
+```sh
+curl -fsS 192.168.15.10:8485 | bash
+```
+
+Or open that address in its browser, which says so. There's nothing to
+install: it takes bash, curl and an SSH server. Both screens show a code:
 when it's the same, allow it at grog.
 
 The computer then lets grog in over SSH, with a key of grog's own (in its
-state directory), only from grog's network, and only to run `grog hands
---stdio`. It decides what grog may do there, in `~/.config/grog/hands.json`.
-By default:
+state directory), only from grog's network, and only to run its hands
+there: a copy of what grog served
+([`computer.sh`](resources/grog/computer.sh), bash), which pairing keeps
+in `~/.local/share/grog`. It decides what grog may do there, in
+`~/.config/grog/hands.json`. By default:
 
 ```json
 {"allow": ["status", "notify", "open", "media", "volume", "lock"],
@@ -148,13 +156,17 @@ By default:
  "deny": []}
 ```
 
-What's asked shows a notification there: clicking it (with dunst, the
-middle button) or its Allow button allows it, and nobody doing so in 30 s
-denies it. `grog pair --trust` allows everything. Suspending it and turning
-it off also take sudo without a password there, or polkit allowing them.
+What's asked shows a notification there (`notify-send`): clicking it (with
+dunst, the middle button) or its Allow button allows it, and nobody doing
+so in 30 s denies it. Pairing with `| bash -s -- --trust` allows
+everything; `--name` says what grog calls it (its host name by default),
+`--ssh-port` where its SSH server listens, and `--host-key` its host key,
+when it isn't in `/etc/ssh`. Suspending it and turning it off also take
+sudo without a password there, or polkit allowing them.
 
 `grog computers` lists them. `grog computers forget NAME` forgets one, which
-then stops letting grog in, if it can be reached.
+then stops letting grog in, if it can be reached. Once grog changes how it
+talks to its hands, the computers paired before say so: pair them again.
 
 ## The prompt
 
@@ -200,7 +212,7 @@ says which one.
 | `skin.captions` | `false` | Whether the skin shows what's said |
 | `update.status` | `null` | Where the update service says how an update goes: with it and hands, grog can [update itself](#updating) |
 | `computers.ssh` | `"ssh"` | The ssh it reaches its [computers](#computers) with. The `ssh-keygen` next to it makes grog's key |
-| `computers.pairing.host`, `.port` | `"0.0.0.0"`, `8485` | Where it listens for a computer to pair, only while someone at grog lets one |
+| `computers.pairing.host`, `.port` | `"0.0.0.0"`, `8485` | Where it listens for a computer to pair, and serves what pairs it, only while someone at grog lets one |
 | `stateDir` | `null` | Credentials, changed settings, memory, the mic's switch, usage and computers. `null`: `$STATE_DIRECTORY` or `~/.local/state/grog` |
 | `providers.openai.auth` | `"auto"` | `"subscription"` or `"api-key"` to force one |
 | `providers.openai.model` | `"gpt-6-luna"` | Model with an API key |
@@ -247,7 +259,9 @@ JSON keys are lowerCamelCase.
 An error before the answer starts is a 502 with `{"error"}`. One in the
 middle of it ends the text with `[error] ...`, or comes as an `error` event.
 
-While pairing, grog also listens on `computers.pairing`, for the computer
+While pairing, grog also listens on `computers.pairing`, for the computer:
+it serves what pairs it at `/` (and a page saying to run it, for browsers),
+then answers it in text the script reads, a line of `key=value` each
 ([`pairing.clj`](src/grog/pairing.clj)).
 
 ## Security
@@ -266,10 +280,13 @@ While pairing, grog also listens on `computers.pairing`, for the computer
   push there runs code on the machine, once someone asks for an update.
 - grog only listens on the network to pair a computer, while someone at it
   lets one, and someone there has to allow it, with the same code on both
-  screens: one in between swapping keys can't make them match. Then
-  anyone who can talk to grog, or reach it as a local user, can ask it for
-  what that computer allows, as its user. What it asks first needs someone
-  at the computer.
+  screens: one in between swapping keys can't make them match. But the
+  script it serves for that goes over plain HTTP: someone who can intercept
+  the network in those minutes could swap it for anything, which would run
+  as the computer's user, and show the right code. Pair on a network you
+  trust. Then anyone who can talk to grog, or reach it as a local user, can
+  ask it for what that computer allows, as its user. What it asks first
+  needs someone at the computer.
 - Any local user can watch `/v1/events`, which has what's said, and what
   tools were used with (commands, searches), with `skin.captions`.
 

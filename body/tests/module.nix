@@ -5,8 +5,9 @@
 # models, which whoever watches grog sees go; its skin, served; its hands: a
 # shell, the volume, root, and restarting grog when asked; what grog asks of
 # grog-voice: its mic off, listening without its name; a computer pairing
-# with it (pc, with services.grog.computer), which the model then acts on,
-# as it allows; and updating grog, from a flake of someone else's.
+# with it (pc, with services.grog.computer and no grog), running what grog
+# serves, which the model then acts on, as it allows; and updating grog, from
+# a flake of someone else's.
 # Run: nix build .#checks.x86_64-linux.module -L
 { pkgs, module }:
 
@@ -400,13 +401,15 @@ pkgs.testers.runNixOSTest {
     def computers():
         return json.loads(machine.succeed("curl -sf http://127.0.0.1:8484/v1/computers"))
 
-    with subtest("a computer pairs with grog: the same code on both, allowed at grog"):
+    with subtest("a computer pairs with grog, running what it serves: the same code on both, allowed at grog"):
         pc.wait_for_unit("sshd.service")
+        pc.fail("command -v grog")
         machine.succeed(
             "curl -sf -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8484/v1/actions/pair"
         )
         machine.wait_for_open_port(8485)
-        pc.succeed("(su - bob -c 'grog pair machine' > /tmp/pair.log 2>&1 &)")
+        assert "curl -fsS machine:8485 | bash" in pc.succeed("curl -fsS -H 'Accept: text/html' machine:8485")
+        pc.succeed("(su - bob -c 'curl -fsS machine:8485 | bash' > /tmp/pair.log 2>&1 &)")
         pc.wait_until_succeeds("grep -q 'check the code is' /tmp/pair.log")
         code = re.search(r"\n  (\d{3} \d{3})\n", pc.succeed("cat /tmp/pair.log"))
         assert code, pc.succeed("cat /tmp/pair.log")
@@ -420,7 +423,7 @@ pkgs.testers.runNixOSTest {
         pc.wait_until_succeeds("grep -q 'Paired: grog can act on this computer now' /tmp/pair.log")
         keys = pc.succeed("cat /home/bob/.ssh/authorized_keys")
         assert re.match(
-            r'restrict,from="[\d.]+\.0/24",command="/run/current-system/sw/bin/grog hands --stdio" ssh-ed25519 ', keys
+            r'restrict,from="[\d.]+\.0/24",command="/home/bob/\.local/share/grog/computer\.sh hands" ssh-ed25519 ', keys
         ), keys
         assert re.search(r"(?m)^pc +bob@", out := grog("computers")), out
         # Only while letting one pair.

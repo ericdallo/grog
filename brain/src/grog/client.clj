@@ -328,12 +328,12 @@
                   (println (format "%-16s %s@%s, paired %s" name user host (day added-at))))
                 true))))
 
-(defn pair-command
-  "What to run on a computer to pair it with grog, as pairing `view` says."
+(defn pair-address
+  "Where a computer reaches grog to pair, host:port, as pairing `view`
+  says."
   [{:keys [addresses port]}]
-  (str "grog pair " (or (first addresses) "<grog's address>")
-       (when-not (= port (get-in config/defaults [:computers :pairing :port]))
-         (str " --port " port))))
+  (let [address (or (first addresses) "<grog's address>")]
+    (str (if (str/includes? address ":") (str "[" address "]") address) ":" port)))
 
 (defn add-computer!
   "Lets a computer pair with grog, saying what to run on it, then asks here
@@ -343,10 +343,12 @@
   (let [[ok? view] (call :post url "/v1/pairing")]
     (if-not ok?
       (fail view)
-      (do (println "grog lets a computer pair for the next 5 minutes. On it, with grog installed, run:")
+      (do (println "grog lets a computer pair for the next 5 minutes. In a terminal on it, run:")
           (println)
-          (println (str "  " (pair-command view)))
+          (println (str "  " (pairing/command (pair-address view))))
           (println)
+          (println (format "or open %s in its browser. It takes an SSH server there, and nothing to install."
+                           (pair-address view)))
           (println "Waiting for it (Ctrl-C to stop)...")
           (flush)
           (loop [asked nil]
