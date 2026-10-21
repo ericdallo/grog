@@ -128,21 +128,16 @@ pkgs.testers.runNixOSTest {
         assert (out := grog("ask and now")) == "messages=3 key=test-key name=ok", out
         assert (out := grog("ask --new hi")) == "messages=1 key=test-key name=ok", out
 
-    with subtest("signs in to the ChatGPT subscription"):
+    with subtest("signs in to the ChatGPT subscription, with a code entered elsewhere"):
         machine.succeed("(su - grog -c 'grog login' > /tmp/login.log 2>&1 &)")
-        machine.wait_until_succeeds("grep -q 'state=' /tmp/login.log")
+        machine.wait_until_succeeds("grep -q 'TEST-CODE' /tmp/login.log")
         login_output = machine.succeed("cat /tmp/login.log")
-        assert "Sign in with your ChatGPT account" in login_output, login_output
-        match = re.search(r"state=([A-Za-z0-9_-]+)", login_output)
-        assert match, login_output
-        state = match.group(1)
-        # What the browser does after signing in.
-        machine.succeed(
-            f"curl -sf 'http://127.0.0.1:1455/auth/callback?code=test-code&state={state}' | grep -q 'Signed in to grog'"
-        )
+        assert "open\n\n  http://127.0.0.1:9999/codex/device\n" in login_output, login_output
+        assert "\n  TEST-CODE\n" in login_output, login_output
+        # What someone does on their phone.
+        machine.succeed("curl -sf -X POST http://127.0.0.1:9999/fake/enter-code")
         machine.wait_until_succeeds("grep -q 'Signed in as grog@example.com' /tmp/login.log")
         machine.succeed("stat -c %a /var/lib/grog/auth.json | grep -qx 600")
-        machine.wait_until_fails("ss -ltnH 'sport = :1455' | grep -q .")
 
     with subtest("the sign-in survives a restart"):
         # Conversations don't: they live in memory.
@@ -164,6 +159,22 @@ pkgs.testers.runNixOSTest {
     with subtest("signing out goes back to the API key"):
         grog("logout")
         assert (out := grog("ask hi")) == "messages=3 key=test-key name=ok", out
+
+    with subtest("or signs in with a browser, coming back to this machine"):
+        machine.succeed("(su - grog -c 'grog login --browser' > /tmp/login-browser.log 2>&1 &)")
+        machine.wait_until_succeeds("grep -q 'state=' /tmp/login-browser.log")
+        login_output = machine.succeed("cat /tmp/login-browser.log")
+        assert "Sign in with your ChatGPT account at:" in login_output, login_output
+        match = re.search(r"state=([A-Za-z0-9_-]+)", login_output)
+        assert match, login_output
+        state = match.group(1)
+        # What the browser does after signing in.
+        machine.succeed(
+            f"curl -sf 'http://127.0.0.1:1455/auth/callback?code=test-code&state={state}' | grep -q 'Signed in to grog'"
+        )
+        machine.wait_until_succeeds("grep -q 'Signed in as grog@example.com' /tmp/login-browser.log")
+        machine.wait_until_fails("ss -ltnH 'sport = :1455' | grep -q .")
+        grog("logout")
 
     with subtest("web pages can't use it"):
         status = machine.succeed(

@@ -3,7 +3,7 @@
   events changing it, sent as they happen to whoever watches (`GET
   /v1/events`, as server-sent events, keys in lowerCamelCase). Turns
   (grog.assistant), grog-voice (`POST /v1/voice`) and the server (who grog
-  is, what it consumed) publish them.
+  is, how signing in goes, what it consumed) publish them.
 
   The state:
     :name :provider :model :auth  who grog is, and how it's paid
@@ -25,6 +25,11 @@
                was done saying its answer, if it said it
     :recent    the last 4 turns, newest first: {:at :conversation :ms :tools
                :ok}
+    :login     the last sign-in to the provider's subscription, as
+               grog.login/view tells: {:provider :status :method :label},
+               and while it waits for a code to be entered, the :code, the
+               :url to enter it at, its :expires-at and :help {:text :url};
+               nil before any
     :usage     what it consumed (grog.usage)
     :captions  whether what's said is in it
     :now       when it was sent
@@ -50,7 +55,7 @@
   (System/currentTimeMillis))
 
 (def initial-state
-  {:voice nil :turn nil :recent [] :usage nil})
+  {:voice nil :turn nil :recent [] :login nil :usage nil})
 
 (defn ^:private turn-of?
   "Whether `event` is about the current turn."
@@ -146,6 +151,7 @@
     :text (on-text state event)
     (:done :failed) (on-end state event)
     :status (merge state (select-keys event [:name :provider :model :auth :timezone]))
+    :login (assoc state :login (:login event))
     :usage (assoc state :usage (:usage event))
     state))
 

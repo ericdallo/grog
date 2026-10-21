@@ -18,18 +18,21 @@
           url (or (ex-message e) (.getName (class e)))))
 
 (defn ^:private call
-  "A JSON request to the server. Returns [true body] or [false error-message]."
-  [method url path]
-  (try
-    (let [resp (http/request (cond-> {:method method :uri (str url path) :throw false}
-                               (#{:post :delete} method)
-                               (assoc :headers {"content-type" "application/json"} :body "{}")))
-          body (try (config/parse (:body resp)) (catch Exception _ nil))]
-      (if (= 200 (:status resp))
-        [true body]
-        [false (or (:error body) (:body resp))]))
-    (catch java.io.IOException e
-      [false (unreachable url e)])))
+  "A JSON request to the server, POST and DELETE sending `params`. Returns
+  [true body] or [false error-message]."
+  ([method url path]
+   (call method url path {}))
+  ([method url path params]
+   (try
+     (let [resp (http/request (cond-> {:method method :uri (str url path) :throw false}
+                                (#{:post :delete} method)
+                                (assoc :headers {"content-type" "application/json"} :body (config/generate params))))
+           body (try (config/parse (:body resp)) (catch Exception _ nil))]
+       (if (= 200 (:status resp))
+         [true body]
+         [false (or (:error body) (:body resp))]))
+     (catch java.io.IOException e
+       [false (unreachable url e)]))))
 
 (defn ^:private fail [message]
   (println (str "[error] " message))
@@ -43,38 +46,94 @@
       (let [[ok? body] (call :get url "/v1/status")]
         (if ok? (:provider body) (fail body)))))
 
+(defn ^:private signed-in [status]
+  (println (format "Signed in as %s: grog now uses your subscription." (or (:email status) "you")))
+  true)
+
+(defn ^:private print-code
+  "How to sign in with the code of `login` (grog.login/view)."
+  [{:keys [label url code help expires-at]}]
+  (println (str "Sign in with your " label " account: on any phone or computer, open"))
+  (println)
+  (println (str "  " url))
+  (println)
+  (println (format "and enter the code (good for %d minutes):"
+                   (max 1 (Math/round (/ (- expires-at (System/currentTimeMillis)) 60000.0)))))
+  (println)
+  (println (str "  " code))
+  (when help
+    (println)
+    (println (:text help))
+    (println (str "  " (:url help))))
+  (println)
+  (println "Waiting (Ctrl-C to stop)...")
+  (flush))
+
+(defn ^:private wait-for-code
+  "Waits for the code of the sign-in `login` to be entered, with a new code
+  whenever the last one expires."
+  [url provider login]
+  (print-code login)
+  (loop [code (:code login)]
+    (Thread/sleep 1000)
+    (let [[ok? status] (call :get url (str "/v1/auth/" provider))]
+      (cond
+        (not ok?) (fail status)
+        (= "done" (:login status)) (signed-in status)
+        (= "error" (:login status)) (fail (str "Sign-in failed: " (:error status)))
+        (= "expired" (:login status)) (let [[ok? login] (call :post url (str "/v1/auth/" provider "/login")
+                                                              {:method "device"})]
+                                        (if ok?
+                                          (do (println (str "That code expired: enter this one instead, " (:code login)))
+                                              (flush)
+                                              (recur (:code login)))
+                                          (fail login)))
+        ;; A new code, from another `grog login` or for the skin.
+        (and (:code status) (not= code (:code status))) (do (println (str "Enter this code instead: " (:code status)))
+                                                            (flush)
+                                                            (recur (:code status)))
+        :else (recur code)))))
+
+(defn ^:private wait-for-browser
+  "Waits for the browser to come back from signing in at the link of `login`."
+  [url provider {:keys [label redirect-uri] :as login}]
+  (let [port (second (re-find #":(\d+)/" redirect-uri))]
+    (println (str "Sign in with your " label " account at:"))
+    (println)
+    (println (str "  " (:url login)))
+    (println)
+    (println (str "The browser then goes to " redirect-uri ", which has to reach"))
+    (println "grog on this machine. From another machine, forward the port first:")
+    (println (format "  ssh -L %s:127.0.0.1:%s <user>@<this machine>" port port))
+    (println)
+    (println "Waiting for the browser (Ctrl-C to stop)...")
+    (flush)
+    (loop [waited-ms 0]
+      (Thread/sleep 1000)
+      (let [[ok? status] (call :get url (str "/v1/auth/" provider))]
+        (cond
+          (not ok?) (fail status)
+          (= "done" (:login status)) (signed-in status)
+          (= "error" (:login status)) (fail (str "Sign-in failed: " (:error status)))
+          (> waited-ms (* 11 60 1000)) (fail "Gave up waiting for the browser.")
+          :else (recur (+ waited-ms 1000)))))))
+
 (defn login!
-  "Signs in to the subscription of `provider` (the server's when nil), waiting
-  for the browser. Returns false when it failed."
-  [url provider]
-  (let [provider (resolve-provider url provider)
-        [ok? body] (when provider (call :post url (str "/v1/auth/" provider "/login")))]
-    (cond
-      (not provider) false
-      (not ok?) (fail body)
-      :else
-      (let [port (second (re-find #":(\d+)/" (:redirect-uri body)))]
-        (println (str "Sign in with your " (:label body) " account at:"))
-        (println)
-        (println (str "  " (:url body)))
-        (println)
-        (println (str "The browser then goes to " (:redirect-uri body) ", which has to reach"))
-        (println "grog on this machine. From another machine, forward the port first:")
-        (println (format "  ssh -L %s:127.0.0.1:%s <user>@<this machine>" port port))
-        (println)
-        (println "Waiting for the browser (Ctrl-C to stop)...")
-        (flush)
-        (loop [waited-ms 0]
-          (Thread/sleep 1000)
-          (let [[ok? status] (call :get url (str "/v1/auth/" provider))]
-            (cond
-              (not ok?) (fail status)
-              (= "done" (:login status)) (do (println (format "Signed in as %s: grog now uses your subscription."
-                                                              (or (:email status) "you")))
-                                             true)
-              (= "error" (:login status)) (fail (str "Sign-in failed: " (:error status)))
-              (> waited-ms (* 11 60 1000)) (fail "Gave up waiting for the browser.")
-              :else (recur (+ waited-ms 1000)))))))))
+  "Signs in to the subscription of `provider` (the server's when nil): with a
+  code entered on any phone or computer, the provider's way, or with a
+  browser coming back to this machine (`browser?`). Waits until it's done.
+  Returns false when it failed."
+  ([url provider]
+   (login! url provider false))
+  ([url provider browser?]
+   (let [provider (resolve-provider url provider)
+         [ok? login] (when provider
+                       (call :post url (str "/v1/auth/" provider "/login") (if browser? {:method "browser"} {})))]
+     (cond
+       (not provider) false
+       (not ok?) (fail login)
+       (= "device" (:method login)) (wait-for-code url provider login)
+       :else (wait-for-browser url provider login)))))
 
 (defn logout!
   "Signs out of `provider` (the server's when nil)."

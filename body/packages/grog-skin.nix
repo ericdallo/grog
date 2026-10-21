@@ -8,10 +8,17 @@
 , wrapGAppsHook4
 , makeWrapper
 , nodejs-slim
+, qrencode
 , inter
 , jetbrains-mono
 }:
 
+let
+  # The pages grog may ask to open on a phone when signing in
+  # (brain/src/grog/providers/openai/oauth.clj): the skin shows their QR codes,
+  # named the way skin/web/view.js (qrFile) looks for them.
+  qrPages = [ "https://auth.openai.com/codex/device" ];
+in
 stdenvNoCC.mkDerivation {
   pname = "grog-skin";
   version = "0.1.0";
@@ -21,7 +28,7 @@ stdenvNoCC.mkDerivation {
     fileset = lib.fileset.unions [ ../../skin/package.json ../../skin/kiosk.js ../../skin/web ../../skin/test ];
   };
 
-  nativeBuildInputs = [ gobject-introspection wrapGAppsHook4 makeWrapper ];
+  nativeBuildInputs = [ gobject-introspection wrapGAppsHook4 makeWrapper qrencode ];
   # The window's libraries, whose typelibs the wrapper points gjs at. GNOME
   # has them already.
   buildInputs = [ gjs glib gtk4 webkitgtk_6_0 ];
@@ -45,6 +52,12 @@ stdenvNoCC.mkDerivation {
     mkdir -p $fonts
     cp ${inter}/share/fonts/truetype/InterVariable.ttf $fonts/Inter.ttf
     cp ${jetbrains-mono}/share/fonts/truetype/JetBrainsMono-{Light,Regular}.ttf $fonts/
+    qr=$out/share/grog-skin/web/qr
+    mkdir -p $qr
+    for page in ${lib.escapeShellArgs qrPages}; do
+      name=$(printf '%s' "$page" | sed -E 's|^https?://||; s/[^A-Za-z0-9]+/-/g; s/^-|-$//g' | tr '[:upper:]' '[:lower:]')
+      qrencode --type=SVG --svg-path --margin=2 --level=M --output="$qr/$name.svg" "$page"
+    done
     runHook postInstall
   '';
 

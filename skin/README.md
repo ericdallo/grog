@@ -11,6 +11,11 @@ grog's skin: a page showing what grog is up to, for a screen next to it.
 - With captions, what you say as you say it, then its answer.
 - The last few turns, and what it costs: how much of the subscription's
   limits is used, or what the API key spent.
+- With nothing to pay with, how to sign in: a code to enter on a phone or
+  computer, with the QR code of the page to enter it at, and what ChatGPT
+  has to allow once per account. The QR codes come with the Nix package
+  (`body/packages/grog-skin.nix`), for the pages it knows; without one, only
+  the address shows.
 
 ## Running it
 

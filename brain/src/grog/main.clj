@@ -20,8 +20,11 @@ Commands:
                               (reads it from stdin when omitted). Follow-up
                               questions continue the conversation until it's
                               idle for a while; --new (-n) starts a new one
-  login [provider]            sign in to the provider's subscription (openai:
-                              ChatGPT); the server's provider by default
+  login [provider] [--browser]
+                              sign in to the provider's subscription (openai:
+                              ChatGPT; the server's provider by default) with
+                              a code entered on any phone or computer, or
+                              with a browser on this machine (--browser)
   logout [provider]           sign out
   status                      provider, model and credentials in use, and the
                               settings changed by asking grog
@@ -70,7 +73,7 @@ Server: $GROG_URL or " client/default-url))
       (exit ok?))))
 
 (defn ^:private login [{:keys [opts args]}]
-  (exit (client/login! (url opts) (first args))))
+  (exit (client/login! (url opts) (first args) (:browser opts))))
 
 (defn ^:private logout [{:keys [opts args]}]
   (exit (client/logout! (url opts) (first args))))
@@ -97,7 +100,7 @@ Server: $GROG_URL or " client/default-url))
    {:cmds ["hands"] :fn serve-hands}
    {:cmds ["chat"] :fn chat}
    {:cmds ["ask"] :fn ask :spec {:new {:coerce :boolean :alias :n}}}
-   {:cmds ["login"] :fn login}
+   {:cmds ["login"] :fn login :spec {:browser {:coerce :boolean}}}
    {:cmds ["logout"] :fn logout}
    {:cmds ["status"] :fn status}
    {:cmds ["settings" "reset"] :fn reset-settings}

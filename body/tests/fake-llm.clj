@@ -1,7 +1,8 @@
 ;; Stand-in for OpenAI in the VM tests. It serves the Responses API
-;; (/v1/responses), and for the ChatGPT subscription the token endpoint
-;; (/oauth/token), the Codex backend (/codex/...) and how much of its limits
-;; is used (/wham/usage, and in the answers' headers). Answers say what was
+;; (/v1/responses), and for the ChatGPT subscription signing in with a code
+;; (/api/accounts/deviceauth/...), the token endpoint (/oauth/token), the
+;; Codex backend (/codex/...) and how much of its limits is used (/wham/usage,
+;; and in the answers' headers). Answers say what was
 ;; received, so the tests can check the credentials, the system prompt and the
 ;; conversation history. Asked for the forecast, it searches the web first,
 ;; like the real model; asked to be called Jarvis, who runs the commands, or
@@ -114,6 +115,10 @@
                     "https://api.openai.com/auth" {"chatgpt_account_id" "acct-test"}})
     :expires_in 3600}))
 
+;; Whether someone entered the code grog got to sign in with: the tests do,
+;; like a person on their phone would.
+(def code-entered? (atom false))
+
 (defn handler [{:keys [uri] :as req}]
   (let [body (some-> (:body req) slurp (json/parse-string true))
         stream (fn [s] {:status 200 :headers {"Content-Type" "text/event-stream"} :body s})
@@ -125,6 +130,18 @@
                                 :else (responses-stream (summary (:input body) (bearer req) (:instructions body))
                                                         (searches? body))))
       "/oauth/token" (json-ok (tokens))
+      ;; Signing in with a code, once someone entered it (/fake/enter-code).
+      "/api/accounts/deviceauth/usercode" (json-ok (json/generate-string {:device_auth_id "dev-test"
+                                                                          :user_code "TEST-CODE"
+                                                                          :interval "1"}))
+      "/api/accounts/deviceauth/token" (if @code-entered?
+                                         (json-ok (json/generate-string {:authorization_code "test-code"
+                                                                         :code_challenge "test-challenge"
+                                                                         :code_verifier "test-verifier"}))
+                                         {:status 403 :headers {"Content-Type" "application/json"}
+                                          :body "{\"error\":{\"message\":\"Not entered yet.\"}}"})
+      "/fake/enter-code" (do (reset! code-entered? true)
+                             (json-ok "{}"))
       ;; Like the real catalog, the model asks for Responses Lite.
       "/codex/models" (json-ok (json/generate-string {:models [{:slug "gpt-6-luna"
                                                                 :use_responses_lite true

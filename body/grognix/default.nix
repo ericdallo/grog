@@ -99,8 +99,8 @@
     vim
   ];
 
-  # Paid with a ChatGPT subscription (`grog login`) or an API key in
-  # /etc/grog/secrets.env.
+  # Paid with a ChatGPT subscription (its screen shows a code to sign in
+  # with, as does `grog login`) or an API key in /etc/grog/secrets.env.
   services.grog = {
     enable = true;
     # Its voice, hands and skin run in grog's session.

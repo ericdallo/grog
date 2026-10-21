@@ -16,9 +16,11 @@ import {
   mode,
   pipeline,
   PLEASED_MS,
+  qrFile,
   reaction,
   recent,
   seconds,
+  signIn,
   STALE_MS,
   stale,
   STILL_MS,
@@ -96,6 +98,10 @@ describe("what grog is doing", () => {
       label: "Needs a login",
       detail: "grog login, or an API key",
     });
+    assert.equal(
+      mode(state({ auth: "none", login: { status: "pending", method: "device", code: "ABCD-12345" } }), NOW).detail,
+      "sign in from your phone",
+    );
     const hearing = { state: "hearing", since: NOW, seen: NOW, conversation: "voice" };
     assert.equal(mode(state({ auth: "none", voice: hearing }), NOW).mode, "hearing");
   });
@@ -545,5 +551,64 @@ describe("words and numbers", () => {
     assert.equal(account(state({ auth: "subscription" })), "ChatGPT");
     assert.equal(account(state()), "API key");
     assert.equal(account(state({ auth: "none" })), "no credentials");
+  });
+});
+
+describe("signing in", () => {
+  const help = {
+    text: "The first time, ChatGPT has to allow it.",
+    url: "https://chatgpt.com/#settings/Security",
+  };
+  const waiting = {
+    status: "pending",
+    method: "device",
+    label: "ChatGPT",
+    code: "ABCD-12345",
+    url: "https://auth.openai.com/codex/device",
+    expiresAt: NOW + 14 * 60_000 + 30_000,
+    help,
+  };
+
+  it("with a code, where to enter it, and what may have to be done first", () => {
+    assert.deepEqual(signIn(state({ auth: "none", login: waiting }), NOW), {
+      title: "Sign in with ChatGPT",
+      code: "ABCD-12345",
+      url: "https://auth.openai.com/codex/device",
+      shortUrl: "auth.openai.com/codex/device",
+      qr: "qr/auth-openai-com-codex-device.svg",
+      expires: "expires in 14m",
+      help: {
+        text: "The first time, ChatGPT has to allow it.",
+        url: "https://chatgpt.com/#settings/Security",
+        shortUrl: "chatgpt.com/#settings/Security",
+      },
+    });
+    assert.equal(signIn(state({ auth: "none", login: { ...waiting, help: null } }), NOW).help, null);
+  });
+
+  it("says what's going on without a code", () => {
+    const note = (login) => signIn(state({ auth: "none", login }), NOW).note;
+    assert.equal(note(null), "Getting a code…");
+    assert.equal(note({ status: "expired", method: "device", label: "ChatGPT" }), "Getting a new code…");
+    assert.equal(note({ status: "exchanging", method: "device", label: "ChatGPT" }), "Signing in…");
+    assert.equal(note({ status: "pending", method: "browser", label: "ChatGPT" }), "Waiting for the browser");
+    assert.deepEqual(signIn(state({ auth: "none", login: { status: "error", label: "ChatGPT", error: "Offline." } }), NOW), {
+      title: "Sign in with ChatGPT",
+      note: "Couldn't get a code: trying again in a minute",
+      error: "Offline.",
+    });
+  });
+
+  it("only while grog has nothing to pay with", () => {
+    assert.equal(signIn(state({ login: waiting }), NOW), null);
+    assert.equal(signIn(state({ auth: "subscription", login: waiting }), NOW), null);
+    assert.equal(signIn(null, NOW), null);
+  });
+
+  it("QR codes are named after their page", () => {
+    assert.deepEqual(
+      [qrFile("https://auth.openai.com/codex/device"), qrFile("http://Example.com/A_b?c=d#e"), qrFile(""), qrFile(null)],
+      ["qr/auth-openai-com-codex-device.svg", "qr/example-com-a-b-c-d-e.svg", null, null],
+    );
   });
 });

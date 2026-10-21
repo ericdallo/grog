@@ -303,7 +303,7 @@ if [[ -z ${up:-} ]]; then
 elif [[ -z $yes && -z ${api_key:-} ]]; then
   read -rp "Sign grog in to your ChatGPT subscription now? [Y/n] " answer
   if [[ $answer != [nN]* ]]; then
-    "${login_ssh[@]}" -t -o ExitOnForwardFailure=yes -L 1455:127.0.0.1:1455 "grog@$host" grog login || true
+    "${login_ssh[@]}" -t "grog@$host" grog login || true
   fi
 fi
 
@@ -313,6 +313,6 @@ Then talk to it: "Grog, will it rain tomorrow?" It's at grognix.local
 (or $host):
   ssh grog@grognix.local     grog status, grog chat, and its settings in
                              /etc/nixos/machine.nix
-  grog login there signs in to a ChatGPT subscription (through
-  ssh -L 1455:127.0.0.1:1455), or at its screen.
+  Without an API key, its screen shows a code to sign in to a ChatGPT
+  subscription with, on any phone or computer; so does grog login there.
 EOF

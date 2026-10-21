@@ -58,7 +58,7 @@ deploy:
 	nixos-rebuild switch --flake "path:$$dir#grognix" --override-input grog "git+file://$(CURDIR)" \
 	  --target-host $(SERVER) --sudo --use-substitutes
 
-# Signs grog in to your ChatGPT subscription. The tunnel carries the browser's
-# redirect (to localhost:1455) from this machine to grog on the server.
+# Signs grog in to your ChatGPT subscription: it prints a code to enter on any
+# phone or computer.
 login:
-	ssh $(NIX_SSHOPTS) -t -o ExitOnForwardFailure=yes -L 1455:127.0.0.1:1455 $(SERVER) grog login
+	ssh $(NIX_SSHOPTS) -t $(SERVER) grog login

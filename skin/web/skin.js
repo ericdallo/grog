@@ -15,6 +15,7 @@ import {
   mode,
   pipeline,
   recent,
+  signIn,
   stale,
   timeFormats,
   usage,
@@ -22,7 +23,7 @@ import {
 } from "./view.js";
 
 // The event types grog sends: see brain/src/grog/events.clj.
-const EVENTS = ["snapshot", "voice", "turn", "tool", "text", "done", "failed", "status", "usage"];
+const EVENTS = ["snapshot", "voice", "turn", "tool", "text", "done", "failed", "status", "login", "usage"];
 // The skin moves a little this often, so that nothing marks the screen.
 const DRIFT_MS = 5 * 60_000;
 
@@ -30,6 +31,8 @@ const $ = (id) => document.getElementById(id);
 const els = Object.fromEntries(
   ["name", "model", "account", "clock", "date", "avatar", "label", "detail", "timer"]
     .concat(["captions", "question", "answer", "pipeline", "recent", "usage"])
+    .concat(["signin", "signin-title", "signin-qr", "signin-url", "signin-code", "signin-expires"])
+    .concat(["signin-note", "signin-error", "signin-help", "signin-help-text", "signin-help-url"])
     .map((id) => [id, $(id)]),
 );
 // grog's face, in its block.
@@ -149,6 +152,39 @@ function clearCaptions() {
   setText(els.answer, "");
 }
 
+/** The QR code `src` in `img`, shown once it loads: none for pages the skin has no code of. */
+function showQr(img, src) {
+  if (!src) {
+    img.hidden = true;
+    img.removeAttribute("src");
+  } else if (img.getAttribute("src") !== src) {
+    img.hidden = true;
+    img.src = src;
+  }
+}
+
+/**
+ * How to sign in, while grog has nothing to pay with: in place of what was
+ * said and done, which there's none of then.
+ */
+function drawSignIn(t) {
+  const s = offline ? null : signIn(state, t);
+  els.signin.hidden = !s;
+  document.body.classList.toggle("signing-in", Boolean(s));
+  if (!s) return;
+  els.signin.classList.toggle("waiting", Boolean(s.code));
+  setText(els["signin-title"], s.title);
+  setText(els["signin-url"], s.shortUrl ?? "");
+  setText(els["signin-code"], s.code ?? "");
+  setText(els["signin-expires"], s.expires ?? "");
+  setText(els["signin-note"], s.note ?? "");
+  setText(els["signin-error"], s.error ?? "");
+  showQr(els["signin-qr"], s.qr);
+  els["signin-help"].hidden = !s.help;
+  setText(els["signin-help-text"], s.help?.text ?? "");
+  setText(els["signin-help-url"], s.help?.shortUrl ?? "");
+}
+
 function drawPipeline(t) {
   els.pipeline.classList.toggle("stale", stale(state, t));
   once("pipeline", pipeline(state?.turn, offline), (steps) => {
@@ -229,6 +265,7 @@ function draw() {
   const t = now();
   drawMode(t);
   drawBrand(t);
+  drawSignIn(t);
   drawCaptions(t);
   drawPipeline(t);
   drawRecent();
@@ -278,6 +315,9 @@ function drift() {
 if (new URLSearchParams(location.search).has("kiosk")) document.documentElement.classList.add("kiosk");
 els.captions.addEventListener("transitionend", (e) => {
   if (e.target === els.captions) clearCaptions();
+});
+els["signin-qr"].addEventListener("load", () => {
+  els["signin-qr"].hidden = false;
 });
 draw();
 connect();

@@ -25,17 +25,24 @@ grog ask --new "Hi"        # follow-ups continue the conversation for 10 min, un
 grog status                # model, account, usage, and settings changed by asking
 grog settings reset        # puts those settings back
 grog models                # the models on offer, * marks the one in use
-grog login / grog logout   # the ChatGPT subscription
+grog login / grog logout   # the ChatGPT subscription (--browser: in a browser here)
 ```
 
 It finds the server through `$GROG_URL`.
 
 ## Paying for it
 
-- **ChatGPT subscription**: `grog login` prints a link to sign in, and the
-  browser comes back to `localhost:1455`. On a server, forward that port:
-  `ssh -L 1455:127.0.0.1:1455 <server> grog login`. The tokens stay in the
-  state directory and refresh on their own.
+- **ChatGPT subscription**: sign in with a code, on any phone or computer:
+  `grog login` prints it, with where to enter it
+  (`auth.openai.com/codex/device`). With a skin (`skin.dir`), grog shows one
+  whenever it has nothing to pay with, renewed as it expires. ChatGPT has to
+  allow it once per account, on its website (its app doesn't have it): in
+  Settings, Security and login, turn on "Enable device code sign-in for
+  Codex, Excel, PowerPoint, and Word". Without that, `grog login --browser`
+  prints a link instead, and the browser comes back to `localhost:1455`: on a
+  server, forward that port (`ssh -L 1455:127.0.0.1:1455 <server> grog login
+  --browser`). The tokens stay in the state directory and refresh on their
+  own.
 - **API key**: in `OPENAI_API_KEY`. On NixOS, in `/etc/grog/secrets.env`
   (mode 0600), never in the Nix config.
 
@@ -150,8 +157,8 @@ JSON keys are lowerCamelCase.
 | `GET /v1/status` | `name`, `provider`, `model`, the account, `changed` settings and `usage` |
 | `DELETE /v1/settings` | Puts the settings changed by asking back |
 | `GET /v1/models` | `{"models": [{"id", "description", "current"...}]}` |
-| `POST /v1/auth/<provider>/login` | Starts signing in: `{"url", "redirectUri", "label"}` |
-| `GET /v1/auth/<provider>` | `{"signedIn", "email"...}` |
+| `POST /v1/auth/<provider>/login` `{"method"}` | Starts signing in, or goes on with the sign-in in progress: `"device"` (the provider's way when it can) answers `{"code", "url", "expiresAt", "help"...}`, the code to enter at `url`; `"browser"`, `{"url", "redirectUri"...}`, the link to sign in at |
+| `GET /v1/auth/<provider>` | `{"signedIn", "email"...}`, and the last sign-in: `login` (`pending`, `exchanging`, `done`, `error` or `expired`), `method`, and while it waits for one, the `code`, `url` and `codeExpiresAt` |
 | `DELETE /v1/auth/<provider>` | Signs out |
 | `GET /v1/events` | What it's up to, as server-sent events: a `snapshot`, then each change ([`events.clj`](src/grog/events.clj)) |
 | `POST /v1/voice` `{"state", "conversationId", "heard"}` | grog-voice saying what it's doing, and with captions what it heard. Answers `{"captions", "name"}` |

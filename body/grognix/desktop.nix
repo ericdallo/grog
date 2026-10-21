@@ -55,7 +55,8 @@
       # Without its tour, GNOME doesn't offer it in a dialog over everything,
       # at the first login and after each upgrade.
       environment.gnome.excludePackages = [ pkgs.gnome-tour ];
-      # Also to sign in to the ChatGPT subscription right there: `grog login`.
+      # Also to sign in to the ChatGPT subscription right there, in a browser:
+      # `grog login --browser`.
       programs.firefox.enable = true;
     })
 

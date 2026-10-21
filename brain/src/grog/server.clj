@@ -1,7 +1,9 @@
 (ns grog.server
   "The server: grog's HTTP API (grog.api) and, when enabled, an nREPL, with
   what runs in the background: pings to whoever watches what grog is up
-  to, and keeping what they know of its usage current."
+  to, keeping what they know of its usage current, and a sign-in with a code
+  going while grog has nothing to pay with, for its skin to show
+  (grog.login)."
   (:require [babashka.nrepl.server :as nrepl]
             [grog.api :as api]
             [grog.assistant :as assistant]
@@ -26,6 +28,9 @@
 (def ^:private quota-max-age-s (* 5 60))
 (def ^:private usage-check-ms (* 60 1000))
 
+;; How soon a new code shows once the last one expired (grog.login/keep-up!).
+(def ^:private login-check-ms (* 10 1000))
+
 (defn ^:private every!
   "Runs `f` every `ms`, in the background, starting now or after `ms`
   (`now?`). Returns the future, to cancel."
@@ -39,6 +44,23 @@
       (Thread/sleep ms)
       (recur))))
 
+(defn ^:private on-login
+  "Tells whoever watches how a sign-in to the provider grog uses goes, and,
+  once it's done, how grog is paid now."
+  [ctx provider view]
+  (when (= provider (:provider @(:config ctx)))
+    (events/publish! (:events ctx) {:type :login :login (assoc view :provider provider)})
+    (when (= "done" (:status view))
+      (assistant/publish-status! ctx))))
+
+(defn ^:private keep-up-login!
+  "A sign-in with a code while grog has nothing to pay with, for its skin to
+  show: without one, `grog login` gets the code."
+  [ctx]
+  (let [config @(:config ctx)]
+    (when (get-in config [:skin :dir])
+      (login/keep-up! config (:provider config)))))
+
 (defn start!
   "Starts the HTTP server, and the nREPL server when enabled.
   Returns {:ctx :server :port :nrepl :background}."
@@ -50,6 +72,7 @@
         port (http/server-port server)
         {:keys [provider auth model]} (provider/describe-quietly config)]
     (reset! current ctx)
+    (login/watch! ctx #(on-login ctx %1 %2))
     (assistant/publish-status! ctx)
     (log/info (format "listening on http://%s:%d (provider=%s auth=%s model=%s)" host port provider auth model))
     {:ctx ctx
@@ -57,7 +80,8 @@
      :port port
      :background [(every! ping-ms false #(events/ping! (:events ctx)))
                   (every! usage-check-ms true #(usage/refresh! ctx quota-max-age-s
-                                                               (quot (System/currentTimeMillis) 1000)))]
+                                                               (quot (System/currentTimeMillis) 1000)))
+                  (every! login-check-ms true #(keep-up-login! ctx))]
      :nrepl (when (get-in config [:nrepl :enable])
               (nrepl/start-server! (select-keys (:nrepl config) [:host :port])))}))
 
@@ -68,6 +92,7 @@
   (when nrepl
     (nrepl/stop-server! nrepl))
   (http/server-stop! server)
+  (login/unwatch! ctx)
   (login/stop-all!)
   (compare-and-set! current ctx nil))
 

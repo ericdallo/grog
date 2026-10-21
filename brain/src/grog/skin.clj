@@ -4,11 +4,13 @@
   `GET /v1/events` (grog.events), from the same origin."
   (:require [babashka.fs :as fs]))
 
-;; What the skin is made of: the page, and its fonts (body/packages/grog-skin.nix).
+;; What the skin is made of: the page, and its fonts and QR codes
+;; (body/packages/grog-skin.nix).
 (def ^:private content-types
   {"html" "text/html; charset=utf-8"
    "css" "text/css; charset=utf-8"
    "js" "text/javascript; charset=utf-8"
+   "svg" "image/svg+xml"
    "ttf" "font/ttf"})
 
 ;; The page only talks to grog, and shows nothing from elsewhere.

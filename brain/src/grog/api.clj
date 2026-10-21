@@ -169,6 +169,17 @@
                                               " and maybe \"heard\": {\"text\", \"final\": true or false}}.")
                                          (str/join ", " (sort events/voice-states)))}))))
 
+(defn ^:private login-method
+  "How a /v1/auth/<provider>/login `body` asks to sign in: :device, :browser,
+  or nil, the provider's way."
+  [body]
+  (case (when (map? body) (:method body))
+    nil nil
+    "device" :device
+    "browser" :browser
+    (throw (ex-info "Send {\"method\": \"device\" or \"browser\"}, or {} for the provider's way."
+                    {:type ::bad-method}))))
+
 (defn ^:private api-call
   "Answers the result of `f` as JSON; errors as 400 (ex-info) or 502."
   [f]
@@ -227,7 +238,7 @@
        (api-call #(hash-map :models (provider/models config)))
 
        (and provider login? (= :post request-method))
-       (api-call #(login/start! config provider))
+       (api-call #(login/start! config provider (login-method (read-json req))))
 
        ;; Polled while signing in: whoever watches sees it as it happens.
        (and provider (not login?) (= :get request-method))

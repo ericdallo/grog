@@ -49,7 +49,7 @@ Talk to it ("Grog, ..."), or use the CLI:
 grog chat
 grog ask "Will it rain tomorrow?"
 grog status    # model, account, and what it has spent
-grog login     # sign in with a ChatGPT subscription
+grog login     # sign in with a ChatGPT subscription: a code, on any phone or computer
 ```
 
 Without a subscription, put an OpenAI API key in `OPENAI_API_KEY` (on NixOS,

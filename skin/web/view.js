@@ -129,7 +129,10 @@ export function mode(state, now) {
     case "no-mic":
       return { mode: "no-mic", label: "No microphone", detail: "plug one in" };
   }
-  if (state.auth === "none") return { mode: "login", label: "Needs a login", detail: "grog login, or an API key" };
+  if (state.auth === "none") {
+    const detail = state.login?.code ? "sign in from your phone" : "grog login, or an API key";
+    return { mode: "login", label: "Needs a login", detail };
+  }
   if (voice === "listening" || voice === "error") {
     return { mode: "idle", label: "Listening", detail: name ? `say “${name}”` : "" };
   }
@@ -419,6 +422,62 @@ export function usage(u, now) {
     };
   }
   return null;
+}
+
+/** `url` without its scheme: auth.openai.com/codex/device. */
+export function shortUrl(url) {
+  return String(url ?? "").replace(/^https?:\/\//, "");
+}
+
+/**
+ * Where the QR code of `url` is, made with the skin (body/packages/grog-skin.nix,
+ * which names them the same way): qr/auth-openai-com-codex-device.svg. There's
+ * none for the pages it doesn't know.
+ */
+export function qrFile(url) {
+  const slug = shortUrl(url)
+    .replace(/[^A-Za-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase();
+  return slug ? `qr/${slug}.svg` : null;
+}
+
+/**
+ * How to sign in, while grog has nothing to pay with, from its last sign-in
+ * (brain/src/grog/login.clj), or null. While a code waits to be entered:
+ * {title, code, url, shortUrl, qr, expires, help}, `help` being what to do
+ * first, and where ({text, url, shortUrl}: on a computer, with no QR code), or
+ * null. Otherwise {title, note}, and the `error` when getting a code failed.
+ */
+export function signIn(state, now) {
+  if (!state || state.auth !== "none") return null;
+  const login = state.login;
+  const title = login?.label ? `Sign in with ${login.label}` : "Sign in";
+  if (login?.status === "pending" && login.method === "device" && login.code) {
+    const help = login.help?.text ? { text: login.help.text, url: login.help.url, shortUrl: shortUrl(login.help.url) } : null;
+    return {
+      title,
+      code: login.code,
+      url: login.url,
+      shortUrl: shortUrl(login.url),
+      qr: qrFile(login.url),
+      expires: `expires in ${duration((login.expiresAt - now) / 1000)}`,
+      help,
+    };
+  }
+  switch (login?.status) {
+    case "pending":
+      return { title, note: "Waiting for the browser" };
+    case "exchanging":
+    case "done":
+      return { title, note: "Signing in…" };
+    case "expired":
+      return { title, note: "Getting a new code…" };
+    case "error":
+      return { title, note: "Couldn't get a code: trying again in a minute", error: login.error ?? "" };
+    default:
+      return { title, note: "Getting a code…" };
+  }
 }
 
 /** How grog is paid, for the line under its name. */

@@ -1,9 +1,11 @@
 (ns grog.providers.openai.oauth
-  "Signing in to a ChatGPT subscription the way ECA does it: the Codex CLI's
-  OAuth client (PKCE, with the browser coming back to a localhost callback),
-  and keeping the tokens fresh."
+  "Signing in to a ChatGPT subscription with the Codex CLI's OAuth client:
+  with a code entered on any other device (`codex login --device-auth`), or
+  the way ECA does it (PKCE, with the browser coming back to a localhost
+  callback); and keeping the tokens fresh."
   (:require [babashka.http-client :as http]
             [cheshire.core :as json]
+            [clojure.string :as str]
             [grog.credentials :as credentials]
             [grog.oauth :as oauth]))
 
@@ -84,6 +86,82 @@
                                       :code_verifier verifier
                                       :redirect_uri redirect-uri})
                  nil))
+
+(defn device-url
+  "Where whoever signs in with a code (`device-code!`) enters it."
+  [cfg]
+  (str (get-in cfg [:subscription :auth-url]) "/codex/device"))
+
+;; Each ChatGPT account allows signing in with a code once, in the settings of
+;; ChatGPT's website: its apps don't have it, and phones open its links in
+;; them.
+(def device-help
+  {:text "ChatGPT has to allow it once, on its website on a computer (its app doesn't have it): in Settings, Security and login, turn on “Enable device code sign-in for Codex, Excel, PowerPoint, and Word”."
+   :url "https://chatgpt.com/#settings/Security"})
+
+(defn ^:private device-request!
+  "A POST to OpenAI's API for signing in with a code: [status body raw-body]."
+  [cfg path params]
+  (try
+    (let [resp (http/post (str (get-in cfg [:subscription :auth-url]) "/api/accounts/deviceauth/" path)
+                          {:headers {"content-type" "application/json"}
+                           :body (json/generate-string params)
+                           :throw false
+                           :timeout 30000})]
+      [(:status resp) (try (json/parse-string (:body resp) true) (catch Exception _ nil)) (:body resp)])
+    (catch java.io.IOException e
+      (throw (ex-info (str "Couldn't reach OpenAI's sign-in server: "
+                           (or (ex-message e) (.getName (class e))))
+                      {:type ::network-error})))))
+
+(defn ^:private seconds
+  "Seconds OpenAI sent, as a number or a string; `default` without them."
+  [x default]
+  (or (cond (number? x) (long x)
+            (string? x) (parse-long (str/trim x)))
+      default))
+
+(defn device-code!
+  "Starts signing in with a code entered on another device, like `codex
+  login --device-auth`: {:device-auth-id :user-code :interval-s :url}, the
+  code being good for 15 minutes."
+  [cfg]
+  (let [[status body raw] (device-request! cfg "usercode" {:client_id client-id})
+        code (or (:user_code body) (:usercode body))]
+    (cond
+      (and (= 200 status) (:device_auth_id body) code)
+      {:device-auth-id (:device_auth_id body)
+       :user-code code
+       :interval-s (max 1 (seconds (:interval body) 5))
+       :url (device-url cfg)}
+
+      (= 404 status)
+      (throw (ex-info "OpenAI doesn't offer signing in with a code here: use `grog login --browser`."
+                      {:type ::device-unsupported :status status}))
+
+      :else
+      (throw (ex-info (format "OpenAI's sign-in server returned %d: %s" status (error-message body raw))
+                      {:type ::token-error :status status})))))
+
+(defn poll-device!
+  "Whether the code of `device` (`device-code!`) was entered and allowed: nil
+  until it is, then what `exchange-code!` trades for credentials, {:code
+  :verifier :redirect-uri}."
+  [cfg {:keys [device-auth-id user-code]}]
+  (let [[status body raw] (device-request! cfg "token" {:device_auth_id device-auth-id :user_code user-code})]
+    (cond
+      (and (= 200 status) (:authorization_code body))
+      {:code (:authorization_code body)
+       :verifier (:code_verifier body)
+       :redirect-uri (str (get-in cfg [:subscription :auth-url]) "/deviceauth/callback")}
+
+      ;; Not entered, or not allowed, yet.
+      (#{403 404} status)
+      nil
+
+      :else
+      (throw (ex-info (format "OpenAI's sign-in server returned %d: %s" status (error-message body raw))
+                      {:type ::token-error :status status})))))
 
 (defn refresh! [cfg credentials]
   (->credentials (token-request! cfg {:grant_type "refresh_token"

@@ -31,6 +31,9 @@
                       (assoc :name "Friday" :state-dir state-dir)
                       (assoc-in [:server :port] 0)
                       (assoc-in [:providers :openai :base-url] fake-url)
+                      ;; Not OpenAI's: with a skin, and nothing to pay with,
+                      ;; grog asks for a code to sign in with (grog.login).
+                      (assoc-in [:providers :openai :subscription :auth-url] "http://127.0.0.1:1")
                       tweak))))
 
 (defn ^:private start-server [fake-url]

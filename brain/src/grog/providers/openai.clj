@@ -325,6 +325,14 @@
       (catch clojure.lang.ExceptionInfo e
         {:auth "none" :model model :error (ex-message e)}))))
 
+(defn login-needed?
+  "Whether grog has nothing to pay with, and signing in to the subscription
+  would fix it: neither signed in nor given an API key, and the `auth`
+  setting doesn't insist on one."
+  [cfg]
+  (and (not= "api-key" (:auth cfg))
+       (= "none" (:auth (describe cfg)))))
+
 (defn quota
   "How much of the ChatGPT subscription's usage limits is used, when grog
   uses it (grog.providers.openai.quota); nil otherwise."
@@ -388,6 +396,10 @@
    :model-path #'model-path
    :model-paths [[:model] [:subscription :model]]
    :login {:label "ChatGPT"
+           :needed? #'login-needed?
+           :exchange-code! #'oauth/exchange-code!
+           :device-code! #'oauth/device-code!
+           :poll-device! #'oauth/poll-device!
+           :device-help oauth/device-help
            :redirect-uri #'oauth/redirect-uri
-           :authorize-url #'oauth/authorize-url
-           :exchange-code! #'oauth/exchange-code!}})
+           :authorize-url #'oauth/authorize-url}})

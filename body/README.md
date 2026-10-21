@@ -62,8 +62,12 @@ Any x86_64 PC with UEFI and 4 GB of RAM. One of its disks gets erased.
 3. Say "Grog, will it rain tomorrow?"
 
 Without an API key, it offers to sign in to a ChatGPT subscription at the
-end. From a checkout, `make install-grognix TARGET=nixos@<address>` installs
-the checkout's grog instead.
+end, with a code entered on any phone or computer; its screen shows one too.
+ChatGPT has to allow that once per account, on its website (its app doesn't
+have it): in Settings, Security and login, turn on "Enable device code
+sign-in for Codex, Excel, PowerPoint, and Word". From a checkout,
+`make install-grognix TARGET=nixos@<address>` installs the checkout's grog
+instead.
 
 ## Day to day
 
@@ -72,7 +76,9 @@ From a checkout:
 - `make deploy` builds grognix's own config with the checkout as grog, and
   switches to it over SSH. Use `SERVER=grog@<ip>` if `grognix.local` doesn't
   resolve.
-- `make login` signs it in to a ChatGPT subscription, through an SSH tunnel.
+- `make login` prints a code to sign it in to a ChatGPT subscription with, on
+  any phone or computer. Its screen shows one too, while it has nothing to
+  pay with.
 - `make vm` boots a made-up grognix ([`example.nix`](grognix/example.nix)) in
   a VM.
 

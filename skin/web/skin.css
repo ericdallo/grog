@@ -242,6 +242,107 @@ ol {
   font-size: 2.4vmin;
 }
 
+/* How to sign in (view.js signIn), in place of what was said and done, which
+   there's none of without a login. Its code is amber, like what needs
+   someone; its QR code, dark on white, as phones read them best. */
+.signing-in .captions,
+.signing-in .pipeline,
+.signing-in .cards {
+  display: none;
+}
+
+.signin {
+  margin-top: 4.4vmin;
+}
+
+.signin h2 {
+  margin: 0;
+  font: 800 4.2vmin/1.1 var(--text);
+  letter-spacing: -0.02em;
+}
+
+.signin-code {
+  display: none;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 4vmin;
+  margin-top: 3vmin;
+}
+
+.signin.waiting .signin-code {
+  display: grid;
+}
+
+.signin .qr {
+  width: 30vmin;
+  height: 30vmin;
+  padding: 1.2vmin;
+  border-radius: 1.4vmin;
+  background: #ffffff;
+}
+
+.night .signin .qr {
+  opacity: 0.75;
+}
+
+.signin .hint {
+  color: var(--muted);
+  font-size: 2.4vmin;
+}
+
+.signin .url {
+  margin: 0.6vmin 0 2.2vmin;
+  font: 500 3.2vmin/1.2 var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.signin .code {
+  margin: 0.6vmin 0 1.2vmin;
+  color: var(--amber);
+  font: 700 8vmin/1 var(--mono);
+  letter-spacing: 0.06em;
+}
+
+.signin-note {
+  margin-top: 3vmin;
+  color: var(--muted);
+  font-size: 3vmin;
+}
+
+.signin.waiting .signin-note,
+.signin-error:empty {
+  display: none;
+}
+
+.signin-error {
+  margin-top: 1vmin;
+  color: var(--red);
+  font-size: 2.2vmin;
+}
+
+.signin-help {
+  margin-top: 4vmin;
+  padding: 2.4vmin 2.8vmin;
+  border-left: 0.6vmin solid var(--amber);
+  border-radius: 1.4vmin;
+  background: var(--card);
+  font-size: 2.4vmin;
+  line-height: 1.35;
+}
+
+.signin-help .first {
+  margin-bottom: 0.8vmin;
+  color: var(--amber);
+  font: 700 1.8vmin/1 var(--text);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.signin-help .url {
+  margin: 0.8vmin 0 0;
+  font-size: 2.2vmin;
+}
+
 .captions {
   min-height: 15vmin;
   margin-top: 4.4vmin;

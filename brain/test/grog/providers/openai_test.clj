@@ -3,6 +3,7 @@
             [clojure.test :refer [deftest is testing]]
             [grog.credentials :as credentials]
             [grog.config :as config]
+            [grog.providers.openai.oauth :as oauth]
             [grog.providers.openai.subscription :as subscription]
             [grog.providers.http :as http]
             [grog.providers.openai :as openai]
@@ -397,6 +398,52 @@
               {:id "gpt-6-luna" :description nil :default-reasoning nil :current true}]
              (openai/models cfg)))))
   (subscription/reset-catalog!))
+
+(deftest signing-in-with-a-code
+  (h/with-fake [fake [(h/json-response {:device_auth_id "dev-1" :user_code "ABCD-12345" :interval "3"})
+                      {:status 403 :headers {"Content-Type" "application/json"} :body "{\"error\":\"pending\"}"}
+                      (h/json-response {:authorization_code "the-code" :code_challenge "ch" :code_verifier "the-verifier"})]]
+    (let [cfg (subscription-cfg (:url fake))
+          device (oauth/device-code! cfg)]
+      (is (= {:device-auth-id "dev-1" :user-code "ABCD-12345" :interval-s 3 :url (str (:url fake) "/codex/device")}
+             device))
+      (is (nil? (oauth/poll-device! cfg device)) "not entered yet")
+      (is (= {:code "the-code" :verifier "the-verifier" :redirect-uri (str (:url fake) "/deviceauth/callback")}
+             (oauth/poll-device! cfg device)))
+      (let [[usercode pending entered] @(:requests fake)]
+        (is (= ["/api/accounts/deviceauth/usercode" {:client_id oauth/client-id}]
+               [(:uri usercode) (:body usercode)]))
+        (is (= ["/api/accounts/deviceauth/token" {:device_auth_id "dev-1" :user_code "ABCD-12345"}]
+               [(:uri pending) (:body pending)]
+               [(:uri entered) (:body entered)]))))))
+
+(deftest codes-as-openai-sends-them
+  (testing "the older field name, an interval as a number, or none"
+    (h/with-fake [fake [(h/json-response {:device_auth_id "d" :usercode "C-1" :interval 2})
+                        (h/json-response {:device_auth_id "d" :user_code "C-2"})]]
+      (let [cfg (subscription-cfg (:url fake))]
+        (is (= ["C-1" 2] ((juxt :user-code :interval-s) (oauth/device-code! cfg))))
+        (is (= ["C-2" 5] ((juxt :user-code :interval-s) (oauth/device-code! cfg)))))))
+  (testing "where it isn't offered"
+    (h/with-fake [fake [{:status 404 :body "Not found"}]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"grog login --browser"
+                            (oauth/device-code! (subscription-cfg (:url fake)))))))
+  (testing "failing"
+    (h/with-fake [fake [{:status 500 :headers {"Content-Type" "application/json"}
+                         :body "{\"error\":{\"message\":\"Down.\"}}"}]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"returned 500: Down\."
+                            (oauth/device-code! (subscription-cfg (:url fake)))))))
+  (testing "out of reach"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Couldn't reach OpenAI's sign-in server"
+                          (oauth/device-code! (subscription-cfg "http://127.0.0.1:1"))))))
+
+(deftest when-signing-in-helps
+  (let [cfg (assoc (subscription-cfg "http://127.0.0.1:1") :api-key-env "GROG_TEST_UNSET_VAR")]
+    (is (openai/login-needed? cfg) "nothing to pay with")
+    (is (not (openai/login-needed? (assoc cfg :api-key-env "HOME"))) "an API key")
+    (is (not (openai/login-needed? (assoc cfg :auth "api-key"))) "insisting on an API key, even a missing one")
+    (sign-in! cfg 3600)
+    (is (not (openai/login-needed? cfg)) "signed in")))
 
 (deftest describe-without-the-credentials-asked-for
   (let [cfg (-> (subscription-cfg "http://127.0.0.1:1")
