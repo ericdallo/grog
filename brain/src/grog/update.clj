@@ -94,19 +94,22 @@
     (.format (.atZone (Instant/ofEpochMilli ms) (ZoneId/of (config/timezone config)))
              (DateTimeFormatter/ofPattern "yyyy-MM-dd HH:mm"))))
 
+;; With something new, what the model said before using the tool, that it
+;; updates, is all it says.
+(def ^:private updating
+  (str "you restart on your own once it's ready. If you already said you'd update, that's your whole "
+       "answer; otherwise, say just that you're updating."))
+
 (defn describe
-  "What `status` (of an update) tells, for the model."
-  [config {:keys [stage from to to-date error]}]
-  (let [latest (str (short-revision to) (some->> (when-pushed config to-date) (str ", from ")))]
-    (case stage
-      "fetching" "It's looking for an update."
-      "current" (format "You're already up to date (%s)." latest)
-      "done" (format "You were updated, to %s." latest)
-      "failed" (str "The update failed: " error)
-      (format (str "There's an update (%s; you're %s): it's being built, which takes several minutes, "
-                   "then you restart on your own as soon as nobody's talking to you, and play a sound once "
-                   "you're back. Should it not work, you stay as you are.")
-              latest (or (short-revision from) "another version")))))
+  "What `status` (of an update) tells the model, and how little to say of
+  it."
+  [{:keys [stage error]}]
+  (case stage
+    "fetching" (str "It's looking for an update: if there's one, " updating)
+    "current" "There's nothing new: you're up to date. Say just that."
+    "done" "You were just updated. Say just that."
+    "failed" (str "The update failed: say so in a few words. What went wrong: " error)
+    (str "There's an update, under way: " updating)))
 
 (defn ^:private update-now!
   "What the `update` tool does: starts an update, and waits to tell whether
@@ -116,22 +119,19 @@
         since (events/now-ms)
         {:keys [started] running :update} (start! config)]
     (if-not started
-      (str "An update is already under way. " (describe config running))
-      (or (some->> (wait-known! config since) (describe config))
-          (str "Looking for an update takes a while: if there's one, it's built, which takes several "
-               "minutes, then you restart on your own and play a sound once you're back.")))))
+      (str "An update was already under way. " (describe running))
+      (describe (or (wait-known! config since) {:stage "fetching"})))))
 
 (defn tool
   "The `update` tool, when grog can update itself with `config`, or nil."
   [config]
   (when (available? config)
     {:name "update"
-     :description (str "Updates you to the latest version that was pushed, when the user asks: it tells "
-                       "whether there's one (in a few seconds). It's built (several minutes), then you restart "
-                       "on your own as soon as nobody's talking to you, and play a sound once you're back; "
-                       "should it not work, you stay as you are. Say what it found in a few plain words: with "
-                       "an update, that it takes a few minutes and they'll hear a sound when you're back. "
-                       "Don't talk of idle conversations or restarting later.")
+     :description (str "Updates you to the latest version that was pushed, when the user asks. Before using "
+                       "it, say only that you'll update, in a couple of words (like \"Updating.\"), and nothing "
+                       "about how long it takes or what comes next. It tells in a few seconds whether there was "
+                       "something new: then you restart on your own once it's ready, and should that not work, "
+                       "you stay as you are.")
      :parameters {:type "object" :properties {} :additionalProperties false}
      :changes? (constantly true)
      :run (fn [ctx _ _] (update-now! ctx))}))

@@ -118,10 +118,11 @@ With something new, once nobody is talking to grog, it switches to it
 the new grog to answer, as its new revision. Then the flake gets the new
 lock; otherwise the machine goes back to the previous system.
 
-The model says whether there was something new. `grog update` follows it to
-the end, and starts the service itself when grog doesn't answer. How it
-goes is in the `update.status` file, which whoever watches grog sees
-(`update` in `/v1/events`).
+Asked by voice, it only says it's updating, unless there was nothing new or
+it failed, and grog-voice plays a sound once it's back. `grog update`
+follows it to the end, and starts the service itself when grog doesn't
+answer. How it goes is in the `update.status` file, which whoever watches
+grog sees (`update` in `/v1/events`).
 
 ## Computers
 

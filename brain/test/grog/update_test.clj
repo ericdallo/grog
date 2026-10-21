@@ -48,14 +48,17 @@
   (is (nil? (update/short-revision nil))))
 
 (deftest what-an-update-tells-the-model
-  (let [config (settings nil)
-        latest {:from "aaaaaaaaaa" :to "bbbbbbbbbb" :to-date 1792427875000}]
-    (is (= "You're already up to date (bbbbbbb, from 2026-10-19 13:37)."
-           (update/describe config (assoc latest :stage "current"))))
-    (is (str/starts-with? (update/describe config (assoc latest :stage "building"))
-                          "There's an update (bbbbbbb, from 2026-10-19 13:37; you're aaaaaaa)"))
-    (is (= "The update failed: Couldn't build it: oops"
-           (update/describe config {:stage "failed" :error "Couldn't build it: oops"})))))
+  (let [latest {:from "aaaaaaaaaa" :to "bbbbbbbbbb" :to-date 1792427875000}
+        building (update/describe (assoc latest :stage "building"))]
+    (is (= "There's nothing new: you're up to date. Say just that."
+           (update/describe (assoc latest :stage "current"))))
+    (is (= (str "There's an update, under way: you restart on your own once it's ready. If you already said "
+                "you'd update, that's your whole answer; otherwise, say just that you're updating.")
+           building))
+    (testing "nothing that needn't be said: versions, when, how long, the sound"
+      (is (not (re-find #"(?i)aaaaaaa|bbbbbbb|2026|minute|sound" building))))
+    (is (= "The update failed: say so in a few words. What went wrong: Couldn't build it: oops"
+           (update/describe {:stage "failed" :error "Couldn't build it: oops"})))))
 
 (deftest whether-it-can
   (is (true? (update/available? (settings "/run/grog-update/status.json"))))
@@ -95,20 +98,20 @@
       (write-status! file {:stage "done" :started-at 1 :to "old"})
       (with-hands (machine false (updater {:stage "current" :to "bbbbbbbbbb" :to-date 1792427875000}))
         (fn [_]
-          (is (= "You're already up to date (bbbbbbb, from 2026-10-19 13:37)." (run ctx {} nil))))))
+          (is (= "There's nothing new: you're up to date. Say just that." (run ctx {} nil))))))
     (testing "it tells there's a new one, being built"
       (with-hands (machine false (updater {:stage "building" :from "aaaaaaaaaa" :to "bbbbbbbbbb"}))
         (fn [_]
-          (is (str/starts-with? (run ctx {} nil) "There's an update (bbbbbbb; you're aaaaaaa)")))))
+          (is (str/starts-with? (run ctx {} nil) "There's an update, under way: you restart on your own")))))
     (testing "it doesn't wait forever"
       (with-redefs [update/known-timeout-ms 300]
         (with-hands (machine false (updater {:stage "fetching"}))
           (fn [_]
-            (is (str/starts-with? (run ctx {} nil) "Looking for an update takes a while"))))))
+            (is (str/starts-with? (run ctx {} nil) "It's looking for an update: if there's one, you restart"))))))
     (testing "one at a time"
       (with-hands (machine true (constantly nil))
         (fn [_]
-          (is (str/starts-with? (run ctx {} nil) "An update is already under way.")))))))
+          (is (str/starts-with? (run ctx {} nil) "An update was already under way.")))))))
 
 (deftest whoever-watches-sees-it
   (let [file (str (fs/path (h/temp-dir) "status.json"))
