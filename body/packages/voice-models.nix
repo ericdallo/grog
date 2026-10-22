@@ -73,25 +73,27 @@ in
   };
 
   # Text to speech: Pocket TTS (Kyutai, CC-BY-4.0: see its README.md), its
-  # Portuguese model (6 layers, voice cloning weights), as
+  # Portuguese model with 24 layers (voice cloning weights), as
   # voice/tools/export_pocket.py converts it to ONNX, and its voice
   # deep-calm, cloned from a voice designed with Qwen3-TTS (no one's own).
+  # ~1.3 GB, and ~2.9 GB of RAM. (The release pocket-tts-pt-v1 has the
+  # 6-layer one: 3 times as fast, a third of the RAM, less natural.)
   pocket = gitHubReleaseFiles {
-    name = "pocket-tts-pt";
+    name = "pocket-tts-pt-24l";
     repo = "ericdallo/grog";
-    tag = "pocket-tts-pt-v1";
+    tag = "pocket-tts-pt-24l-v1";
     files = {
-      "flow_lm.onnx" = "sha256-1QFKsfmkRG56pX/HdrQbMIGX8Qn/bDMKyzw9ICNtIUA=";
-      "mimi_decoder.onnx" = "sha256-YTMQqPr8p/zsy5XGDmBTamsiuzKrBfiXIF9c29T7cb4=";
+      "flow_lm.onnx" = "sha256-MyreuGz4EY3DZz7Wu55ZzorEuKRXqlyoq5r0XArr31E=";
+      "mimi_decoder.onnx" = "sha256-y1F9s/Ywal0q4Ed9P0/L8bqFxAcwo2lH45V1+wJrKos=";
       "tokenizer.model" = "sha256-OqUTCcVfEUdxwVaq64b2/DJZkTZKo8OK90rs8cvQ+t4=";
       "pocket.json" = "sha256-AS7czsh6ZhYYAPyARz/uDZuMLM0RFKry3AradApirfM=";
-      "README.md" = "sha256-X8A6jS6QXP87fuc9LvbjD0KlzP83zz4Pecp/5kpAypU=";
-      "voices/deep-calm.npz" = "sha256-s89iPbjiwpnQH1jZjrPquOmK51CI+5uI32Sfc5vxqUk=";
+      "README.md" = "sha256-KU/GJHtdEgHAk3voiQRHaUuoR0QXrRXm5p9DWmz1byY=";
+      "voices/deep-calm.npz" = "sha256-S/nMnPo2GcPFn+DD2RDWzIv69V39w727+pErX6hYK6w=";
     };
   };
 
   # Supertonic 3 (Supertone, OpenRAIL-M: see its LICENSE), its graphs in
-  # fp32 and its ten voices. 31 languages, and ~3 times as fast as Pocket
+  # fp32 and its ten voices. 31 languages, and ~8 times as fast as Pocket
   # TTS on a Core Ultra 7 155H.
   supertonic = huggingFaceFiles {
     name = "supertonic-3";

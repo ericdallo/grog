@@ -204,11 +204,12 @@ in
         description = ''
           Text to speech: Pocket TTS, in a voice cloned from a recording
           (Portuguese only), its speech playing as it's made; Supertonic 3,
-          in 31 languages, ~3 times as fast, a sentence at a time; or Piper,
-          lighter (~1 GB less) and faster to start speaking than Supertonic,
-          but flatter. Pocket TTS takes 0.2 s per second of speech on a Core
-          Ultra 7 155H, and wasn't measured on slower CPUs, where it may not
-          keep up: grognix's runs Supertonic.
+          in 31 languages, ~8 times as fast, a sentence at a time; or Piper,
+          lighter (~1 GB less than Supertonic) and faster to start speaking
+          than Supertonic, but flatter. Pocket TTS takes 0.5 s per second of
+          speech on a Core Ultra 7 155H, and ~3 GB of RAM; it wasn't
+          measured on slower CPUs, where it may not keep up: grognix's runs
+          Supertonic.
         '';
       };
 
@@ -216,9 +217,9 @@ in
         type = lib.types.path;
         default = if cfg.voice.ttsEngine == "supertonic" then models.supertonic else models.pocket;
         defaultText = lib.literalMD ''
-          Pocket TTS's Portuguese model, with its voice `deep-calm`; with
-          Supertonic, Supertonic 3, its graphs and its ten voices
-          (`body/packages/voice-models.nix`)'';
+          Pocket TTS's Portuguese model with 24 layers, and its voice
+          `deep-calm`; with Supertonic, Supertonic 3, its graphs and its ten
+          voices (`body/packages/voice-models.nix`)'';
         description = ''
           Pocket TTS: its directory, as `voice/tools/export_pocket.py` makes
           it. Supertonic: its directory, laid out as Supertone/supertonic-3

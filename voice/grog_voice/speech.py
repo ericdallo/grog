@@ -95,11 +95,11 @@ class Pocket:
     """Text to speech with Pocket TTS (Kyutai, CC-BY-4.0) in a cloned voice,
     kept loaded, on OpenVINO's CPU plugin, from the ONNX graphs that
     voice/tools/export_pocket.py made of it: its speech streams out 80 ms
-    at a time as it's made. On a Core Ultra 7 155H, 0.2 s per second of
-    speech with 4 threads (0.17 with 6), its first sound in 0.05 s.
-    `model` has the graphs (flow_lm.onnx,
-    mimi_decoder.onnx), tokenizer.model and pocket.json (how to run them);
-    `voice`, a voice's file (see pocket.voice_file)."""
+    at a time as it's made. On a Core Ultra 7 155H with 6 threads, its
+    24-layer model takes 0.5 s per second of speech, its first sound in 0.1
+    s (the 6-layer one: 0.17 s, and 0.03 s). `model` has the graphs
+    (flow_lm.onnx, mimi_decoder.onnx), tokenizer.model and pocket.json (how
+    to run them); `voice`, a voice's file (see pocket.voice_file)."""
 
     # Its speech plays as it's made (see mouth.Mouth).
     streams = True

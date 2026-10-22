@@ -1,0 +1,77 @@
+# Pocket TTS's 24-layer Portuguese model with its voice cloning weights, as
+# pocket_tts 4.0 loads it (`python export_pocket.py model
+# pocket_portuguese_24l.yaml pt OUT_DIR`, see export_pocket.py): the CC-BY-4.0
+# copy of an older release of the gated kyutai/pocket-tts, pinned, with that
+# release's own SentencePiece tokenizer (with the current release's, these
+# weights say gibberish). Slower than the 6-layer one (pocket_portuguese.yaml),
+# and more natural.
+weights_path: hf://lunahr/pocket-tts-ungated/languages/portuguese_24l/model.safetensors@d03cd73415a8d46d8eb115c7b524aebb0a729f4a
+
+replace_characters:
+  '"': ''
+  '“': ''
+  '”': ''
+  '„': ''
+  '«': ''
+  '»': ''
+  '’': ''''
+  '‘': ''''
+  '(': ''
+  ')': ''
+  '[': ''
+  ']': ''
+  '–': ','
+
+flow_lm:
+  insert_bos_before_voice: true
+  dtype: float32
+  flow:
+    depth: 6
+    dim: 512
+  transformer:
+    d_model: 1024
+    hidden_scale: 4
+    max_period: 10000
+    num_heads: 16
+    num_layers: 24
+  lookup_table:
+    dim: 1024
+    n_bins: 4000
+    tokenizer: sentencepiece
+    tokenizer_path: hf://lunahr/pocket-tts-ungated/languages/portuguese_24l/tokenizer.model@d03cd73415a8d46d8eb115c7b524aebb0a729f4a
+
+mimi:
+  dtype: float32
+  sample_rate: 24000
+  inner_dim: 32
+  outer_dim: 512
+  channels: 1
+  frame_rate: 12.5
+  seanet:
+    dimension: 512
+    channels: 1
+    n_filters: 64
+    n_residual_layers: 1
+    ratios:
+    - 6
+    - 5
+    - 4
+    kernel_size: 7
+    residual_kernel_size: 3
+    last_kernel_size: 3
+    dilation_base: 2
+    pad_mode: constant
+    compress: 2
+  transformer:
+    d_model: 512
+    num_heads: 8
+    num_layers: 2
+    layer_scale: 0.01
+    context: 250
+    dim_feedforward: 2048
+    input_dimension: 512
+    output_dimensions:
+    - 512
+  quantizer:
+    dimension: 32
+    output_dimension: 512

@@ -10,9 +10,10 @@ said otherwise.
 - It runs on an asus oled now, a Core Ultra 7 155H, rather than grognix's
   Celeron: see "Round 3" below. The rest of this file is about grognix
   unless said otherwise.
-- grog speaks with **Pocket TTS** (Kyutai, CC-BY-4.0), its 6-layer
-  Portuguese model, in the voice **deep-calm**, which the user picked: a
-  voice designed with Qwen3-TTS, cloned by Pocket TTS. It runs on
+- grog speaks with **Pocket TTS** (Kyutai, CC-BY-4.0), its 24-layer
+  Portuguese model, in the voice **deep-calm**: a voice designed with
+  Qwen3-TTS, cloned by Pocket TTS. The user picked the voice, then, having
+  heard it live, the 24 layers (see "Live, and an A/B" below). It runs on
   **OpenVINO's CPU plugin**, from ONNX graphs grog makes of the model
   (`voice/tools/export_pocket.py`), its speech playing 80 ms at a time as
   it's made, without torch: see "Pocket TTS on OpenVINO" below. On the
@@ -42,9 +43,10 @@ said otherwise.
 - What Supertonic costs over Piper on grognix: answers start 1 to 3 s
   later, ~1 GB more RAM (the text to speech alone peaked at 1.19 GB on the
   laptop), ~400 MB of model files, ~235 MB more in grog-voice's closure
-  (openvino 135 MB, opencv 76 MB, small libraries). Pocket TTS takes as
-  much RAM, ~405 MB of model files, and sentencepiece (14 MB more in the
-  closure).
+  (openvino 135 MB, opencv 76 MB, small libraries). Pocket TTS's 24-layer
+  model takes ~2.9 GB of RAM at its peak and ~1.3 GB of model files (its
+  6-layer one: as much RAM as Supertonic, ~405 MB of files), and
+  sentencepiece (14 MB more in the closure).
 - Supertonic speaks ~8 dB lower than Piper (speech RMS -22 to -24 dBFS,
   peaks -5 to -8 dBFS, against Piper's -15 and 0): each piece is brought up
   to peak at -1 dBFS, by at most +12 dB, like Piper's normalized output, as
@@ -524,6 +526,50 @@ Supertonic:
   after the answer's first words with Pocket TTS, 1.07 s with Supertonic.
 - **Memory**: ~1.0 GB at its peak, in the lab (Supertonic: ~1.1 GB).
 
+### Live, and an A/B
+
+Heard live on the station, the 6-layer deep-calm sounded "very artificial
+in pt-BR" to the user, unlike the samples they had picked it from. grog
+fed it differently from those:
+
+- The chunker cut an answer's first sentence at a comma (for Supertonic,
+  to start speaking sooner), and Pocket TTS's text rules ended the clause
+  with a period and capitalized the rest: "...vinte e oito graus. Com
+  chance de chuva...", which Parakeet even wrote down with the full stop.
+- A short first sentence ("Claro!") went alone, and came out mangled:
+  "Claro! Coloquei um alarme" was heard as "Porque um alarme", "Ok, um
+  alarme", "Toquei um alarme".
+- Every piece started from the same noise (seed 0), so sentences started
+  alike.
+
+Since its speech plays as it's made, Pocket TTS needs no head start: it
+now gets whole sentences (`Chunker(streams=True)`), a first one of 4 words
+or fewer with the next (pocket_tts's own bound for short texts), the
+sentences already waiting together (`mouth.gathered`), as pocket_tts reads
+a text, and noise seeded by the text.
+
+Then an A/B of four answers like grog's, as grog would say them (in the
+lab's `samples/answers`), each answer transcribed alone by Parakeet:
+
+| Variant | What Parakeet got wrong |
+| --- | --- |
+| 1. as it was (6 layers) | the full stop mid-sentence, "às 5", "1 minutos", "Porque um alarme" |
+| 2. with the fixes (6 layers) | nothing |
+| 3. with the fixes, 24 layers | "1 minutos" |
+| 4 and 5. "radio" voice (cloned from Chatterbox), 6 and 24 layers | "1 minutos", "O" dropped at sentences' starts |
+| 6. Supertonic M1 at 1.4 | the full stop mid-sentence, "leva", "às 22" |
+| 7. Chatterbox's Brazilian model, "radio" (RTF 5.8, not live) | "1 minutos" |
+
+Parakeet hears "a uns dez minutos" as "1 minutos" from Chatterbox too.
+The user picked 3: 24 layers, deep-calm. On the station (6 threads,
+turbo), the 24-layer model takes 0.53 s per second of speech for the
+sample sentence, 0.485 in bursts, its first sound in 0.08 to 0.10 s (6
+layers: 0.18 and 0.175, 0.03 s): real time with room to spare, as it
+streams. It peaks at ~2.9 GB in the lab (6 layers: 1.0): OpenVINO's CPU
+plugin keeps ~1.7 times its 1.26 GB of weights, from ONNX or from its own
+IR alike (2.15 and 2.13 GB once compiled). The station had 6.7 GB
+available with grog running.
+
 ## Where to go from here
 
 ### Ears
@@ -547,11 +593,12 @@ Supertonic:
   - Data could be real recordings (a speaker who agrees to it, hours of clean speech) or synthetic speech from a model whose license allows it.
   - OpenRAIL-M usually counts a model trained on another's outputs (distillation) as a derivative: allowed, but it inherits the use restrictions. Read Supertone's LICENSE before training on M1's output.
   - pt-BR datasets to check, licenses included: Edresson Casanova's TTS-Portuguese Corpus (Piper's `edresson` voice), CML-TTS.
-- **Pocket TTS**: done on the station with a clone, deep-calm (see "Pocket
-  TTS on OpenVINO"). Fine-tuning the 24-layer model on hours of that voice
-  and distilling it to 6 layers, like the Erinome one (see round 3), would
-  make it steadier: the 6-layer clone skips or slurs a word now and then.
-  Measure the ONNX path on grognix before it speaks that way there.
+- **Pocket TTS**: done on the station with a clone, deep-calm, on 24
+  layers (see "Pocket TTS on OpenVINO" and "Live, and an A/B"). Fine-tuning
+  the 24-layer model on hours of that voice, like the Erinome one (see
+  round 3), would make it steadier, and distilling it to 6 layers would make
+  it 3 times as fast for slower CPUs. Measure the ONNX path on grognix
+  before it speaks that way there.
 - **Kokoro / StyleTTS2** can be fine-tuned too, with heavier inference than
   Piper.
 - **Supertonic itself** can't be trained without Supertone (Voice Builder is

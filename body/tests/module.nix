@@ -107,8 +107,8 @@ pkgs.testers.runNixOSTest {
       ];
     };
     # The speech models, twice: the service and `grog-voice turn`, Pocket TTS
-    # taking ~1 GB each.
-    virtualisation.memorySize = 6144;
+    # taking ~3 GB each.
+    virtualisation.memorySize = 10240;
     virtualisation.cores = 2;
 
     # A login user named like the service, which the service mustn't run as.
