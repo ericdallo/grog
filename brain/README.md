@@ -31,6 +31,11 @@ grog integrations          # what it can connect to, and what's connected
 grog connect openai        # sign in to the ChatGPT subscription (--browser: in a browser); so does grog login
 grog connect computer      # pair one of your computers
 grog disconnect ID         # computer:NAME forgets one; openai signs out, like grog logout
+grog integrations add WHAT # an MCP server: its name in the MCP Registry, npm:pkg@1.2.3, pypi:pkg==1.2.3 or https://...
+grog integrations search TEXT  # servers of the MCP Registry (it can be slow)
+grog integrations remove ID    # one you added
+grog tools ID              # an MCP server's tools, and what grog does with each
+grog tools ID TOOL allow   # or ask, deny, show, hide, default
 ```
 
 It finds the server through `$GROG_URL`.
@@ -81,8 +86,9 @@ Asked to stop listening, it turns its mic off: nothing is heard until it's
 turned on again, at its skin or with `grog mic on`, even after restarts
 (`voice.json`).
 
-Nothing changes in a turn where it searched the web, since a page could have
-asked for it.
+Nothing changes in a turn where it searched the web, or used a tool that
+reads what others wrote ([MCP servers](#mcp-servers)), since a page could
+have asked for it.
 
 ## Hands
 
@@ -133,7 +139,8 @@ grog sees (`update` in `/v1/events`).
 
 What grog connects to, its integrations ([`integrations.clj`](src/grog/integrations.clj)),
 all connect the same way ([`connect.clj`](src/grog/connect.clj)): the
-ChatGPT subscription (`openai`) and your computers (`computer`), for now.
+ChatGPT subscription (`openai`), your computers (`computer`), and
+[MCP servers](#mcp-servers).
 Someone at grog opens a window for one, on its screen (Integrations, in its
 actions), by asking it ("connect my computer"), or with `grog connect ID`.
 For 10 minutes, grog listens on the network (`integrations.host`, `.port`),
@@ -146,7 +153,7 @@ the network again. One at a time: opening another closes the first.
 What's connected stays in `integrations.json`, in the state directory, and
 the tokens apart, in `secrets/` (both only grog can read). `grog
 integrations` lists it, and `grog disconnect ID` disconnects it (signing
-out, forgetting a computer).
+out, forgetting a computer, stopping a server).
 
 ## Computers
 
@@ -194,6 +201,79 @@ which then stops letting grog in, if it can be reached. Once grog changes
 how it talks to its hands, the computers paired before say so: pair them
 again.
 
+## MCP servers
+
+grog can use the tools of [MCP](https://modelcontextprotocol.io) servers,
+each one an integration, connected [like the rest](#connecting-things).
+Its catalog ([`catalog.clj`](src/grog/catalog.clj)) has them as the
+official MCP Registry's `server.json`: those that come with grog, in
+`resources/grog/integrations/` (none yet), and those you add, in the state
+directory (`catalog/`):
+
+```sh
+grog integrations search weather                # the MCP Registry: it can take 20 s or more
+grog integrations add io.github.foo/weather-mcp # its latest version there
+grog integrations add npm:weather-mcp@1.2.3     # a package, its version pinned
+grog integrations add pypi:weather-mcp==1.2.3
+grog integrations add https://mcp.example.com/mcp
+grog connect weather-mcp
+```
+
+grog doesn't check what you add: a package runs code from npm or PyPI, and
+a remote server gets what grog sends it. Its screen and `grog integrations`
+say which you added, and which are in the cloud (remote, outside your
+network). `grog integrations remove ID` disconnects one and forgets it.
+
+Connecting one asks on grog's page for what it needs, if anything: its
+environment variables, headers, or parts of its address, warning about the
+secret ones, which cross the network as they are. A remote server that
+wants grog to sign in gets OAuth ([`mcp_auth.clj`](src/grog/mcp_auth.clj)):
+grog finds its authorization server, which knows grog by its client ID
+metadata document (the relay page's `client.json`), or lets grog register
+(dynamic registration), or else takes a client id you made there, asked in
+a form. The browser signs in, on any phone or computer, and comes back
+through the project's relay page ([`pages/`](../pages/README.md),
+`integrations.relay`), which sends it on to grog's page on the network.
+PKCE always, the issuer checked, the resource named. The tokens refresh on
+their own; once they can't, connect it again.
+
+Packages run in grog's runner (`grog mcp --socket PATH`,
+[`runner.clj`](src/grog/runner.clj), `integrations.runner`), apart from
+grog, which installs them with `npx` and `uvx` the first time they run.
+Without it, grog only has remote servers. Those are reached over
+Streamable HTTP: https, or http on the local network. grog speaks MCP
+2026-07-28, and the handshake of the revisions before (down to 2025-03-26)
+with servers that don't know it ([`mcp.clj`](src/grog/mcp.clj)). A server
+starts the first time it's used, and stops after 10 minutes without calls.
+What its tools are is kept in the state directory (`tools/`), so the model
+sees them without starting it.
+
+### What the model sees
+
+A server's tools are named `<prefix>__<tool>` (its id, 64 characters at
+most), and the model sees the first 40, unless its catalog entry says
+which. Their annotations say what they do, but only count for servers that
+come with grog: those you add are taken at their worst, every tool
+changing things and reading what others wrote.
+
+- A tool that changes things doesn't run in a turn that read what others
+  wrote: after a web search, or a tool that's open-world (mail, a page).
+- Each tool is allowed, asked first, or denied. Destructive ones ask by
+  default, the rest are allowed.
+- Asked first, a call doesn't run: the model asks you, and once you say
+  yes, calls it again, which runs (the same call, in the same
+  conversation, within 5 minutes). grog's screen asks too, unless
+  something else is on its card: Allow there says yes for you.
+
+`grog tools ID` lists a server's tools, what grog does with each, and
+whether the model sees it; `grog tools ID TOOL allow|ask|deny|show|hide`
+changes that (`default` puts it back), kept in `tools.json`.
+
+A server may ask for something in the middle of a call
+([`elicit.clj`](src/grog/elicit.clj)): a form, filled in on grog's page
+(its link and QR code on the card), or a page to open (its QR code on the
+card, then Done). Nobody answering in 3 minutes cancels it.
+
 ## The prompt
 
 The system prompt is a [Selmer](https://github.com/yogthos/Selmer) template,
@@ -239,7 +319,9 @@ says which one.
 | `update.status` | `null` | Where the update service says how an update goes: with it and hands, grog can [update itself](#updating) |
 | `computers.ssh` | `"ssh"` | The ssh it reaches its [computers](#computers) with. The `ssh-keygen` next to it makes grog's key |
 | `integrations.host`, `.port` | `"0.0.0.0"`, `8485` | Where it listens while someone at grog [connects something](#connecting-things), and only then: its page, and what pairs a computer |
-| `stateDir` | `null` | What's connected and its tokens, changed settings, memory, the mic's switch, usage and computers. `null`: `$STATE_DIRECTORY` or `~/.local/state/grog` |
+| `integrations.runner` | `null` | Unix socket of its runner (`grog mcp`), which runs [MCP servers](#mcp-servers) from npm and PyPI apart from it. `null`: only remote ones |
+| `integrations.relay` | `"https://ericdallo.github.io/grog/oauth/"` | The relay page OAuth comes back through, ending in `/`: its `client.json` is grog's client ID metadata document. A fork has its own ([`pages/`](../pages/README.md)) |
+| `stateDir` | `null` | What's connected and its tokens, changed settings, memory, the mic's switch, usage, computers, the MCP servers you added (`catalog/`), their tools (`tools/`) and your choices for them (`tools.json`). `null`: `$STATE_DIRECTORY` or `~/.local/state/grog` |
 | `providers.openai.auth` | `"auto"` | `"subscription"` or `"api-key"` to force one |
 | `providers.openai.model` | `"gpt-6-luna"` | Model with an API key |
 | `providers.openai.subscription.model` | `"gpt-6-luna"` | Model with the subscription |
@@ -267,12 +349,17 @@ JSON keys are lowerCamelCase.
 | `GET /v1/status` | `name`, its `revision`, `provider`, `model`, the account, `changed` settings, `usage`, whether someone is talking to it (`busy`), and how the last update goes (`update`) |
 | `DELETE /v1/settings` | Puts the settings changed by asking back |
 | `GET /v1/models` | `{"models": [{"id", "description", "current"...}]}` |
-| `GET /v1/integrations` | `{"integrations": [{"id", "title", "heading", "about", "icon", "ways", "multiple", "connections"}], "connect"}`: what it can [connect to](#connecting-things), what's connected (`{"id", "name", "detail", "status", "addedAt"}`, `status` being `connected` or `signed-out`), and the last session |
-| `POST /v1/integrations/<id>/connect` `{"way"}` | Opens a session connecting it (`way`: its usual one without), or goes on with the one open: `{"integration", "heading", "way", "status", "step", "link", "until"...}`, `step` saying what to do now (`{"kind": "device-code", "code", "url"}`, `{"kind": "oauth", "url", "backTo"}`, `{"kind": "script", "command"}`...), `link` its page on the network |
+| `GET /v1/integrations` | `{"integrations": [{"id", "title", "heading", "about", "icon", "ways", "multiple", "connections"}], "connect"}`: what it can [connect to](#connecting-things), [MCP servers](#mcp-servers) with `"mcp": true`, `added` (you added it) and `cloud`; what's connected (`{"id", "name", "detail", "status", "addedAt"}`, `status` being `connected` or `signed-out`, `detail` like `12 tools`); and the last session |
+| `POST /v1/integrations` `{"name"}`, `{"package"}` or `{"url"}` | Adds an MCP server: its name in the MCP Registry, `npm:pkg@1.2.3` or `pypi:pkg==1.2.3`, or its address. `{"id", "integration"}`; a 400 saying why it can't run here, a 502 when the registry doesn't answer |
+| `DELETE /v1/integrations/<id>` | Removes an MCP server you added, disconnecting it first: `{"id", "removed"}` |
+| `GET /v1/integrations/search?q=...` | Servers of the MCP Registry whose name holds it, up to 20: `{"servers": [{"name", "title", "description", "version", "runs"}]}`, `runs` being `npm`, `pypi`, `remote`, or null when grog can't run it. The registry can take 30 s; a 502 when it doesn't answer |
+| `POST /v1/integrations/<id>/connect` `{"way"}` | Opens a session connecting it (`way`: its usual one without), or goes on with the one open: `{"integration", "heading", "way", "status", "step", "link", "until"...}`, `step` saying what to do now (`{"kind": "device-code", "code", "url"}`, `{"kind": "oauth", "url", "backTo"}`, `{"kind": "form", "fields"}`, `{"kind": "script", "command"}`, `{"kind": "confirm", "question", "detail"}`, `{"kind": "link", "url", "message"}`...), `link` its page on the network. Asking first and what a server asks for open sessions too (`integration` `ask` and `elicit`) |
 | `GET /v1/connect` | The last session, the same way (`status`: `open`, `done`, `denied`, `expired`, `cancelled` or `failed`), without what only its page shows; `{}` before any |
 | `DELETE /v1/connect` | Cancels it |
-| `POST /v1/connect/allow`, `POST /v1/connect/deny` | Allows what its step asks to be allowed (a computer, its `code` the same on both screens), or not |
-| `DELETE /v1/connections/<id>` | Disconnects it: signs out (`openai`), or forgets a computer (`computer:NAME`) after asking it to stop letting grog in, if it can be reached (`{"name", "unpaired"}`) |
+| `POST /v1/connect/allow`, `POST /v1/connect/deny` | Allows what its step asks to be allowed (a computer, its `code` the same on both screens; a tool call asked first; a page opened, done), or not |
+| `DELETE /v1/connections/<id>` | Disconnects it: signs out (`openai`), forgets a computer (`computer:NAME`) after asking it to stop letting grog in, if it can be reached (`{"name", "unpaired"}`), or stops an MCP server, revoking its tokens when it can |
+| `GET /v1/connections/<id>/tools` | An MCP server's tools: `{"tools": [{"name", "title", "description", "mode", "defaultMode", "shown", "defaultShown", "readOnly", "destructive", "openWorld"}]}`, `mode` being `allow`, `ask` or `deny`. A 404 when it isn't one |
+| `PUT /v1/connections/<id>/tools/<name>` `{"mode", "show"}` | Sets either or both (null: back to the default), kept in `tools.json`: the tool, as above |
 | `GET /v1/qr?text=...` | Its QR code, as SVG, for the skin |
 | `GET /v1/events` | What it's up to, as server-sent events: a `snapshot`, then each change ([`events.clj`](src/grog/events.clj)) |
 | `POST /v1/voice` `{"state", "conversationId", "heard"}` | grog-voice saying what it's doing, and with captions what it heard. Answers `{"captions", "name"}` |
@@ -287,7 +374,8 @@ middle of it ends the text with `[error] ...`, or comes as an `error` event.
 While a session is open, grog also listens on `integrations.port`, on the
 network: the session's page at `/c/<token>`, which asks `/c/<token>/state`
 how it goes, and posts what's entered there as JSON; `/c/callback`, where
-a browser signing in may come back to; and while a computer pairs, what
+a browser signing in may come back to (straight, or through the relay
+page); and while a computer pairs, what
 pairs it at `/` (and a page saying to run it, for browsers), then answers
 it in text the script reads, a line of `key=value` each
 ([`pairing.clj`](src/grog/pairing.clj)).
@@ -295,13 +383,14 @@ it in text the script reads, a line of `key=value` each
 ## Security
 
 - There's no login: it only listens on localhost, and any local user can
-  use it. Web pages can't, since requests need an allowed `Host` and POST
-  and DELETE need `Content-Type: application/json` (no CORS).
+  use it. Web pages can't, since requests need an allowed `Host` and POST,
+  PUT and DELETE need `Content-Type: application/json` (no CORS).
 - On NixOS it runs as a dynamic user, in a tight systemd sandbox.
 - Tokens, changed settings and memory are only readable by it. Logs never
   have what's said, only which tools ran.
 - Its hands can do anything their user can (on NixOS, anything at all),
-  without asking, except in a turn that searched the web. So can anyone who
+  without asking, except in a turn that read what others wrote (a web
+  search, an open-world tool). So can anyone who
   runs code in grog with `nrepl.enable`, and any local user can take its
   actions, like restarting the machine (`POST /v1/actions/<name>`).
 - Updating runs what was pushed to grog's flake input, as root: whoever can
@@ -319,6 +408,21 @@ it in text the script reads, a line of `key=value` each
   network you trust. Then anyone who can talk to grog, or reach it as a
   local user, can ask it for what that computer allows, as its user. What
   it asks first needs someone at the computer.
+- MCP servers you add aren't checked by grog: they're your call. Packages
+  run in the runner, apart from grog: on NixOS a dynamic user of its own,
+  with no access to grog's state or anyone's home, and the only place
+  memory may be both writable and executable (Node's JIT). Remote servers,
+  those in the cloud above all, see what grog sends them. A server only
+  gets its own secrets, from `secrets/`: in its environment, or its
+  headers. What it asks for in a form crosses the network in plain HTTP,
+  like a secret typed while connecting it.
+- What servers answer is untrusted, like a web page: tools of servers you
+  added count as changing things and as reading what others wrote, so
+  nothing changes after them in that turn, and destructive ones ask first.
+  What tools are given and answer is never logged.
+- The relay page sees OAuth codes, never tokens: a code is useless without
+  the verifier grog keeps (PKCE). The state it reads has grog's address on
+  your network, which isn't secret.
 - Any local user can watch `/v1/events`, which has what's said, and what
   tools were used with (commands, searches), with `skin.captions`; and
   while something connects, the link to its page, with its token.

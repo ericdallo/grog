@@ -19,7 +19,7 @@
   ([port]
    (assistant/new-context (-> config/defaults
                               (assoc :name "Jarvis" :state-dir (h/temp-dir))
-                              (assoc :integrations {:host "127.0.0.1" :port port})))))
+                              (update :integrations merge {:host "127.0.0.1" :port port})))))
 
 (defn ^:private session [ctx]
   (connect/view @(:connect ctx)))
@@ -188,8 +188,8 @@
 
 (defn ^:private oauth-integration
   "Signs in through a browser coming back to `redirect-uri`: the grant
-  traded goes to `granted`."
-  [redirect-uri granted]
+  traded goes to `granted`; `opts` go to oauth! too."
+  [redirect-uri granted & [opts]]
   {:id "fake"
    :title "Fake"
    :heading "Sign in to Fake"
@@ -197,6 +197,8 @@
    :start! (fn [ctx {:keys [generation]} _]
              (connect/oauth! ctx generation
                              {:redirect-uri redirect-uri
+                              :issuer (:issuer opts)
+                              :iss-required? (:iss-required? opts)
                               :authorize-url (fn [{:keys [challenge state redirect-uri]}]
                                                (str "https://fake.example/authorize?"
                                                     (oauth/form-encode {:code_challenge challenge :state state
@@ -267,6 +269,61 @@
           (is (= "lan" (:code @granted))))
         (finally
           (connect/stop! ctx)))))
+  (testing "coming back through the relay page"
+    (let [ctx (context)
+          granted (atom nil)]
+      (try
+        (let [{:keys [step link]} (connect/open! ctx (oauth-integration {:relay "https://relay.example/oauth/"} granted) nil)
+              {:keys [state redirect_uri]} (query (:url step))
+              at (second (re-find #"http://([^/]+)/c/" link))
+              back-to (str "http://" at "/c/callback?")]
+          (is (= "https://relay.example/oauth/callback/" redirect_uri (:back-to step)))
+          (is (re-matches #"127\.0\.0\.1:\d+~[A-Za-z0-9_-]{43}" state) "saying where grog is")
+          (is (= at (first (str/split state #"~"))))
+          (testing "the whole state, not only its random part"
+            (is (str/includes? (:body (http/get (str back-to (oauth/form-encode {:code "c" :state (second (str/split state #"~"))}))))
+                               "doesn't belong"))
+            (is (= "open" (:status (session ctx)))))
+          (is (str/includes? (:body (http/get (str back-to (oauth/form-encode {:code "relayed" :state state}))))
+                             "Signed in to Jarvis"))
+          (is (= {:code "relayed" :redirect-uri "https://relay.example/oauth/callback/"}
+                 (select-keys @granted [:code :redirect-uri]))))
+        (finally
+          (connect/stop! ctx)))))
+  (testing "pasting the relay page's address"
+    (let [ctx (context)
+          granted (atom nil)]
+      (try
+        (let [{:keys [step link]} (connect/open! ctx (oauth-integration {:relay "https://relay.example/oauth/"} granted) nil)
+              {:keys [state]} (query (:url step))]
+          (is (= [200 {:ok true}]
+                 (post (str link "/oauth")
+                       {:url (str "https://relay.example/oauth/callback/?" (oauth/form-encode {:code "pasted" :state state}))})))
+          (is (= "pasted" (:code @granted))))
+        (finally
+          (connect/stop! ctx)))))
+  (testing "the relay page, without grog on the network"
+    (with-open [busy (ServerSocket. 0 50 (InetAddress/getByName "127.0.0.1"))]
+      (let [ctx (context (.getLocalPort busy))]
+        (try
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"isn't on the network"
+                                (connect/open! ctx (oauth-integration {:relay "https://relay.example/oauth/"} (atom nil)) nil)))
+          (finally
+            (connect/stop! ctx))))))
+  (testing "an issuer that always says who it is"
+    (doseq [[params outcome] [[{} "failed"]
+                              [{:iss "https://evil.example"} "failed"]
+                              [{:iss "https://fake.example"} "done"]]]
+      (let [ctx (context)]
+        (try
+          (let [{:keys [step]} (connect/open! ctx (oauth-integration :lan (atom nil) {:issuer "https://fake.example"
+                                                                                      :iss-required? true})
+                                              nil)
+                {:keys [state]} (query (:url step))]
+            (http/get (str (:back-to step) "?" (oauth/form-encode (merge {:code "c" :state state} params))))
+            (is (= outcome (:status (session ctx))) (pr-str params)))
+          (finally
+            (connect/stop! ctx))))))
   (testing "refused by the provider, or what it gave back"
     (doseq [[params error] [["error=access_denied&error_description=Denied" "Denied"]
                             ["code=bad" "Fake refused the code"]]]
@@ -404,5 +461,187 @@
         (is (= "/hello while open" (:body (http/get (str root "/hello")))))
         (connect/open! ctx (ways-integration (atom [])) nil)
         (is (= 404 (:status (http/get (str root "/hello") {:throw false}))) "only while its session is the last"))
+      (finally
+        (connect/stop! ctx)))))
+
+(defn ^:private ask-integration
+  "Asks whoever is at grog `question`, telling `decided` the answer."
+  [question decided]
+  {:id "ask"
+   :title "Tools"
+   :heading "Allow a tool?"
+   :ways [{:id "ask"}]
+   :start! (fn [ctx {:keys [generation]} _]
+             (connect/confirm! ctx generation
+                               {:question question
+                                :detail "ha__HassTurnOff"
+                                :decide! #(do (reset! decided %)
+                                              (if %
+                                                (connect/done! ctx generation nil)
+                                                (connect/deny! ctx generation)))}))})
+
+(deftest asking-at-grog
+  (let [ctx (context)
+        decided (atom nil)]
+    (try
+      (testing "a session made up for it, while none is open"
+        (let [{:keys [link] :as opened} (connect/open! ctx (ask-integration "Turn off the alarm?" decided) nil
+                                                       {:unless-busy? true})]
+          (is (= {:integration "ask" :heading "Allow a tool?" :ways [{:id "ask"}] :status "open"
+                  :step {:kind "confirm" :question "Turn off the alarm?" :detail "ha__HassTurnOff"}}
+                 (select-keys opened [:integration :heading :ways :status :step])))
+          (is (= opened (:connect (events/snapshot (:events ctx)))))
+          (testing "its page"
+            (is (= 200 (first (get* link))))
+            (is (= {:kind "confirm" :question "Turn off the alarm?" :detail "ha__HassTurnOff"}
+                   (:step (second (get* (str link "/state"))))))
+            (is (= 200 (first (post (str link "/way") {:way "ask"})))))
+          (testing "another, while it's open: busy"
+            (let [e (try (connect/open! ctx (ask-integration "Unlock the door?" decided) nil {:unless-busy? true})
+                         nil
+                         (catch clojure.lang.ExceptionInfo e e))]
+              (is (= ::connect/busy (:type (ex-data e))))
+              (is (= "Turn off the alarm?" (get-in (session ctx) [:step :question])))))
+          (testing "allowed at grog"
+            (is (= "done" (:status (connect/decide! ctx true))))
+            (is (true? @decided)))))
+      (testing "or not"
+        (connect/open! ctx (ask-integration "Unlock the door?" decided) nil {:unless-busy? true})
+        (is (= "denied" (:status (connect/decide! ctx false))))
+        (is (false? @decided)))
+      (testing "not while something is connecting"
+        (connect/open! ctx (compare-integration) nil)
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (connect/open! ctx (ask-integration "Unlock the door?" decided) nil {:unless-busy? true})))
+        (is (= "gadget" (:integration (session ctx)))))
+      (finally
+        (connect/stop! ctx)))))
+
+(deftest asking-for-a-while
+  (let [ctx (context)
+        now (System/currentTimeMillis)]
+    (try
+      (let [{:keys [until]} (connect/open! ctx (ask-integration "Turn off the alarm?" (atom nil)) nil {:window-ms 300})]
+        (is (<= (+ now 300) until (+ now 1300)))
+        (is (status-becomes ctx "expired")))
+      (finally
+        (connect/stop! ctx)))))
+
+(defn ^:private link-integration [done]
+  {:id "elicit"
+   :title "GitHub"
+   :heading "GitHub asks"
+   :ways [{:id "ask"}]
+   :start! (fn [ctx {:keys [generation]} _]
+             (connect/link! ctx generation
+                            {:url "https://github.com/login/device?x=1"
+                             :message "Sign in to GitHub to go on"
+                             :done! #(do (reset! done true)
+                                         (connect/done! ctx generation "github"))}))})
+
+(deftest a-link-to-open
+  (let [ctx (context)
+        done (atom false)]
+    (try
+      (let [{:keys [link step]} (connect/open! ctx (link-integration done) nil)]
+        (is (= {:kind "link" :url "https://github.com/login/device?x=1" :message "Sign in to GitHub to go on"} step))
+        (is (= step (:step (session ctx))) "whoever watches sees it, for its QR code")
+        (is (= step (:step (second (get* (str link "/state"))))))
+        (testing "done there"
+          (is (= {:status "done" :connected "github"} (select-keys (connect/decide! ctx true) [:status :connected])))
+          (is (true? @done))))
+      (testing "cancelled"
+        (reset! done false)
+        (connect/open! ctx (link-integration done) nil)
+        (is (= "cancelled" (:status (connect/cancel! ctx))))
+        (is (false? @done)))
+      (testing "or not"
+        (connect/open! ctx (link-integration done) nil)
+        (is (= "denied" (:status (connect/decide! ctx false))))
+        (is (false? @done)))
+      (finally
+        (connect/stop! ctx)))))
+
+(defn ^:private value-of [field v]
+  (get (connect/form-values [(assoc field :id "x" :label "X")] {:x v}) "x" ::none))
+
+(defn ^:private refusal [field v]
+  (try (value-of field v)
+       nil
+       (catch clojure.lang.ExceptionInfo e (ex-message e))))
+
+(def ^:private colors
+  [{:value "red" :label "Red"} {:value "green" :label "Green"} {:value "blue" :label "Blue"}])
+
+(deftest typed-fields
+  (testing "text, as before"
+    (is (= "hi" (value-of {} " hi ")))
+    (is (= ::none (value-of {:optional true} "  ")))
+    (is (= "X: fill it in" (refusal {} nil)))
+    (is (= "X: text" (refusal {} 3)))
+    (is (= "X: too long" (refusal {} (apply str (repeat 2049 "a"))))))
+  (testing "text in a format"
+    (is (= "greg@example.com" (value-of {:format "email"} "greg@example.com")))
+    (is (= "X: not an email address" (refusal {:format "email"} "greg")))
+    (is (= "https://example.com/a" (value-of {:format "uri"} "https://example.com/a")))
+    (is (= "X: not an address (https://...)" (refusal {:format "uri"} "example com")))
+    (is (= "2026-10-22" (value-of {:format "date"} "2026-10-22")))
+    (is (some? (refusal {:format "date"} "2026-13-40")))
+    (is (= "2026-10-22T14:05" (value-of {:format "date-time"} "2026-10-22T14:05")))
+    (is (= "2026-10-22T14:05:00Z" (value-of {:format "date-time"} "2026-10-22T14:05:00Z")))
+    (is (some? (refusal {:format "date-time"} "tomorrow")))
+    (is (= "X: at least 3 characters" (refusal {:min 3} "ab"))))
+  (testing "numbers"
+    (is (= 2.5 (value-of {:type "number"} "2.5")))
+    (is (= 2.5 (value-of {:type "number"} 2.5)))
+    (is (= 4 (value-of {:type "integer"} "4")))
+    (is (instance? Long (value-of {:type "integer"} 4)))
+    (is (= "X: a whole number" (refusal {:type "integer"} "4.5")))
+    (is (= "X: a number" (refusal {:type "number"} "four")))
+    (is (= "X: a number" (refusal {:type "number"} "NaN")))
+    (is (= "X: at least 1" (refusal {:type "integer" :min 1 :max 10} 0)))
+    (is (= "X: at most 10" (refusal {:type "integer" :min 1 :max 10} "11")))
+    (is (= "X: fill it in" (refusal {:type "number"} "")))
+    (is (= ::none (value-of {:type "number" :optional true} ""))))
+  (testing "yes or no: unchecked is no"
+    (is (true? (value-of {:type "boolean"} true)))
+    (is (false? (value-of {:type "boolean"} nil)))
+    (is (false? (value-of {:type "boolean" :optional true} nil)))
+    (is (= "X: yes or no" (refusal {:type "boolean"} "maybe"))))
+  (testing "one choice"
+    (is (= "green" (value-of {:type "choice" :choices colors} "green")))
+    (is (= "X: pick one of the choices" (refusal {:type "choice" :choices colors} "pink")))
+    (is (= "X: pick one" (refusal {:type "choice" :choices colors} "")))
+    (is (= ::none (value-of {:type "choice" :choices colors :optional true} nil))))
+  (testing "choices"
+    (is (= ["red" "blue"] (value-of {:type "choices" :choices colors} ["red" "blue" "red"])))
+    (is (= "X: pick among the choices" (refusal {:type "choices" :choices colors} ["red" "pink"])))
+    (is (= "X: at most 1 of them" (refusal {:type "choices" :choices colors :max 1} ["red" "blue"])))
+    (is (= "X: at least 2 of them" (refusal {:type "choices" :choices colors :min 2} ["red"])))
+    (is (= "X: pick one" (refusal {:type "choices" :choices colors} [])))
+    (is (= [] (value-of {:type "choices" :choices colors :min 0} [])))
+    (is (= ::none (value-of {:type "choices" :choices colors :optional true} [])))))
+
+(deftest a-typed-form-on-the-page
+  (let [ctx (context)
+        entered (atom nil)
+        fields [{:id "volume" :label "Volume" :type "integer" :min 0 :max 100 :default 40}
+                {:id "loud" :label "Loud" :type "boolean" :description "Louder at night too"}
+                {:id "color" :label "Color" :type "choice" :choices colors :default "red"}
+                {:id "rooms" :label "Rooms" :type "choices" :choices colors :optional true}
+                {:id "mail" :label "Mail" :format "email" :optional true}]
+        integration {:id "typed" :title "Typed" :heading "A few things" :ways [{:id "ask"}]
+                     :start! (fn [ctx {:keys [generation]} _]
+                               (connect/form! ctx generation
+                                              {:fields fields
+                                               :submit! #(do (reset! entered %)
+                                                             (connect/done! ctx generation nil))}))}]
+    (try
+      (let [{:keys [link]} (connect/open! ctx integration nil)]
+        (is (= 200 (first (get* link))))
+        (is (= {:kind "form" :fields fields} (:step (second (get* (str link "/state"))))))
+        (is (= [400 {:error "Volume: at most 100"}] (post (str link "/form") {:volume "200" :color "red"})))
+        (is (= [200 {:ok true}] (post (str link "/form") {:volume "70" :loud true :color "blue" :rooms ["green"]})))
+        (is (= {"volume" 70 "loud" true "color" "blue" "rooms" ["green"]} @entered)))
       (finally
         (connect/stop! ctx)))))

@@ -22,6 +22,13 @@ grog's skin: a page showing what grog is up to, for a screen next to it.
   Cancel, and then how it went. With nothing to pay with, it shows how to
   sign in by itself: a code to enter on a phone or computer, and what
   ChatGPT has to allow once per account.
+- The same card when grog asks something of whoever is at it: whether to
+  go ahead with a tool that asks first (Allow, Deny), what an MCP server
+  needs in the middle of a call (a form, on grog's page, behind the link
+  and QR code), or a page a server wants opened (its QR code, then Done).
+  Only when nothing else is on the card.
+- An MCP server's tools (`<server>__<tool>`) show as the tool in words,
+  with the server when it fits: "Create issue · github".
 
 ## Touching it
 
@@ -31,7 +38,9 @@ On a touch screen, or with a mouse:
   stops it. With its mic off, it turns it on and listens.
 - The button by the clock opens its actions: the volume, the mic, a new
   conversation, its integrations (signing in to ChatGPT or out of it,
-  adding a computer, forgetting one), updating grog, restarting it or the
+  adding a computer, forgetting one, connecting an MCP server, with how
+  many tools it has, whether you added it, which grog didn't check, and
+  whether it's in the cloud), updating grog, restarting it or the
   machine, and turning the machine off. Those that can't be undone take a
   second tap. They close by themselves after a while. Its version is at
   the bottom.

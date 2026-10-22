@@ -26,7 +26,7 @@
 (deftest connects-something
   (let [ctx (assistant/new-context (-> config/defaults
                                        (assoc :state-dir (h/temp-dir))
-                                       (assoc :integrations {:host "127.0.0.1" :port 0})))]
+                                       (update :integrations merge {:host "127.0.0.1" :port 0})))]
     (try
       (is (= {:integration "computer" :status "open"}
              (select-keys (actions/perform! ctx "connect" {:integration "computer"}) [:integration :status])))

@@ -383,6 +383,17 @@ ol {
   opacity: 0.75;
 }
 
+/* What's asked at grog, to allow or not, or why a link is to be opened. */
+.card .question {
+  margin-bottom: 1.6vmin;
+  font: 700 4.6vmin/1.2 var(--text);
+  overflow-wrap: anywhere;
+}
+
+.card.with-qr .question {
+  font-size: 3.4vmin;
+}
+
 .card .hint {
   color: var(--muted);
   font-size: 2.4vmin;
@@ -468,6 +479,7 @@ ol {
 }
 
 .card-detail:empty,
+.card .question:empty,
 .card .hint:empty,
 .card .url:empty,
 .card .code:empty,

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+  <meta name="referrer" content="no-referrer">
+  <title>grog's OAuth relay</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 1.5rem;
+      background: #2f3542;
+      color: #ffffff;
+      font: 1.05rem/1.5 "Inter", "Cantarell", system-ui, sans-serif;
+    }
+    main { max-width: 34rem; margin: 0 auto; }
+    a { color: #1e90ff; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>grog's OAuth relay</h1>
+    <p>When you connect a service to <a href="https://github.com/ericdallo/grog">grog</a>, a home voice assistant, the service sends your browser back here, and this page only forwards it to grog on your home network. It never sees tokens: what passes through is a one-time code that's useless without the secret grog keeps (PKCE).</p>
+  </main>
+</body>
+</html>

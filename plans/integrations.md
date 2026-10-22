@@ -46,8 +46,98 @@ phases land.
   - The page offers an integration's other ways (signing in in a browser
     rather than with a code), on the same link.
   - Nothing uses the `form` step yet, nor `/c/callback`: they're tested
-    with made-up integrations.
-- Next: phase 2 (see "Phases"), MCP.
+    with made-up integrations. (Phase 2 uses both.)
+- Phase 2 is built (October 2026): MCP servers as integrations.
+  - `grog.mcp`, the client: tools (listing every page, calling, the list
+    changing) and elicitation, over stdio or Streamable HTTP.
+  - `grog.catalog`, the entries as `server.json` (shipped in
+    `resources/grog/integrations/`, added ones in `<state>/catalog/`),
+    and `grog.registry`: the official MCP Registry's v0.1 API (search,
+    a server's latest version), and entries made from a package spec
+    (`npm:name@1.2.3`, `pypi:name==1.2.3`) or an address.
+  - `grog.mcp-connect`, connecting one on the engine: a form for what it
+    needs, then grog starts or reaches it and lists its tools; adding,
+    removing, searching. `grog.mcp-auth`: protected resource metadata (RFC
+    9728), authorization server metadata (RFC 8414, OpenID discovery), the
+    client (one the user made, grog's client ID metadata document, dynamic
+    registration), PKCE, the resource (RFC 8707), the issuer (RFC 9207),
+    refreshing, revoking on disconnect. The engine's `oauth` step comes
+    back through the relay page (`{:relay base}`).
+  - `grog.servers`, the live servers: started on first use (a package
+    through the runner, a remote with its token, refreshed), stopped after
+    10 minutes without calls (checked every minute), their tool lists kept
+    in `<state>/tools/<id>.json`.
+  - `grog.mcp-tools`, the model's tools: `<prefix>__<tool>`, which are
+    shown, the guards, the policy. `grog.tools` grew `:open-world?`:
+    after such a tool, as after a web search, nothing changes in the turn.
+    `grog.asks`, asking first; `grog.elicit`, what a server asks mid-call;
+    and the engine's new steps for them, `confirm` and `link`, and typed
+    form fields (number, integer, boolean, choice, choices, formats).
+  - `grog.runner`, `grog mcp --socket`: `services.grog.mcp` on NixOS, on in
+    grognix with `programs.nix-ld`.
+  - The relay page, `pages/oauth/` (`client.json`, `callback/` with its
+    logic in `relay.js`, tested with `node --test`), published by
+    `.github/workflows/pages.yml`; the `integrations.relay` and
+    `integrations.runner` settings.
+  - The API (`POST /v1/integrations`, `DELETE /v1/integrations/<id>`,
+    `GET /v1/integrations/search`, `GET /v1/connections/<id>/tools`,
+    `PUT /v1/connections/<id>/tools/<name>`), the CLI (`grog integrations
+    add`, `remove`, `search`; `grog tools`), and the skin (the card's
+    `confirm` and `link`, Integrations saying which servers the user added,
+    which are in the cloud, and how many tools each has; labels for
+    `<server>__<tool>`).
+- Where phase 2 differs from what's below:
+  - MCP 2026-07-28 is stateless: no `initialize`, every request carries
+    grog's revision, capabilities and client info in its `_meta`, grog
+    asks `server/discover` first, tool calls over HTTP name the tool in
+    headers (`Mcp-Name`, and `x-mcp-header` arguments), tool lists say how
+    long they're good for (`ttlMs`), and elicitation comes back as an
+    `input_required` result, answered by calling again with the answers.
+    Servers that don't know it get the handshake of 2025-11-25 (down to
+    2025-03-26), with elicitation as requests of their own; a stdio server
+    not answering `server/discover` in 5 s is taken for one of those.
+  - No catalog entries ship yet: Home Assistant is phase 3. grog's own
+    tools stay Clojure tools, not servers inside it, and there are no
+    capability tools (`music`, `lights`) yet.
+  - grog's `_meta` fields are `id`, `prefix`, `icon`, `about`, `show`,
+    `policy`, `cloud` and `added`: `connect` steps and `capabilities` aren't
+    read yet. What connecting asks comes from `server.json`: a package's
+    environment variables and arguments' variables, a remote's headers and
+    the variables in its address, in a form (`isSecret` warned about).
+    Everything of grog's `_meta` in an entry the user added is dropped, and
+    its annotations aren't trusted: its tools count as changing things and
+    as open-world, though those marked read-only or non-destructive don't
+    ask first.
+  - A package is preferred to a remote when an entry has both and the
+    runner is set. Packages only from npm's and PyPI's public registries,
+    versions pinned; remotes over https, or http on the local network; no
+    OCI images, MCPB bundles or SSE remotes. Added remotes outside the
+    local network count as in the cloud.
+  - Asking first works across turns: the call doesn't run, the model asks,
+    and the same call (same arguments, same conversation, a later turn,
+    within 5 minutes) runs. The card asks too, when it's free, for 2
+    minutes: Allow says yes for the user, as a message in that
+    conversation, which starts a turn; Deny forgets it.
+  - Tools' modes and whether they're shown are kept in `tools.json`,
+    changed with `grog tools` or the API: no screen for them yet. Shown by
+    default: the entry's `show`, else the first 40.
+  - Elicitation is answered on the card and the page (a form, or a link
+    with its QR code and Done), only when the card is free, within 3
+    minutes; not by voice yet.
+  - Servers are added from the CLI or the API only, not from the screen.
+    The registry's search is slow (often 20 s or more; grog waits 30 s).
+  - A connection's `detail` says how many tools it has. One whose token
+    can't be refreshed, or that answers 401, becomes `signed-out`.
+  - The runner keeps a server only while grog's connection to it is open;
+    grog closes it after 10 minutes without calls. It logs what a server
+    says on stderr until it first answers (npm's and uv's errors), never
+    later. On NixOS, uv uses nixpkgs' Python (`UV_PYTHON`, downloads off).
+  - `client.json` names only the relay's callback, no loopback address:
+    signing in to MCP servers always goes through the relay page (or the
+    address pasted on grog's page).
+  - A 403 asking for more scopes (`insufficient_scope`) isn't handled yet:
+    the call fails (`grog.mcp-auth/step-up-scope` is there, unused).
+- Next: phase 3 (see "Phases"), Home Assistant.
 
 ## What it should feel like
 
@@ -541,9 +631,14 @@ just the brain too.
 
 ## To check when building
 
-- The MCP revision at the time (2026-07-28 now): client ID metadata
-  documents, dynamic registration deprecated, the issuer check, resource
-  indicators, elicitation's modes, tool annotations.
+- Checked in phase 2: the MCP revision at the time, 2026-07-28: client ID
+  metadata documents, dynamic registration deprecated, the issuer check,
+  resource indicators, elicitation's form and URL modes, tool annotations,
+  and what's new in it (stateless, `server/discover`, `input_required`
+  results; see "Where it stands").
+- `npx` and `uvx` on NixOS: Node runs under the runner's hardening but for
+  `MemoryDenyWriteExecute`, and grognix has nix-ld. Which servers need it
+  is still to see, on real ones.
 - Spotify: whether its own remote MCP server (pilot) takes grog's client ID
   document; Developer Mode's rules then; go-librespot's API, and whether
   zeroconf credentials are enough to start playback from its API; the
@@ -553,8 +648,6 @@ just the brain too.
 - Home Assistant: `/api/mcp` taking tokens from its OAuth (not only
   long-lived ones), and its rules for an `http` client id on the network.
 - Tuya: Brazilian brands' apps, and an MCP server on the sharing SDK.
-- `npx` and `uvx` on NixOS: which servers need nix-ld; Node under systemd's
-  hardening.
 - Music on grognix: transcription's CPU, false wakes.
 - mDNS from grog's sandbox: multicast from Babashka, or avahi.
 

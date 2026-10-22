@@ -88,10 +88,34 @@ export function capitalize(s) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
-/** A tool by its name: {label, done, short, icon}. */
+// How long an MCP server's tool label gets with its server's prefix.
+const CONTEXT_MAX = 32;
+
+/** An MCP tool's name in words: "create_issue" or "createIssue" is "Create issue". */
+function words(name) {
+  const spaced = String(name)
+    .replace(/([a-z0-9])([A-Z])(?=[a-z])/g, (_, a, b) => `${a} ${b.toLowerCase()}`)
+    .replace(/[_.\-\s]+/g, " ")
+    .trim();
+  return capitalize(spaced || "tool");
+}
+
+/**
+ * A tool by its name: {label, done, short, icon}. An MCP server's tools
+ * are named <prefix>__<tool> (brain/src/grog/mcp_tools.clj): the tool in
+ * words, with its prefix when there's room ("Create issue · github").
+ */
 export function tool(name) {
   if (TOOLS[name]) return TOOLS[name];
-  const label = capitalize(String(name ?? "tool").replaceAll("_", " "));
+  const str = String(name ?? "tool");
+  const at = str.indexOf("__");
+  if (at > 0 && at + 2 < str.length) {
+    const short = words(str.slice(at + 2));
+    const prefix = str.slice(0, at);
+    const label = short.length + prefix.length + 3 <= CONTEXT_MAX ? `${short} · ${prefix}` : short;
+    return { label, done: label, short, icon: "tool" };
+  }
+  const label = capitalize(str.replaceAll("_", " "));
   return { label, done: label, short: label, icon: "tool" };
 }
 
@@ -478,6 +502,22 @@ export function tap(state, now, offline = false) {
  * connection disconnects (disconnect:<id>, a second tap), and what can have
  * several lists each, with its own.
  */
+/**
+ * What integration `i` is, under its name: what it's for, and for MCP
+ * servers whether the user added it (grog didn't check it) and whether it's
+ * in the cloud.
+ */
+export function integrationDetail(i) {
+  if (!i?.mcp) return i?.about ?? "";
+  const about = i.added ? "added by you, not checked by grog" : (i.about ?? "");
+  return [about, i.cloud ? "in the cloud" : ""].filter(Boolean).join(" · ");
+}
+
+/** What connection `c` is: its name, and what it has ("12 tools"). */
+function connectionDetail(c, fallback) {
+  return [c.name, c.detail].filter(Boolean).join(" · ") || fallback;
+}
+
 function integrationItems(integrations) {
   return (integrations ?? []).flatMap((i) => {
     const icon = i.icon ?? "tool";
@@ -492,12 +532,12 @@ function integrationItems(integrations) {
     });
     if (i.multiple) {
       return [
-        { id: `connect:${i.id}`, kind: "button", label: i.heading ?? i.title, icon, detail: i.about ?? "" },
+        { id: `connect:${i.id}`, kind: "button", label: i.heading ?? i.title, icon, detail: integrationDetail(i) },
         ...(i.connections ?? []).map((c) => disconnect(c, c.name ?? c.id, c.detail ?? "")),
       ];
     }
-    if (one?.status === "connected") return [disconnect(one, i.title, one.name ?? "connected")];
-    const detail = one ? "needs signing in again" : (i.about ?? "");
+    if (one?.status === "connected") return [disconnect(one, i.title, connectionDetail(one, "connected"))];
+    const detail = one ? "needs signing in again" : integrationDetail(i);
     return [{ id: `connect:${i.id}`, kind: "button", label: i.heading ?? i.title, icon, detail }];
   });
 }
@@ -687,6 +727,15 @@ export function qrSrc(text) {
   return text ? `/v1/qr?text=${encodeURIComponent(text)}` : null;
 }
 
+/** Where `url` goes: github.com; the URL as it is when it isn't one. */
+export function host(url) {
+  try {
+    return new URL(url).host || String(url ?? "");
+  } catch {
+    return String(url ?? "");
+  }
+}
+
 /** A pairing code as it's shown: 482 913. */
 export function spacedCode(code) {
   const s = String(code ?? "");
@@ -701,6 +750,7 @@ function cardOf(fields) {
     stage: "",
     title: "",
     detail: "",
+    question: "",
     qr: null,
     hint: "",
     link: "",
@@ -770,12 +820,35 @@ function openCard(c, now) {
           { id: "connect-deny", label: "Deny", primary: false },
         ],
       });
+    case "confirm":
+      return cardOf({
+        ...base,
+        question: step.question ?? "",
+        note: step.detail ?? "",
+        buttons: [
+          { id: "connect-allow", label: "Allow", primary: true },
+          { id: "connect-deny", label: "Deny", primary: false },
+        ],
+      });
+    case "link":
+      return cardOf({
+        ...base,
+        question: step.message ?? "",
+        qr: qrSrc(step.url),
+        hint: step.url ? "Scan it to open a page on" : "",
+        link: host(step.url),
+        buttons: [{ id: "connect-allow", label: "Done", primary: true }, CANCEL],
+      });
     case "wait":
       return cardOf({ ...base, note: step.note ?? "", buttons: [] });
     default:
       return cardOf({ ...base, note: c.kept ? "Getting a code…" : "Getting ready…" });
   }
 }
+
+// What grog asks at its card, for a tool (brain/src/grog/asks.clj) or a
+// server (elicit.clj): sessions that connect nothing.
+const ASKING = ["ask", "elicit"];
 
 /** How the session `c` ended, or null when there's nothing to say. */
 function outcomeCard(c) {
@@ -784,6 +857,9 @@ function outcomeCard(c) {
   if (c.kept && c.status !== "done") return null;
   switch (c.status) {
     case "done":
+      // What was asked at grog connected nothing.
+      if (c.integration === "ask" || c.step?.kind === "confirm") return cardOf({ ...base, note: "allowed" });
+      if (ASKING.includes(c.integration) || c.step?.kind === "link") return cardOf({ ...base, note: "done" });
       return cardOf({ ...base, title: `Connected: ${c.connected ?? c.title ?? ""}` });
     case "denied":
       return cardOf({ ...base, note: `${c.step?.name ?? "It"} wasn't allowed` });
@@ -817,10 +893,12 @@ function signInCard(state, now) {
  * Connecting something to grog (brain/src/grog/connect.clj), in place of what
  * was said and done: while a session is open, what to do now; how it ended,
  * for a while; and how to sign in while grog has nothing to pay with. null
- * otherwise. {stage, title, detail, qr, hint, link, hint2, code, command,
- * note, error, expires, help, failed, buttons}: `stage`, its step's kind (or
- * starting) while it's open, else how it ended, or sign-in; `qr`, where its
- * QR code is; `link`, grog's page for it, without its scheme; `help`, what
+ * otherwise. {stage, title, detail, question, qr, hint, link, hint2, code,
+ * command, note, error, expires, help, failed, buttons}: `stage`, its step's
+ * kind (or starting) while it's open, else how it ended, or sign-in;
+ * `question`, what's asked at grog (or why a link is to be opened); `qr`,
+ * where its QR code is; `link`, grog's page for it, without its scheme (or
+ * where a link step's page is); `help`, what
  * may have to be done first ({text, url, shortUrl}); `buttons`, what can be
  * asked then ({id, label, primary}, see request()).
  */

@@ -1,0 +1,9 @@
+{
+  "client_id": "https://ericdallo.github.io/grog/oauth/client.json",
+  "client_name": "grog",
+  "client_uri": "https://github.com/ericdallo/grog",
+  "redirect_uris": ["https://ericdallo.github.io/grog/oauth/callback/"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none"
+}

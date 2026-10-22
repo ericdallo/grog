@@ -5,8 +5,12 @@
     :name :description :parameters  what the model sees (parameters: a JSON
                                     schema)
     :changes?  (fn [args]): whether running it changes something. Those don't
-               run in a turn that searched the web, as a page could have told
-               the model to.
+               run in a turn that read what others wrote (searched the web,
+               or ran an :open-world? tool), as it could have told the model
+               to.
+    :open-world?  optional: whether what it answers may carry someone else's
+               text (an MCP server's mail, a page), so nothing changes after
+               it in that turn.
     :run       (fn [ctx args turn]): the result for the model, text or data
                (sent as JSON). Throws ex-info to tell it what went wrong.
                `turn`: {:id the conversation, :n its turn number, :searched?
@@ -23,6 +27,7 @@
             [grog.integrations :as integrations]
             [grog.log :as log]
             [grog.machine :as machine]
+            [grog.mcp-tools :as mcp-tools]
             [grog.memory :as memory]
             [grog.settings :as settings]
             [grog.update :as update]
@@ -32,7 +37,8 @@
   "The tools for a turn: grog's own (its settings, memory and microphone),
   the machine's when it has hands, `power` when it can restart itself or
   the machine, `update` when it can update itself, `computer` with
-  computers paired with it, and `connect`, to connect something."
+  computers paired with it, those of the MCP servers connected to it
+  (grog.mcp-tools), and `connect`, to connect something."
   [config]
   (let [power (actions/tool config)
         updating (update/tool config)
@@ -42,6 +48,7 @@
       power (conj power)
       updating (conj updating)
       computing (conj computing)
+      true (into (mcp-tools/tools config))
       true (conj (integrations/tool config)))))
 
 (defn definitions
@@ -71,20 +78,25 @@
 
 (defn runner
   "Runs the model's calls of `tools` during `turn`: (fn [name args]) -> what
-  to tell the model, never throwing."
+  to tell the model, never throwing. Once it ran an :open-world? tool, as
+  after a web search, nothing that changes runs in that turn."
   [ctx tools {:keys [searched?] :as turn}]
-  (let [by-name (into {} (map (juxt :name identity)) tools)]
+  (let [by-name (into {} (map (juxt :name identity)) tools)
+        read-others? (atom false)]
     (fn [name args]
-      (let [{:keys [run changes?] :as tool} (get by-name name)]
+      (let [{:keys [run changes? open-world?] :as tool} (get by-name name)]
         (cond
           (nil? tool)
           (str "error: there's no tool called " name)
 
-          (and (searched?) (changes? args))
-          "error: nothing is changed in a turn that searched the web; ask the user to say it again"
+          (and (or (searched?) @read-others?) (changes? args))
+          (str "error: nothing is changed in a turn that read what others wrote, like a web search: "
+               "ask the user to say it again")
 
           :else
           (try
+            (when open-world?
+              (reset! read-others? true))
             (tell-detail! tool args turn)
             (let [result (run ctx args turn)]
               (if (string? result) result (json/generate-string result)))

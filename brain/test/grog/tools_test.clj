@@ -54,8 +54,18 @@
         (is (not (str/includes? log "secret")))))
     (testing "after a web search, it doesn't change anything, but still reads"
       (reset! searched? true)
-      (is (str/starts-with? (run "echo" {:change 1}) "error: nothing is changed in a turn that searched the web"))
+      (is (= (str "error: nothing is changed in a turn that read what others wrote, like a web search: "
+                  "ask the user to say it again")
+             (run "echo" {:change 1})))
       (is (= "{\"say\":\"oi\"}" (run "echo" {:say "oi"}))))))
+
+(deftest after-reading-what-others-wrote
+  (let [mail (assoc echo :name "mail" :open-world? true :changes? (constantly false))
+        run (tools/runner {} [echo mail] {:searched? (constantly false)})]
+    (is (= "{\"change\":1}" (run "echo" {:change 1})) "before, it changes things")
+    (is (= "{\"say\":\"oi\"}" (run "mail" {:say "oi"})))
+    (is (str/starts-with? (run "echo" {:change 1}) "error: nothing is changed in a turn that read what others wrote"))
+    (is (= "{\"say\":\"oi\"}" (run "echo" {:say "oi"})) "it still reads")))
 
 (deftest tells-what-a-tool-is-used-with
   (let [told (atom [])

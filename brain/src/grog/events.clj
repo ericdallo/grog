@@ -44,7 +44,8 @@
                sent with the events changing it (and the snapshot)
     :integrations  what grog can connect to, and what's connected, as
                grog.integrations/summary tells: [{:id :title :heading
-               :about :icon :ways :multiple :connections}], no secrets
+               :about :icon :ways :multiple :connections}], MCP servers'
+               with :mcp :added :cloud, no secrets
     :connect   the last session connecting something, as grog.connect/view
                tells: {:integration :title :heading :way :ways :status
                :kept :until :at :step :link :error :connected}, its :step

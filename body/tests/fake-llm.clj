@@ -6,7 +6,8 @@
 ;; received, so the tests can check the credentials, the system prompt and the
 ;; conversation history. Asked for the forecast, it searches the web first,
 ;; like the real model; asked to be called Jarvis, who runs the commands, for
-;; the volume, or to restart, it uses grog's tools (see `calls`).
+;; the volume, or to restart, it uses grog's tools (see `calls`); told "use
+;; tool <name> <json>", any tool (`asked-tool`).
 (require '[cheshire.core :as json]
          '[clojure.string :as str]
          '[org.httpkit.server :as http])
@@ -82,14 +83,32 @@
    ["como está o pc" "computer" "{\"computer\":\"pc\",\"action\":\"status\"}"]
    ["rode no pc" "computer" "{\"computer\":\"pc\",\"action\":\"shell\",\"command\":\"id -un\"}"]])
 
+(defn asked-tool
+  "[tool arguments] when the user says \"use tool <name> <json arguments>\":
+  any tool, an MCP server's say. Told to go ahead, what the user asked
+  before."
+  [input]
+  (let [said (map #(str (:content %)) (filter #(= "user" (:role %)) input))
+        said (if (str/includes? (str (last said)) "go ahead") (last (butlast said)) (last said))]
+    (when-let [[_ tool arguments] (re-find #"use tool (\S+) (\{.*\})" (str said))]
+      [tool arguments])))
+
 (defn tool-call
   "[tool arguments] the model calls for the request, or nil."
   [{:keys [input tools]}]
   (let [said (str (:content (last (filter #(= "user" (:role %)) input))))]
-    (some (fn [[phrase tool arguments]]
-            (when (and (str/includes? said phrase) (some #(= tool (:name %)) tools))
-              [tool arguments]))
-          calls)))
+    (or (asked-tool input)
+        (some (fn [[phrase tool arguments]]
+                (when (and (str/includes? said phrase) (some #(= tool (:name %)) tools))
+                  [tool arguments]))
+              calls))))
+
+(defn missing-tool
+  "What the model says when asked to use a tool it isn't offered, or nil."
+  [{:keys [tools] :as body}]
+  (when-let [[tool] (tool-call body)]
+    (when-not (some #(= tool (:name %)) tools)
+      (str "No tool " tool ", only " (str/join " " (keep :name tools))))))
 
 (defn call-stream [[tool arguments]]
   (sse {:type "response.output_item.added"
@@ -130,6 +149,7 @@
     (case uri
       "/v1/responses" (stream (cond
                                 (tool-result body) (responses-stream (after-tool (tool-result body)) false)
+                                (missing-tool body) (responses-stream (missing-tool body) false)
                                 (tool-call body) (call-stream (tool-call body))
                                 :else (responses-stream (summary (:input body) (bearer req) (:instructions body))
                                                         (searches? body))))

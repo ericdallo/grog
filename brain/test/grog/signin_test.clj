@@ -25,7 +25,7 @@
    (server/start! (-> config/defaults
                       (assoc :provider "openai" :state-dir state-dir)
                       (assoc-in [:server :port] 0)
-                      (assoc :integrations {:host "127.0.0.1" :port 0})
+                      (update :integrations merge {:host "127.0.0.1" :port 0})
                       (assoc-in [:providers :openai :api-key-env] "GROG_TEST_UNSET_VAR")
                       (assoc-in [:providers :openai :subscription :auth-url] auth-url)
                       (assoc-in [:providers :openai :subscription :base-url] (str auth-url "/codex"))

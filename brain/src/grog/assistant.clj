@@ -23,7 +23,8 @@
   to remember, the conversation histories, how many turns there were (each
   turn's number), what grog is up to, for whoever watches (grog.events),
   what it asks of grog-voice (grog.voice), what it consumed (grog.usage),
-  and how connecting something goes (grog.connect)."
+  how connecting something goes (grog.connect), the MCP servers running
+  (grog.servers) and the calls asked of the user first (grog.asks)."
   [config]
   (let [overrides (settings/load-overrides config)
         live-config (atom (settings/apply-overrides config overrides))]
@@ -41,7 +42,9 @@
      :usage (atom (usage/load-days config))
      :quota (atom nil)
      :quota-failing? (atom false)
-     :connect (atom nil)}))
+     :connect (atom nil)
+     :servers (atom {})
+     :asks (atom {})}))
 
 (defn publish-status!
   "Tells whoever watches (grog.events) who grog is (its revision too), how

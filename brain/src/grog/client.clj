@@ -6,7 +6,8 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [grog.config :as config]
-            [grog.update :as update]))
+            [grog.update :as update])
+  (:import (java.net URLEncoder)))
 
 (def default-url "http://127.0.0.1:8484")
 
@@ -20,14 +21,14 @@
           url (or (ex-message e) (.getName (class e)))))
 
 (defn ^:private call
-  "A JSON request to the server, POST and DELETE sending `params`. Returns
+  "A JSON request to the server, POST, PUT and DELETE sending `params`. Returns
   [true body] or [false error-message]."
   ([method url path]
    (call method url path {}))
   ([method url path params]
    (try
      (let [resp (http/request (cond-> {:method method :uri (str url path) :throw false}
-                                (#{:post :delete} method)
+                                (#{:post :put :delete} method)
                                 (assoc :headers {"content-type" "application/json"} :body (config/generate params))))
            body (try (config/parse (:body resp)) (catch Exception _ nil))]
        (if (= 200 (:status resp))
@@ -75,11 +76,25 @@
   (println)
   (println "Waiting (Ctrl-C to stop)..."))
 
+(defn ^:private loopback?
+  "Whether `url` comes back to this machine."
+  [url]
+  (boolean (re-find #"^https?://(localhost|127\.0\.0\.1|\[::1\])[:/]" (str url))))
+
 (defn ^:private say-oauth
   "How to sign in in a browser, at the session's step: where, when this is
   who opened it."
   [{:keys [title link] {:keys [url back-to]} :step}]
-  (if url
+  (cond
+    (and url (not (loopback? back-to)))
+    (do (println (str "Sign in with your " title " account, on a phone or computer on grog's network, at:"))
+        (println)
+        (println (str "  " url))
+        (when link
+          (println)
+          (println (str "or open grog's page there: " link))))
+
+    url
     (let [port (second (re-find #":(\d+)/" (str back-to)))]
       (println (str "Sign in with your " title " account at:"))
       (println)
@@ -90,6 +105,8 @@
       (println (format "  ssh -L %s:127.0.0.1:%s <user>@<this machine>" port port))
       (when link
         (println (str "or paste the address it ended at on grog's page, " link))))
+
+    :else
     (println (str "Sign in on grog's page: " link)))
   (println)
   (println "Waiting for the browser (Ctrl-C to stop)..."))
@@ -104,6 +121,22 @@
   (println (format "or open %s in its browser. It takes an SSH server there, and nothing to install." address))
   (println "Waiting for it (Ctrl-C to stop)..."))
 
+(defn ^:private say-form
+  "Where to fill in what the session's step asks for: grog's page."
+  [{:keys [title link]}]
+  (println (str title " needs a few things from you: fill them in on grog's page, from a phone or computer"))
+  (println "on its network:")
+  (println)
+  (println (str "  " link))
+  (println)
+  (println "Waiting (Ctrl-C to stop)..."))
+
+(defn ^:private say-link
+  "The page the session's step asks to open."
+  [{{:keys [url message]} :step}]
+  (when-not (str/blank? message) (println message))
+  (println (str "Open: " url)))
+
 (defn ^:private ask-to-allow!
   "Asks here whether to allow the computer asking, at the session's step
   (someone at grog's screen may answer first)."
@@ -116,11 +149,15 @@
 
 (defn ^:private said-of
   "What was said of the session's step, for it to be said once."
-  [{{:keys [kind code back-to command]} :step}]
+  [{{:keys [kind code back-to command] :as step} :step}]
   [kind (case kind
           ("device-code" "code-compare") code
           "oauth" back-to
           "script" command
+          "form" (mapv :id (:fields step))
+          "wait" (:note step)
+          "confirm" (:question step)
+          "link" (:url step)
           nil)])
 
 (defn ^:private say!
@@ -137,12 +174,16 @@
             "oauth" (say-oauth session)
             "script" (say-script session)
             "code-compare" (ask-to-allow! url session)
+            "form" (say-form session)
+            "wait" (some-> (:note step) println)
+            "confirm" (println (str (:question step) " (answer on grog's screen)"))
+            "link" (say-link session)
             nil)
           (flush)
           (conj said what)))))
 
 ;; What `grog connect` says once it's over, by integration: the provider's
-;; sign-in by default.
+;; sign-in by default, :mcp for MCP servers.
 (def ^:private outcomes
   {"computer" {"done" "Paired: %s. Ask grog to act on it."
                "failed" "Pairing failed: %s"
@@ -153,17 +194,22 @@
              "failed" "Sign-in failed: %s"
              "denied" "It wasn't allowed."
              "expired" "The sign-in expired."
-             "cancelled" "The sign-in was cancelled."}})
+             "cancelled" "The sign-in was cancelled."}
+   :mcp {"done" "Connected: %s. Ask grog to use it (grog tools <id> lists its tools)."
+         "failed" "Connecting failed: %s"
+         "denied" "It wasn't allowed."
+         "expired" "It took too long: try again."
+         "cancelled" "It was cancelled."}})
 
 (defn ^:private follow
   "Says what to do as the `session` just opened goes, until it's over:
   whether it connected. Signing in with codes goes on with a new one when
   the session's time is up."
-  [url session]
+  [url session mcp?]
   (loop [{:keys [status integration] :as session} session
          said #{}]
     (let [said (say! url session said)
-          texts (get outcomes integration (:sign-in outcomes))]
+          texts (if mcp? (:mcp outcomes) (get outcomes integration (:sign-in outcomes)))]
       (case status
         "open"
         (do (Thread/sleep 1000)
@@ -174,7 +220,7 @@
                 :else (recur now said))))
 
         "done"
-        (do (println (format (texts "done") (:connected session)))
+        (do (println (str/replace (format (texts "done") (:connected session)) "<id>" integration))
             true)
 
         "expired"
@@ -192,9 +238,11 @@
   "Connects integration `id` (`way`: how, nil for its usual way), saying
   what to do as it goes, until it's over: whether it connected."
   [url id way]
-  (let [[ok? session] (call :post url (str "/v1/integrations/" id "/connect") (cond-> {} way (assoc :way way)))]
+  (let [[ok? session] (call :post url (str "/v1/integrations/" id "/connect") (cond-> {} way (assoc :way way)))
+        [_ listed] (when ok? (call :get url "/v1/integrations"))
+        mcp? (some #(and (= id (:id %)) (:mcp %)) (:integrations listed))]
     (if ok?
-      (follow url session)
+      (follow url session (boolean mcp?))
       (fail session))))
 
 (defn login!
@@ -397,14 +445,147 @@
                            (some->> added-at day (str "since "))])]
     (str/trimr (format "  %-18s %s" id (str/join ", " said)))))
 
+(defn integration-heading
+  "An integration as `grog integrations` heads it: its title, how to
+  connect it, and for MCP servers whether the user added it (grog didn't
+  check it) and whether it's in the cloud."
+  [{:keys [id title added cloud]}]
+  (let [notes (remove nil? [(when added "added by you") (when cloud "in the cloud")])]
+    (str (format "%s (grog connect %s)" title id)
+         (when (seq notes) (str ": " (str/join ", " notes))))))
+
+(defn add-request
+  "What `grog integrations add` asks grog for, from what it was given: a
+  package (npm:..., pypi:...), an address, or a name in the MCP Registry."
+  [what]
+  (let [what (str/trim (str what))]
+    (cond
+      (re-find #"^(npm|pypi):" what) {:package what}
+      (re-find #"(?i)^https?://" what) {:url what}
+      :else {:name what})))
+
+(defn added-lines
+  "What `grog integrations add` says once grog added the server `request`
+  asked for, as integration `id`."
+  [request id {:keys [cloud]}]
+  (let [{:keys [package url]} request
+        kind (some->> package (re-find #"^(npm|pypi):") second {"npm" "npm" "pypi" "PyPI"})]
+    (remove nil?
+            [(format "Added %s: connect it with grog connect %s" id id)
+             (cond
+               package (str "grog didn't check it: it runs code from " kind " (" package "), apart from grog.")
+               url (str "grog didn't check it: grog talks to " url " and does what it says.")
+               :else "grog didn't check it: it runs code from npm or PyPI apart from grog, or talks to its address.")
+             (when cloud "It's in the cloud: what grog sends it leaves home.")])))
+
+(defn add-integration!
+  "Adds the MCP server `what` names to what grog can connect to."
+  [url what]
+  (let [request (add-request what)
+        [ok? {:keys [id integration] :as body}] (call :post url "/v1/integrations" request)]
+    (if ok?
+      (do (run! println (added-lines request id integration))
+          true)
+      (fail body))))
+
+(defn remove-integration!
+  "Removes the MCP server the user added as `id`, disconnecting it first."
+  [url id]
+  (let [[ok? body] (call :delete url (str "/v1/integrations/" id))]
+    (if ok?
+      (do (println (str "Removed " id "."))
+          true)
+      (fail body))))
+
+(def ^:private line-max 100)
+
+(defn ^:private cut [s n]
+  (let [s (str/trim (str/replace (str s) #"\s+" " "))]
+    (if (> (count s) n) (str (subs s 0 (max 0 (dec n))) "…") s)))
+
+(defn search-line
+  "A server the MCP Registry found, as `grog integrations search` lists it:
+  its name, version, what grog runs it with, and what it is, cut short."
+  [{:keys [name version runs title description]}]
+  (let [head (format "%s %s (%s)" name (or version "?") (or runs "can't run here"))
+        about (str/join ": " (remove str/blank? [title description]))]
+    (if (str/blank? about)
+      head
+      (str head "  " (cut about (- line-max 2 (count head)))))))
+
+(defn search!
+  "Lists the servers of the MCP Registry whose name holds `text`."
+  [url text]
+  (println "Searching the MCP Registry (it can take a while)...")
+  (flush)
+  (let [[ok? body] (call :get url (str "/v1/integrations/search?q=" (URLEncoder/encode (str text) "UTF-8")))]
+    (cond
+      (not ok?) (fail body)
+      (empty? (:servers body)) (do (println (str "Nothing found for \"" text "\"."))
+                                   true)
+      :else (do (run! (comp println search-line) (:servers body))
+                (println)
+                (println "Add one: grog integrations add <name>")
+                true))))
+
+(defn ^:private encode-path [s]
+  (str/replace (URLEncoder/encode (str s) "UTF-8") "+" "%20"))
+
+(defn tool-line
+  "A tool of a connection as `grog tools` lists it, its name `width`
+  wide: what grog does with it, whether the model sees it, its title."
+  [width {:keys [name title mode default-mode shown]}]
+  (str/trimr (format (str "  %-" width "s  %-14s %-7s %s")
+                     name
+                     (str mode (when (= mode default-mode) " (default)"))
+                     (if shown "shown" "hidden")
+                     (if (= title name) "" (or title "")))))
+
+(defn tools!
+  "Lists the tools of connection `id`, an MCP server's, and what grog does
+  with each."
+  [url id]
+  (let [[ok? body] (call :get url (str "/v1/connections/" id "/tools"))
+        tools (:tools body)
+        width (reduce max 4 (map (comp count :name) tools))]
+    (cond
+      (not ok?) (fail body)
+      (empty? tools) (do (println (str id " has no tools."))
+                         true)
+      :else (do (run! (comp println (partial tool-line width)) tools)
+                (println)
+                (println (str "Change one: grog tools " id " <tool> allow|ask|deny|show|hide|default"))
+                true))))
+
+(def tool-choices
+  "What `grog tools <connection> <tool>` can set, and what it asks grog for."
+  {"allow" {:mode "allow"}
+   "ask" {:mode "ask"}
+   "deny" {:mode "deny"}
+   "show" {:show true}
+   "hide" {:show false}
+   "default" {:mode nil :show nil}})
+
+(defn set-tool!
+  "Sets what grog does with `tool` of connection `id`: `choice`, one of
+  `tool-choices`."
+  [url id tool choice]
+  (if-let [chosen (tool-choices choice)]
+    (let [[ok? body] (call :put url (str "/v1/connections/" id "/tools/" (encode-path tool)) chosen)]
+      (if ok?
+        (do (println (str/triml (tool-line (count (:name body)) body)))
+            true)
+        (fail body)))
+    (fail (str "Say allow, ask, deny, show, hide or default, not " (pr-str choice) "."))))
+
 (defn integrations!
   "Lists what grog can connect to, and what's connected."
   [url]
   (let [[ok? body] (call :get url "/v1/integrations")]
     (if-not ok?
       (fail body)
-      (do (doseq [{:keys [id title connections]} (:integrations body)]
-            (println (format "%s (grog connect %s)" title id))
+      (do (doseq [{:keys [connections] :as integration} (:integrations body)]
+            (println (integration-heading integration))
             (if (seq connections)
               (run! (comp println connection-line) connections)
               (println "  nothing connected")))

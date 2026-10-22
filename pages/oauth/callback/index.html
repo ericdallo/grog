@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex">
+  <title>Back to grog</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #2f3542;
+      --card: #3b414d;
+      --ink: #ffffff;
+      --muted: #a4b0be;
+      --line: #4a4f5b;
+      --accent: #1e90ff;
+      --red: #ff4757;
+    }
+    body {
+      margin: 0;
+      padding: 1.5rem;
+      background: var(--bg);
+      color: var(--ink);
+      font: 1.05rem/1.5 "Inter", "Cantarell", system-ui, sans-serif;
+    }
+    main {
+      max-width: 34rem;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 1.5rem;
+      margin: 0 0 1rem;
+    }
+    #status {
+      border-left: 4px solid var(--accent);
+      padding-left: 0.75rem;
+    }
+    body[data-state="refused"] #status,
+    #problem {
+      border-left: 4px solid var(--red);
+      padding-left: 0.75rem;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 1rem;
+      margin-top: 1.5rem;
+    }
+    .card p {
+      margin-top: 0;
+      color: var(--muted);
+    }
+    .row {
+      display: flex;
+      gap: 0.5rem;
+    }
+    input {
+      flex: 1;
+      min-width: 0;
+      padding: 0.6rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--ink);
+      font: 0.9rem "JetBrains Mono", "DejaVu Sans Mono", monospace;
+    }
+    button {
+      padding: 0.6rem 1rem;
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #ffffff;
+      font: inherit;
+      font-weight: 600;
+    }
+  </style>
+  <script type="module" src="relay.js"></script>
+</head>
+<body>
+  <main>
+    <h1>Back to grog</h1>
+    <p id="status" hidden></p>
+    <p id="problem" hidden></p>
+    <noscript><p>This page needs JavaScript to send you back to grog.</p></noscript>
+    <div class="card">
+      <p>If your browser doesn't go on to grog (some ask first, or don't let pages on the internet open addresses on your home network), copy this page's whole address and paste it into grog's page.</p>
+      <div class="row">
+        <input id="address" readonly aria-label="This page's address">
+        <button id="copy" type="button">Copy</button>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

@@ -56,7 +56,7 @@ const $ = (id) => document.getElementById(id);
 const els = Object.fromEntries(
   ["name", "model", "account", "clock", "date", "avatar", "label", "detail", "timer"]
     .concat(["chat", "chat-end", "pipeline", "usage"])
-    .concat(["card", "card-title", "card-detail", "card-qr", "card-hint", "card-link", "card-hint2", "card-code"])
+    .concat(["card", "card-title", "card-detail", "card-question", "card-qr", "card-hint", "card-link", "card-hint2", "card-code"])
     .concat(["card-command", "card-expires", "card-note", "card-error", "card-help", "card-help-text"])
     .concat(["card-help-url", "card-buttons", "card-asked"])
     .concat(["open-actions", "close-actions", "sheet", "items", "sheet-error", "sheet-version", "notice"])
@@ -300,6 +300,7 @@ function drawCard(t) {
     els.card.classList.toggle("with-qr", Boolean(v.qr));
     setText(els["card-title"], v.title);
     setText(els["card-detail"], v.detail);
+    setText(els["card-question"], v.question);
     setText(els["card-hint"], v.hint);
     setText(els["card-link"], v.link);
     setText(els["card-hint2"], v.hint2);

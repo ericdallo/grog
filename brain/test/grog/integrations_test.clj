@@ -12,7 +12,7 @@
 (defn ^:private context []
   (assistant/new-context (-> config/defaults
                              (assoc :state-dir (h/temp-dir))
-                             (assoc :integrations {:host "127.0.0.1" :port 0}))))
+                             (update :integrations merge {:host "127.0.0.1" :port 0}))))
 
 (deftest what-can-be-connected
   (let [ctx (context)

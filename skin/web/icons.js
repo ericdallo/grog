@@ -20,6 +20,7 @@ export const ICONS = {
   "no-mic": '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M4 4l16 16"/>',
   offline: '<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>',
   key: '<circle cx="8" cy="16" r="4.5"/><path d="M11.2 12.8L20 4M16.5 7.5l2.8 2.8M13.8 10.2l2 2"/>',
+  plug: '<path d="M9 3.5V8M15 3.5V8M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0zM12 17v3.5"/>',
   menu: '<circle cx="5.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18.5" cy="12" r="1.2"/>',
   close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
   stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/>',

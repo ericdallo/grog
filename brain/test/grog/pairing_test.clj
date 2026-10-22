@@ -27,7 +27,7 @@
         srv (server/start! (-> config/defaults
                                (assoc :name "grog" :state-dir (str (fs/path dir "state")))
                                (assoc-in [:server :port] 0)
-                               (assoc :integrations {:host "127.0.0.1" :port (h/free-port)})
+                               (update :integrations merge {:host "127.0.0.1" :port (h/free-port)})
                                (assoc-in [:computers :ssh] (h/script! dir "ssh" ssh))
                                ;; Not OpenAI's.
                                (assoc-in [:providers :openai :subscription :auth-url] "http://127.0.0.1:1")))

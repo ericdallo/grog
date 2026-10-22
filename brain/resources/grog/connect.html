@@ -153,7 +153,8 @@
         display: block;
         margin: 0 0 1rem;
       }
-      form input {
+      form input,
+      form select {
         display: block;
         width: 100%;
         box-sizing: border-box;
@@ -164,6 +165,43 @@
         background: var(--card);
         color: var(--ink);
         font: 1rem var(--mono);
+      }
+      form .field {
+        margin: 0 0 1rem;
+      }
+      form fieldset {
+        margin: 0 0 1rem;
+        padding: 0;
+        border: 0;
+      }
+      form legend {
+        padding: 0;
+      }
+      form .description {
+        display: block;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      /* A checkbox or a radio button, before its label. */
+      form label.tick {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin: 0.35rem 0 0;
+      }
+      form label.tick input {
+        width: 1.2rem;
+        height: 1.2rem;
+        margin: 0;
+        accent-color: var(--amber);
+      }
+      .question {
+        font-size: 1.4rem;
+        font-weight: 700;
+      }
+      a.button.url {
+        font-family: var(--mono);
+        font-weight: 500;
       }
     </style>
   </head>
@@ -277,20 +315,99 @@
         return answer;
       }
 
+      // The input of a text field in each format.
+      const TEXT_TYPES = { email: "email", uri: "url", date: "date", "date-time": "datetime-local" };
+
+      /** Its label, and what it says under it. */
+      function caption(field) {
+        const span = el("span", null, field.label);
+        return field.description ? [span, el("span", "description", field.description)] : [span];
+      }
+
+      /** A checkbox or a radio button, with its label. */
+      function tick(type, name, value, label, checked) {
+        const row = el("label", "tick");
+        const input = el("input");
+        input.type = type;
+        input.name = name;
+        input.value = value;
+        input.checked = checked;
+        row.append(input, el("span", null, label));
+        return [row, input];
+      }
+
+      /** One of `field`'s choices, or several: radio buttons, a list when they're many, or checkboxes. */
+      function choices(field, many) {
+        const picked = new Set([].concat(field.default ?? []).map(String));
+        if (!many && field.choices.length > 6) {
+          const row = el("label");
+          const select = el("select");
+          select.name = field.id;
+          if (field.optional || field.default === undefined) select.append(el("option", null, ""));
+          for (const c of field.choices) {
+            const option = el("option", null, c.label ?? c.value);
+            option.value = c.value;
+            option.selected = picked.has(String(c.value));
+            select.append(option);
+          }
+          row.append(...caption(field), select);
+          return [row, () => select.value];
+        }
+        const box = el("fieldset");
+        const legend = el("legend");
+        legend.append(...caption(field));
+        box.append(legend);
+        const inputs = field.choices.map((c) => {
+          const [row, input] = tick(many ? "checkbox" : "radio", field.id, c.value, c.label ?? c.value, picked.has(String(c.value)));
+          box.append(row);
+          return input;
+        });
+        const checked = () => inputs.filter((i) => i.checked).map((i) => i.value);
+        return [box, many ? checked : () => checked()[0] ?? ""];
+      }
+
+      /** What fills in `field` (see form! in connect.clj), and how to read it. */
+      function input(field) {
+        switch (field.type) {
+          case "boolean": {
+            const [row, box] = tick("checkbox", field.id, "true", field.label, field.default === true);
+            const wrap = el("div", "field");
+            wrap.append(row, ...(field.description ? [el("span", "description", field.description)] : []));
+            return [wrap, () => box.checked];
+          }
+          case "choice":
+            return choices(field, false);
+          case "choices":
+            return choices(field, true);
+          default: {
+            const row = el("label");
+            const i = el("input");
+            i.name = field.id;
+            const number = field.type === "number" || field.type === "integer";
+            i.type = field.secret ? "password" : number ? "number" : (TEXT_TYPES[field.format] ?? "text");
+            if (number) {
+              i.step = field.type === "integer" ? "1" : "any";
+              if (field.min !== undefined) i.min = field.min;
+              if (field.max !== undefined) i.max = field.max;
+            }
+            i.autocomplete = "off";
+            i.spellcheck = false;
+            if (field.example) i.placeholder = field.example;
+            if (field.default !== undefined) i.value = field.default;
+            row.append(...caption(field), i);
+            return [row, () => i.value];
+          }
+        }
+      }
+
       /** `fields` to fill in, sent as `what`, each under its id. */
       function form(what, fields, label) {
         const f = el("form");
+        f.noValidate = true;
         const inputs = fields.map((field) => {
-          const row = el("label");
-          const input = el("input");
-          input.name = field.id;
-          input.type = field.secret ? "password" : "text";
-          input.autocomplete = "off";
-          input.spellcheck = false;
-          if (field.example) input.placeholder = field.example;
-          row.append(el("span", null, field.label), input);
+          const [row, value] = input(field);
           f.append(row);
-          return input;
+          return [field.id, value];
         });
         const error = el("p", "error");
         const button = el("button", null, label);
@@ -301,7 +418,7 @@
           button.disabled = true;
           error.textContent = "";
           try {
-            await send(what, Object.fromEntries(inputs.map((i) => [i.name, i.value])));
+            await send(what, Object.fromEntries(inputs.map(([id, value]) => [id, value()])));
             refresh();
           } catch (err) {
             error.textContent = err.message;
@@ -341,6 +458,16 @@
           p(s.name ? `${s.name}${s.user ? ` (${s.user})` : ""} asks with the code` : "The code is"),
           el("div", "code", spaced(s.code)),
           p(`If ${name}'s screen shows the same, allow it there.`),
+        ],
+        confirm: (s) => [
+          p(s.question, "question"),
+          ...(s.detail ? [p(s.detail, "muted")] : []),
+          p(`Answer on ${name}: allow it or deny it on its screen.`),
+        ],
+        link: (s) => [
+          ...(s.message ? [p(s.message)] : []),
+          Object.assign(linkButton(s.url, s.url), { className: "button url" }),
+          p(`Once you're done there, say so on ${name}'s screen.`, "muted"),
         ],
         wait: (s) => [p(s.note ?? "One moment…")],
       };

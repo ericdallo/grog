@@ -1,1 +1,2 @@
-{:lint-as {grog.test-helpers/with-fake clojure.core/let}}
+{:lint-as {grog.test-helpers/with-fake clojure.core/let
+           grog.runner-test/with-runner clojure.core/fn}}

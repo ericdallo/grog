@@ -1,7 +1,8 @@
 (ns grog.integrations
-  "What grog can connect to (plans/integrations.md), for now its own:
-  signing in to the provider's subscription (grog.signin), and the user's
-  computers (grog.pairing). Each connects the same way (grog.connect), and
+  "What grog can connect to (plans/integrations.md): its own, signing in
+  to the provider's subscription (grog.signin) and the user's computers
+  (grog.pairing), and the MCP servers of its catalog (grog.catalog,
+  grog.mcp-connect). Each connects the same way (grog.connect), and
   has its connections, which `summary` tells whoever watches grog and the
   API.
 
@@ -16,13 +17,16 @@
     :disconnect!  (fn [ctx id]): disconnects connection `id`: what to answer"
   (:require [clojure.string :as str]
             [grog.connect :as connect]
+            [grog.mcp-connect :as mcp-connect]
             [grog.pairing :as pairing]
             [grog.signin :as signin]))
 
 (defn all
-  "The integrations grog has with `config`."
+  "The integrations grog has with `config`: its own, then the MCP servers
+  of its catalog (grog.mcp-connect)."
   [config]
-  (vec (remove nil? [(signin/integration (:provider config)) pairing/integration])))
+  (into (vec (remove nil? [(signin/integration (:provider config)) pairing/integration]))
+        (mcp-connect/integrations config)))
 
 (defn by-id
   "Integration `id`. Throws ex-info saying which there are, when there's
@@ -36,12 +40,14 @@
 (defn summary
   "What can be connected, and what is, for whoever watches grog and the API:
   [{:id :title :heading :about :icon :ways :multiple :connections}], no
-  secrets."
+  secrets; MCP servers' also with :mcp true, :added (the user added it,
+  grog didn't check it) and :cloud (what grog sends it leaves home)."
   [config]
-  (mapv (fn [{:keys [connections multiple?] :as integration}]
-          (assoc (select-keys integration [:id :title :heading :about :icon :ways])
-                 :multiple (boolean multiple?)
-                 :connections (connections config)))
+  (mapv (fn [{:keys [connections multiple? mcp? added? cloud?] :as integration}]
+          (cond-> (assoc (select-keys integration [:id :title :heading :about :icon :ways])
+                         :multiple (boolean multiple?)
+                         :connections (connections config))
+            mcp? (assoc :mcp true :added (boolean added?) :cloud (boolean cloud?))))
         (all config)))
 
 (defn open!

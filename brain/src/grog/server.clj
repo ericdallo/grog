@@ -13,6 +13,7 @@
             [grog.events :as events]
             [grog.log :as log]
             [grog.provider :as provider]
+            [grog.servers :as servers]
             [grog.signin :as signin]
             [grog.update :as update]
             [grog.usage :as usage]
@@ -39,6 +40,9 @@
 
 ;; How soon whoever watches sees how an update goes: a small file to read.
 (def ^:private update-check-ms 1000)
+
+;; How often MCP servers unused for a while are stopped (grog.servers).
+(def ^:private servers-check-ms (* 60 1000))
 
 (defn ^:private every!
   "Runs `f` every `ms`, in the background, starting now or after `ms`
@@ -87,7 +91,8 @@
                                                                (quot (System/currentTimeMillis) 1000)))
                   (every! login-check-ms true #(signin/keep-up! ctx))
                   (let [seen (atom nil)]
-                    (every! update-check-ms true #(update/watch! ctx seen)))]
+                    (every! update-check-ms true #(update/watch! ctx seen)))
+                  (every! servers-check-ms false #(servers/stop-idle! ctx))]
      :nrepl (when (get-in config [:nrepl :enable])
               (nrepl/start-server! (select-keys (:nrepl config) [:host :port])))}))
 
@@ -100,6 +105,7 @@
     (nrepl/stop-server! nrepl))
   (remove-watch (:connect ctx) ::connected)
   (connect/stop! ctx)
+  (servers/stop-all! ctx)
   (http/server-stop! server)
   (compare-and-set! current ctx nil))
 

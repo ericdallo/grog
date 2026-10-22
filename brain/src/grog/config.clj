@@ -51,14 +51,24 @@
    :computers {:ssh "ssh"}
    ;; Where grog listens on the network while someone at it connects
    ;; something (grog.connect), and only then: the page showing how, and
-   ;; what a computer pairing asks (grog.pairing).
-   :integrations {:host "0.0.0.0" :port 8485}
+   ;; what a computer pairing asks (grog.pairing). runner: the unix socket of
+   ;; grog's runner (`grog mcp`, grog.runner), which runs the MCP servers
+   ;; installed from npm and PyPI apart from grog; nil: grog only has its
+   ;; own and remote ones. relay: the project's page OAuth comes back
+   ;; through (grog's client ID metadata document is its client.json, and
+   ;; its callback/ sends the browser on to grog on the network).
+   :integrations {:host "0.0.0.0"
+                  :port 8485
+                  :runner nil
+                  :relay "https://ericdallo.github.io/grog/oauth/"}
    ;; Where grog keeps its files: what's connected to it (integrations.json,
    ;; their secrets in secrets/), the settings changed by asking
    ;; (settings.json), what it was told to remember (memory.json), whether
    ;; grog-voice's mic is on (voice.json), what it consumed (usage.json),
-   ;; and the computers paired with it (computers.json, its SSH key and
-   ;; their host keys in computers/).
+   ;; the computers paired with it (computers.json, its SSH key and their
+   ;; host keys in computers/), the MCP servers the user added (catalog/),
+   ;; the tools of those connected (tools/), and what the user chose for
+   ;; them (tools.json).
    ;; nil: $STATE_DIRECTORY (set by systemd) or ~/.local/state/grog.
    :state-dir nil
    ;; Settings per provider (see grog.provider).
@@ -220,6 +230,9 @@
           "computers.pairing: now integrations.host and integrations.port")
         (check config [:integrations :host] non-blank-string? "an address, like \"0.0.0.0\"")
         (check config [:integrations :port] port? "a port number")
+        (check config [:integrations :runner] (some-fn nil? non-blank-string?) "a unix socket path, or null")
+        (check config [:integrations :relay] #(and (url? %) (str/ends-with? % "/"))
+               "the address of a page, ending in /")
         (check config [:state-dir] (some-fn nil? non-blank-string?) "a directory or null")
         (check config [:provider] non-blank-string? "a provider, like \"openai\"")
         (check config [:providers] map? "the settings of each provider")]

@@ -20,6 +20,11 @@ let
   handsDir = "/run/grog-hands";
   handsSocket = "${handsDir}/hands.sock";
 
+  # grog's runner's socket: its dynamic user creates it, grog (in the group)
+  # connects.
+  mcpSocket = "/run/grog-mcp/mcp.sock";
+  mcpPython = lib.findFirst (p: lib.getName p == "python3") null cfg.mcp.packages;
+
   # How an update goes (`grog updater`, as root), for grog to read.
   updateStatus = "/run/grog-update/status.json";
 
@@ -304,6 +309,26 @@ in
       };
     };
 
+    mcp = {
+      enable = lib.mkEnableOption ''
+        grog's runner, for MCP servers from npm and PyPI: a service of its
+        own, apart from grog, with a user of its own, the network, a cache
+        and a state directory, but no access to grog's state or anyone's
+        home. It installs the servers grog asks for at run time (with npx
+        and uvx), the versions grog knows pinned'';
+
+      packages = lib.mkOption {
+        type = lib.types.listOf lib.types.package;
+        default = [ pkgs.nodejs pkgs.uv pkgs.python3 ];
+        defaultText = lib.literalExpression "[ pkgs.nodejs pkgs.uv pkgs.python3 ]";
+        description = ''
+          What servers run with, on the runner's PATH: `npx` and `uvx`, and
+          the Python uv uses (the first `python3` here: uv doesn't download
+          its own).
+        '';
+      };
+    };
+
     skin = {
       enable = lib.mkEnableOption ''
         grog's skin: a page showing what grog is up to (what it hears, the
@@ -533,6 +558,78 @@ in
               subject.user == ${builtins.toJSON cfg.hands.user}) return polkit.Result.YES;
         });
       '';
+    })
+
+    (lib.mkIf cfg.mcp.enable {
+      assertions = [{
+        assertion = cfg.enable;
+        message = "services.grog.mcp goes with grog: enable services.grog.";
+      }];
+
+      users.groups.grog-mcp = { };
+      services.grog.settings.integrations.runner = mcpSocket;
+      systemd.services.grog.serviceConfig.SupplementaryGroups = [ "grog-mcp" ];
+
+      systemd.services.grog-mcp = {
+        description = "grog's runner, for MCP servers from npm and PyPI";
+        wantedBy = [ "multi-user.target" ];
+        wants = [ "network-online.target" ];
+        after = [ "network-online.target" ];
+        path = cfg.mcp.packages;
+        environment = {
+          HOME = "/var/lib/grog-mcp";
+          XDG_CACHE_HOME = "/var/cache/grog-mcp";
+          npm_config_cache = "/var/cache/grog-mcp/npm";
+          UV_CACHE_DIR = "/var/cache/grog-mcp/uv";
+          UV_TOOL_DIR = "/var/lib/grog-mcp/uv-tools";
+          UV_PYTHON_DOWNLOADS = "never";
+        } // lib.optionalAttrs (mcpPython != null) {
+          UV_PYTHON = "${mcpPython}/bin/python3";
+        };
+
+        serviceConfig = {
+          ExecStart = "${lib.getExe cfg.package} mcp --socket ${mcpSocket}";
+          Restart = "on-failure";
+          RestartSec = 5;
+
+          DynamicUser = true;
+          # Named apart from its group: systemd won't make a dynamic user
+          # named like a static group.
+          User = "grog-mcpd";
+          # Static, for grog to be in it.
+          Group = "grog-mcp";
+          RuntimeDirectory = "grog-mcp";
+          RuntimeDirectoryMode = "0750";
+          StateDirectory = "grog-mcp";
+          CacheDirectory = "grog-mcp";
+          WorkingDirectory = "/var/lib/grog-mcp";
+
+          # Hardening: grog's, but Node's JIT needs memory that's writable
+          # and executable, and it reads /proc's CPUs and memory.
+          CapabilityBoundingSet = "";
+          LockPersonality = true;
+          NoNewPrivileges = true;
+          PrivateDevices = true;
+          PrivateTmp = true;
+          ProtectClock = true;
+          ProtectControlGroups = true;
+          ProtectHome = true;
+          ProtectHostname = true;
+          ProtectKernelLogs = true;
+          ProtectKernelModules = true;
+          ProtectKernelTunables = true;
+          ProtectProc = "invisible";
+          ProtectSystem = "strict";
+          RestrictAddressFamilies = [ "AF_INET" "AF_INET6" "AF_NETLINK" "AF_UNIX" ];
+          RestrictNamespaces = true;
+          RestrictRealtime = true;
+          RestrictSUIDSGID = true;
+          SystemCallArchitectures = "native";
+          SystemCallFilter = [ "@system-service" ];
+          SystemCallErrorNumber = "EPERM";
+          UMask = "0077";
+        };
+      };
     })
 
     (lib.mkIf cfg.skin.enable {

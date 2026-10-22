@@ -117,6 +117,9 @@
     # The volume, how the machine is doing, restarting it or grog, and a
     # shell (as grog, with sudo without a password).
     hands.enable = true;
+    # MCP servers from npm and PyPI, installed when grog first needs them,
+    # run apart from it.
+    mcp.enable = true;
     # What it's up to, at its address, and on the desktop fullscreen, over
     # GNOME's overview, keeping the screen on: Super still opens the
     # overview, F11 leaves fullscreen, Ctrl+Q closes it. With what's said:
@@ -130,6 +133,10 @@
       host = "grognix";
     };
   };
+
+  # Prebuilt binaries in npm and PyPI packages, which MCP servers bring,
+  # expect a standard Linux loader.
+  programs.nix-ld.enable = true;
 
   services.pulseaudio.enable = false;
   security.rtkit.enable = true;

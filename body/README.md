@@ -148,7 +148,31 @@ anywhere, through polkit (`power = false` doesn't).
 grog listens for it on port 8485, opened in its firewall
 (`services.grog.integrations.openFirewall`), only while someone at it
 connects something: it serves what pairs a computer there, and the page a
-phone follows the steps of a sign-in on.
+phone follows the steps of a sign-in on, or fills in what an MCP server
+needs.
+
+## MCP servers
+
+grog runs [MCP servers](../brain/README.md#mcp-servers) from npm and PyPI
+through its runner (`grog mcp`, `services.grog.mcp`, on in grognix), a
+service of its own, `grog-mcp`. It's apart from grog for two reasons:
+Node's JIT needs memory that's writable and executable, which grog's
+sandbox forbids, and code fetched at run time shouldn't share a user or
+files with grog's tokens.
+
+```nix
+services.grog.mcp.enable = true;
+```
+
+It has grog's sandbox but for that memory: a dynamic user, the network, a
+cache in `/var/cache/grog-mcp` and a state directory in
+`/var/lib/grog-mcp`, and no access to grog's state or anyone's home. It
+installs the versions grog asks for with `npx` and `uvx`, from
+`services.grog.mcp.packages` (Node, uv and Python by default: uv uses that
+Python rather than downloading its own). grog reaches it on
+`/run/grog-mcp/mcp.sock`, through the `grog-mcp` group. Some packages
+bring prebuilt binaries, which expect a standard Linux loader that NixOS
+doesn't have: grognix turns on `programs.nix-ld` for them.
 
 ## Audio
 

@@ -6,8 +6,10 @@
 # shell, the volume, root, and restarting grog when asked; what grog asks of
 # grog-voice: its mic off, listening without its name; a computer pairing
 # with it (pc, with services.grog.computer and no grog), running what grog
-# serves, which the model then acts on, as it allows; and updating grog, from
-# a flake of someone else's.
+# serves, which the model then acts on, as it allows; MCP servers the user
+# adds (fake-mcp.py): one from npm, run apart by grog's runner, and one over
+# HTTP, whose tools the model uses, asking first for those that could
+# destroy something; and updating grog, from a flake of someone else's.
 # Run: nix build .#checks.x86_64-linux.module -L
 { pkgs, module }:
 
@@ -39,6 +41,11 @@ let
     echo "$1" >> /tmp/switched
     EOF
     chmod +x "$out/bin/switch-to-configuration"
+  '';
+  # What grog's runner runs for npm:fake-mcp@1.0.0: a fake MCP server
+  # (fake-mcp.py), as if npx had fetched it.
+  fakeNpx = pkgs.writeShellScriptBin "npx" ''
+    exec ${pkgs.python3}/bin/python3 ${./fake-mcp.py} "$@"
   '';
   voice = pkgs.callPackage ../packages/grog-voice.nix { };
   models = pkgs.callPackage ../packages/voice-models.nix { };
@@ -121,6 +128,21 @@ pkgs.testers.runNixOSTest {
     systemd.services.fake-llm = {
       wantedBy = [ "multi-user.target" ];
       serviceConfig.ExecStart = "${pkgs.babashka-unwrapped}/bin/bb ${./fake-llm.clj}";
+    };
+
+    # MCP servers: from npm, through grog's runner (its npx a fake one), and
+    # one over HTTP, on this machine.
+    services.grog.mcp = {
+      enable = true;
+      packages = [ fakeNpx ];
+    };
+    systemd.services.fake-mcp = {
+      wantedBy = [ "multi-user.target" ];
+      environment.HOME = "/var/lib/fake-mcp";
+      serviceConfig = {
+        ExecStart = "${pkgs.python3}/bin/python3 ${./fake-mcp.py} --http 8700";
+        StateDirectory = "fake-mcp";
+      };
     };
 
     # Updates, from alice's flake (systemFlake), like a machine whose system
@@ -449,6 +471,102 @@ pkgs.testers.runNixOSTest {
         assert "it doesn't let grog in anymore" in (out := grog("disconnect computer:pc")), out
         pc.fail("grep -q ssh-ed25519 /home/bob/.ssh/authorized_keys")
         assert "computer:pc" not in (out := grog("integrations")), out
+
+    def ask(message, new=False):
+        """What grog answers `message`, in the conversation going on unless `new`."""
+        command = "grog ask " + ("--new " if new else "") + shlex.quote(message)
+        return machine.succeed(f"su - grog -c {shlex.quote(command)}").strip()
+
+    def uid_of(unit):
+        pid = machine.succeed(f"systemctl show -p MainPID --value {unit}").strip()
+        return machine.succeed(f"ps -o uid= -p {pid}").strip()
+
+    def ran(call):
+        """Whether the npm server ran `call` (its tool and arguments, as it notes them)."""
+        return f"grep -qxF {shlex.quote(call)} /var/lib/private/grog-mcp/calls.log"
+
+    # The npm server, as the runner runs it (not this shell, whose command has it too).
+    npm_server = "pgrep -u grog-mcpd -f '[f]ake-mcp.py --yes fake-mcp@1.0.0'"
+
+    with subtest("grog's runner runs MCP servers apart, its socket only for grog"):
+        machine.wait_for_unit("grog-mcp.service")
+        machine.wait_until_succeeds("test -S /run/grog-mcp/mcp.sock")
+        machine.succeed("stat -c '%a %G' /run/grog-mcp/mcp.sock | grep -qx '660 grog-mcp'")
+        machine.succeed("stat -c '%a %G' /run/grog-mcp | grep -qx '750 grog-mcp'")
+        machine.fail("su - alice -c 'ls /run/grog-mcp'")
+        machine.succeed("systemctl show -p DynamicUser grog-mcp | grep -q yes")
+        assert uid_of("grog-mcp") != uid_of("grog")
+
+    with subtest("an MCP server from npm is added and connected, and its tools reach the model"):
+        out = grog("integrations add npm:fake-mcp@1.0.0")
+        assert "Added fake-mcp: connect it with grog connect fake-mcp" in out, out
+        assert "Connected: fake." in (out := grog("connect fake-mcp")), out
+        listed = grog("integrations")
+        assert re.search(r"(?m)^fake-mcp \(grog connect fake-mcp\): added by you$", listed), listed
+        assert re.search(r"(?m)^  fake-mcp +fake, 3 tools(, since |$)", listed), listed
+        tools = grog("tools fake-mcp")
+        assert re.search(r"(?m)^ *lamp_on +allow \(default\) +shown +Turn a lamp on$", tools), tools
+        assert re.search(r"(?m)^ *alarm_off +ask \(default\) +shown$", tools), tools
+        assert re.search(r"(?m)^ *whoami +allow \(default\) +shown$", tools), tools
+        # The fake model lists the tools it's offered when it isn't offered one.
+        offered = ask("use tool fake-mcp__nothing {}", new=True).split()
+        assert {"fake-mcp__lamp_on", "fake-mcp__alarm_off", "fake-mcp__whoami"} <= set(offered), offered
+
+    with subtest("the model uses its tools, through the runner"):
+        out = ask('use tool fake-mcp__lamp_on {"room": "kitchen"}', new=True)
+        assert out == "Feito: the lamp is on in kitchen", out
+        machine.succeed(ran('lamp_on {"room": "kitchen"}'))
+        machine.succeed(npm_server)
+
+    with subtest("what runs there can't read grog's state"):
+        out = ask("use tool fake-mcp__whoami {}", new=True)
+        found = re.fullmatch(r"Feito: uid=(\d+); grog's state isn't readable \(\w+\)", out)
+        assert found, out
+        assert found.group(1) == uid_of("grog-mcp") != uid_of("grog"), out
+
+    with subtest("a destructive tool asks first, and runs once the user says yes"):
+        out = ask("use tool fake-mcp__alarm_off {}", new=True)
+        assert out.startswith("Feito: not done yet: ") and "asks the user first" in out, out
+        machine.fail(ran("alarm_off {}"))
+        # grog's screen asks too.
+        machine.wait_until_succeeds("curl -sf http://127.0.0.1:8484/v1/connect | grep -q '\"kind\":\"confirm\"'")
+        assert (question := session()["step"]["question"]) == "fake-mcp: alarm_off?", question
+        # The user said yes: the model calls it again.
+        assert (out := ask("use tool fake-mcp__alarm_off {}")) == "Feito: the alarm is off in the room", out
+        machine.succeed(ran("alarm_off {}"))
+        assert (status := session()["status"]) == "done", status
+
+    with subtest("or once someone allows it on grog's screen, which says yes for them"):
+        out = ask('use tool fake-mcp__alarm_off {"room": "hall"}', new=True)
+        assert "asks the user first" in out, out
+        machine.wait_until_succeeds("curl -sf http://127.0.0.1:8484/v1/connect | grep -q '\"kind\":\"confirm\"'")
+        machine.succeed(
+            "curl -sf -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8484/v1/connect/allow"
+        )
+        machine.wait_until_succeeds(ran('alarm_off {"room": "hall"}'))
+        machine.wait_until_succeeds("curl -sf http://127.0.0.1:8484/v1/connect | grep -q '\"status\":\"done\"'")
+
+    with subtest("an MCP server on the network, over HTTP, the same way"):
+        machine.wait_for_open_port(8700)
+        out = grog("integrations add http://127.0.0.1:8700/mcp")
+        assert "Added 127-0-0-1-8700-mcp: connect it with grog connect 127-0-0-1-8700-mcp" in out, out
+        assert "Connected: fake." in (out := grog("connect 127-0-0-1-8700-mcp")), out
+        # On this machine: not in the cloud.
+        listed = grog("integrations")
+        assert re.search(r"(?m)^127\.0\.0\.1 \(grog connect 127-0-0-1-8700-mcp\): added by you$", listed), listed
+        out = ask('use tool 127-0-0-1-8700-mcp__lamp_on {"room": "porch"}', new=True)
+        assert out == "Feito: the lamp is on in porch", out
+        machine.succeed("grep -qxF 'lamp_on {\"room\": \"porch\"}' /var/lib/fake-mcp/calls.log")
+
+    with subtest("disconnected and removed, its server stops, and the model doesn't see its tools"):
+        assert "Disconnected fake-mcp." in (out := grog("disconnect fake-mcp")), out
+        machine.wait_until_fails(npm_server)
+        assert "Removed fake-mcp." in (out := grog("integrations remove fake-mcp")), out
+        assert "Removed 127-0-0-1-8700-mcp." in (out := grog("integrations remove 127-0-0-1-8700-mcp")), out
+        listed = grog("integrations")
+        assert "fake-mcp" not in listed and "8700" not in listed, listed
+        out = ask('use tool fake-mcp__lamp_on {"room": "kitchen"}', new=True)
+        assert out.startswith("No tool fake-mcp__lamp_on, only "), out
 
     def alice(command):
         return machine.succeed(f"su - alice -c {shlex.quote(command)}").strip()

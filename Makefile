@@ -4,17 +4,20 @@ SERVER ?= grog@grognix.local
 .PHONY: test lint check check-vm build vm install-grognix deploy login
 
 # Unit tests, no Nix needed: the brain's (Babashka), the voice's (Python,
-# standard library only) and the skin's (Node, no dependencies).
+# standard library only), the skin's and the relay page's (Node, no
+# dependencies).
 test:
 	cd brain && bb test
 	cd voice && python3 -m unittest discover -s tests
 	cd skin && node --test
+	cd pages && node --test
 
 # clj-kondo, ruff and node --check (all in `nix develop`).
 lint:
 	cd brain && clj-kondo --lint src test
 	cd voice && ruff check . && ruff format --check .
 	cd skin && for f in kiosk.js web/*.js test/*.js; do node --check "$$f" || exit 1; done
+	cd pages && for f in oauth/callback/*.js test/*.js; do node --check "$$f" || exit 1; done
 
 # The package builds, which run the unit tests in the sandbox (and
 # shellcheck, for the installer).

@@ -14,6 +14,8 @@ import {
   ERROR_MS,
   face,
   GOING_MS,
+  host,
+  integrationDetail,
   isNight,
   level,
   menu,
@@ -526,6 +528,20 @@ describe("words and numbers", () => {
     assert.deepEqual([capitalize("plus"), capitalize(""), capitalize(null)], ["Plus", "", ""]);
   });
 
+  it("an MCP server's tools, in words, with their server when there's room", () => {
+    assert.deepEqual(tool("github__create_issue"), {
+      label: "Create issue · github",
+      done: "Create issue · github",
+      short: "Create issue",
+      icon: "tool",
+    });
+    assert.equal(tool("weather__getForecast").short, "Get forecast");
+    assert.equal(tool("home__alerts.clear").short, "Alerts clear");
+    const long = tool("127-0-0-1-36779-mcp__list_all_the_things");
+    assert.deepEqual([long.label, long.short], ["List all the things", "List all the things"]);
+    assert.equal(tool("__odd").label, "  odd", "no prefix: not an MCP tool");
+  });
+
   it("seconds, never below zero", () => {
     assert.deepEqual([seconds(1840), seconds(0), seconds(-250)], ["1.8 s", "0.0 s", "0.0 s"]);
   });
@@ -593,6 +609,7 @@ describe("connecting something", () => {
       stage: "device-code",
       title: "Sign in with ChatGPT",
       detail: "",
+      question: "",
       qr: qrSrc(link),
       hint: "On your phone or computer, open",
       link: "192.168.15.10:8485/c/K7Q2M9AB4X",
@@ -659,6 +676,69 @@ describe("connecting something", () => {
     );
     const waiting = card(computer({ kind: "wait", note: "waiting for deluxe to finish" }), NOW);
     assert.deepEqual([waiting.note, waiting.buttons], ["waiting for deluxe to finish", []]);
+  });
+
+  it("asked at grog: allowed there, or not", () => {
+    const step = { kind: "confirm", question: "Turn off the alarm?", detail: "Home Assistant: HassTurnOff" };
+    const c = card(state({ connect: session({ integration: "ask", heading: "Allow a tool?", way: "ask", step }) }), NOW);
+    assert.deepEqual(
+      [c.stage, c.title, c.question, c.note, c.qr, c.link],
+      ["confirm", "Allow a tool?", "Turn off the alarm?", "Home Assistant: HassTurnOff", null, ""],
+    );
+    assert.deepEqual(
+      c.buttons.map((b) => [b.id, b.label, b.primary]),
+      [
+        ["connect-allow", "Allow", true],
+        ["connect-deny", "Deny", false],
+      ],
+    );
+    const ended = (status) => card(state({ connect: session({ status, step }) }), NOW);
+    assert.deepEqual([ended("done").title, ended("done").note], ["Sign in with ChatGPT", "allowed"], "nothing got connected");
+    assert.equal(ended("denied").note, "It wasn't allowed");
+  });
+
+  it("asked at grog, whatever the step it ended at: nothing got connected", () => {
+    const ended = (integration, step) =>
+      card(state({ connect: session({ integration, status: "done", heading: "Go ahead?", step }) }), NOW);
+    const ask = ended("ask", { kind: "wait", note: "Going ahead…" });
+    assert.deepEqual([ask.title, ask.note], ["Go ahead?", "allowed"]);
+    const elicit = ended("elicit", { kind: "form", fields: [] });
+    assert.deepEqual([elicit.title, elicit.note], ["Go ahead?", "done"]);
+    const asking = card(
+      state({
+        connect: session({
+          integration: "ask",
+          title: "GitHub",
+          heading: "Go ahead?",
+          step: { kind: "confirm", question: "GitHub: Create issue?", detail: "It can change or delete things there." },
+        }),
+      }),
+      NOW,
+    );
+    assert.deepEqual([asking.title, asking.question, asking.note], ["Go ahead?", "GitHub: Create issue?", "It can change or delete things there."]);
+    const form = card(state({ connect: session({ integration: "elicit", heading: "GitHub asks", step: { kind: "form", fields: [] } }) }), NOW);
+    assert.deepEqual([form.stage, form.title, form.hint2], ["form", "GitHub asks", "and fill it in there"]);
+  });
+
+  it("a link to open, with its QR code, then Done", () => {
+    const url = "https://github.com/login/oauth/authorize?client_id=x&state=y";
+    const step = { kind: "link", url, message: "Sign in to GitHub to go on" };
+    const c = card(state({ connect: session({ heading: "GitHub asks", way: "ask", step }) }), NOW);
+    assert.deepEqual(
+      [c.stage, c.title, c.question, c.qr, c.hint, c.link],
+      ["link", "GitHub asks", "Sign in to GitHub to go on", qrSrc(url), "Scan it to open a page on", "github.com"],
+    );
+    assert.equal(c.qr, `/v1/qr?text=${encodeURIComponent(url)}`, "the link's own, not grog's page");
+    assert.deepEqual(
+      c.buttons.map((b) => [b.id, b.label, b.primary]),
+      [
+        ["connect-allow", "Done", true],
+        ["connect-cancel", "Cancel", false],
+      ],
+    );
+    assert.equal(card(state({ connect: session({ status: "done", step }) }), NOW).note, "done");
+    assert.equal(host("http://192.168.15.10:8123/auth"), "192.168.15.10:8123");
+    assert.equal(host("not a url"), "not a url");
   });
 
   it("getting ready", () => {
@@ -749,6 +829,35 @@ describe("connecting something", () => {
       "only when grog can connect things",
     );
     assert.equal(closes("connect:computer"), true, "the card shows instead");
+  });
+
+  it("MCP servers: what they are, who added them, where they run", () => {
+    const weather = {
+      id: "weather",
+      title: "Weather",
+      heading: "Connect Weather",
+      about: "an MCP server the user added",
+      icon: "plug",
+      multiple: false,
+      mcp: true,
+      added: true,
+      cloud: true,
+      connections: [],
+    };
+    const home = { ...weather, id: "home", title: "Home", heading: "Connect Home", about: "your home", added: false, cloud: false };
+    assert.equal(integrationDetail(weather), "added by you, not checked by grog · in the cloud");
+    assert.equal(integrationDetail({ ...weather, cloud: false }), "added by you, not checked by grog");
+    assert.equal(integrationDetail(home), "your home");
+    assert.equal(integrationDetail({ ...home, cloud: true }), "your home · in the cloud");
+    assert.equal(integrationDetail({ about: "your computers", added: true }), "your computers", "only MCP servers");
+    const connected = { ...home, connections: [{ id: "home", name: "Home Assistant", detail: "12 tools", status: "connected" }] };
+    assert.deepEqual(
+      menu(state({ actions: ["connect"], integrations: [weather, connected] })).map((i) => [i.id, i.label, i.detail]),
+      [
+        ["connect:weather", "Connect Weather", "added by you, not checked by grog · in the cloud"],
+        ["disconnect:home", "Home", "Home Assistant · 12 tools"],
+      ],
+    );
   });
 
   it("opening a connection, as a step of a turn", () => {

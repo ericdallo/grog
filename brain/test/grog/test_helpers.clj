@@ -3,9 +3,12 @@
             [cheshire.core :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [grog.mcp :as mcp]
+            [grog.oauth :as oauth]
             [grog.sse :as sse]
             [org.httpkit.server :as http])
-  (:import (java.util Base64)))
+  (:import (java.io PipedInputStream PipedOutputStream)
+           (java.util Base64)))
 
 (defn sse
   "Serializes events (maps with a :type) as a Server-Sent Events body."
@@ -152,3 +155,130 @@
   "`env` as bash words: NAME='value'..."
   [env]
   (str/join " " (for [[k v] env] (str k "=" (sh-quote v)))))
+
+(defn eventually
+  "Whether (pred) becomes true within `ms`."
+  [ms pred]
+  (let [deadline (+ (System/currentTimeMillis) ms)]
+    (loop []
+      (cond (pred) true
+            (> (System/currentTimeMillis) deadline) false
+            :else (do (Thread/sleep 20) (recur))))))
+
+(defn mcp-reply
+  "What a fake MCP server of 2026 answers `msg` with, nil for a
+  notification: `tools` (or (tools)) to list, (call name arguments) the
+  result of a call (\"ran <name>\" by default), `server-info` who it is."
+  [{:keys [tools call server-info]} msg]
+  (when (contains? msg :id)
+    (let [ok (fn [r] {:jsonrpc "2.0" :id (:id msg) :result r})]
+      (case (:method msg)
+        "server/discover" (ok {:supportedVersions ["2026-07-28"]
+                               :capabilities {:tools {:listChanged true}}
+                               :ttlMs 0
+                               :_meta {"io.modelcontextprotocol/serverInfo" (or server-info {:name "fake" :version "1.0"})}})
+        "tools/list" (ok {:tools (if (fn? tools) (tools) (or tools [])) :ttlMs 0})
+        "tools/call" (ok ((or call (fn [n _] {:content [{:type "text" :text (str "ran " n)}]}))
+                          (get-in msg [:params :name])
+                          (get-in msg [:params :arguments])))
+        {:jsonrpc "2.0" :id (:id msg) :error {:code -32601 :message "Method not found"}}))))
+
+(defn fake-stdio-mcp!
+  "A stdio MCP server in this process, answering as `mcp-reply` does with
+  `opts`: {:transport (for grog.mcp/connect!) :received (an atom of what it
+  got) :close! (it goes away)}."
+  [opts]
+  (let [server-out (PipedOutputStream.)
+        client-in (PipedInputStream. server-out 65536)
+        client-out (PipedOutputStream.)
+        server-in (PipedInputStream. client-out 65536)
+        reader (io/reader server-in :encoding "UTF-8")
+        writer (io/writer server-out :encoding "UTF-8")
+        received (atom [])
+        close! #(try (.close server-out) (catch Exception _ nil))]
+    (future
+      (try
+        (loop []
+          (when-let [line (.readLine reader)]
+            (let [m (json/parse-string line true)]
+              (swap! received conj m)
+              (when-let [r (mcp-reply opts m)]
+                (locking writer
+                  (.write writer (str (json/generate-string r) "\n"))
+                  (.flush writer))))
+            (recur)))
+        (catch Exception _ nil)))
+    {:received received
+     :close! close!
+     :transport (mcp/stdio-transport {:in client-in
+                                      :out client-out
+                                      :close! #(do (close!) (.close client-out))})}))
+
+(defn ^:private as-metadata [base {:keys [cimd? dcr?]}]
+  (cond-> {:issuer base
+           :authorization_endpoint (str base "/authorize")
+           :token_endpoint (str base "/token")
+           :revocation_endpoint (str base "/revoke")
+           :code_challenge_methods_supported ["S256"]
+           :authorization_response_iss_parameter_supported true}
+    cimd? (assoc :client_id_metadata_document_supported true)
+    dcr? (assoc :registration_endpoint (str base "/register"))))
+
+(defn start-mcp!
+  "Starts a fake MCP server of 2026 over HTTP at <base>/mcp, answering as
+  `mcp-reply` does with `opts`. With :oauth ({:cimd? :dcr? :expires-in}),
+  it wants a token it gave: a 401 says where its authorization server is
+  (itself: metadata, /token taking the code \"good-code\" and refresh
+  tokens unless :refuse-refresh (an atom) says no, /register, /revoke).
+  Returns {:url :base :requests :stop!}, the requests {:uri :headers
+  :body} (the body as text)."
+  [{:keys [oauth refuse-refresh] :as opts}]
+  (let [base (promise)
+        requests (atom [])
+        tokens (atom #{})
+        issued (atom 0)
+        issue! (fn []
+                 (let [n (swap! issued inc)]
+                   (swap! tokens conj (str "at-" n))
+                   (json-response {:access_token (str "at-" n) :refresh_token (str "rt-" n)
+                                   :token_type "Bearer" :expires_in (:expires-in oauth 3600)})))
+        server (start-handler!
+                (fn [req]
+                  (let [body (some-> (:body req) slurp)
+                        b @base]
+                    (swap! requests conj {:uri (:uri req) :headers (:headers req) :body body})
+                    (case (:uri req)
+                      "/mcp"
+                      (cond
+                        (and oauth (not (contains? @tokens (some-> (get-in req [:headers "authorization"])
+                                                                   (str/replace #"^Bearer " "")))))
+                        {:status 401
+                         :headers {"WWW-Authenticate" (str "Bearer resource_metadata=\"" b
+                                                           "/.well-known/oauth-protected-resource/mcp\", scope=\"tools\"")}}
+
+                        (= :delete (:request-method req)) {:status 200}
+
+                        :else
+                        (if-let [r (mcp-reply opts (json/parse-string body true))]
+                          (json-response r)
+                          {:status 202}))
+
+                      "/.well-known/oauth-protected-resource/mcp"
+                      (json-response {:resource (str b "/mcp") :authorization_servers [b] :scopes_supported ["tools"]})
+
+                      "/.well-known/oauth-authorization-server"
+                      (if oauth (json-response (as-metadata b oauth)) {:status 404})
+
+                      "/token"
+                      (let [{:keys [grant_type code]} (oauth/form-decode body)]
+                        (cond
+                          (and (= "authorization_code" grant_type) (= "good-code" code)) (issue!)
+                          (and (= "refresh_token" grant_type) (not (some-> refuse-refresh deref))) (issue!)
+                          :else {:status 400 :headers {"Content-Type" "application/json"}
+                                 :body "{\"error\":\"invalid_grant\"}"}))
+
+                      "/register" (assoc (json-response {:client_id "registered-client"}) :status 201)
+                      "/revoke" {:status 200}
+                      {:status 404}))))]
+    (deliver base (:url server))
+    (assoc server :base (:url server) :url (str (:url server) "/mcp") :requests requests)))

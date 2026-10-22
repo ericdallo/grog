@@ -5,8 +5,10 @@
   integration it connects (grog.integrations): a code to enter on a
   provider's site (`device-code!`), signing in in a browser (`oauth!`),
   fields to fill in (`form!`), the same code on both screens, allowed at
-  grog (`code-compare!`), or a command to run (a script step, with
-  :command). While it's open, and `linger-ms` after, for whoever follows it
+  grog (`code-compare!`), a command to run (a script step, with
+  :command), a question allowed at grog (`confirm!`), or a link to open
+  (`link!`). Asking something of whoever is at grog (a tool call, what an
+  MCP server needs mid-call) opens a session too. While it's open, and `linger-ms` after, for whoever follows it
   to hear how it went, grog listens on the network (`integrations.host`,
   `.port`), where a page shows its steps, behind a token only grog's screen
   and CLI show:
@@ -17,7 +19,8 @@
                              (form), where a browser sign-in ended (oauth),
                              another way to connect ({way}, way)
     GET  /c/callback         where a browser sign-in comes back to, when it
-                             comes back to grog on the network
+                             comes back to grog on the network (or through
+                             the relay page)
 
   The integration answers the rest, if it does (its :handle). Whoever
   watches grog sees the session as `view` tells (`connect` in grog.events),
@@ -182,10 +185,10 @@
   Whether it did."
   [ctx generation status changes]
   (let [[before] (swap-vals! (:connect ctx) #(if (live? % generation)
-                                                (-> (merge % changes)
-                                                    (assoc :status status :at (now))
-                                                    (dissoc :handlers :cleanups))
-                                                %))]
+                                               (-> (merge % changes)
+                                                   (assoc :status status :at (now))
+                                                   (dissoc :handlers :cleanups))
+                                               %))]
     (when (live? before generation)
       (log/info (format "connect %s: %s" (get-in before [:integration :id]) status))
       (publish! ctx)
@@ -332,7 +335,7 @@
   "What a browser brought back from signing in (`params`, from a callback,
   or pasted) does to the oauth step of the session `generation`:
   {:ok :message}."
-  [ctx generation {:keys [state verifier redirect-uri issuer finish! note]} params]
+  [ctx generation {:keys [state verifier redirect-uri issuer iss-required? finish! note]} params]
   (let [{:keys [code error error_description iss]} params]
     (cond
       (not (live? @(:connect ctx) generation))
@@ -341,6 +344,10 @@
       (not (same? state (:state params)))
       (do (log/info "connect: refused a callback of another sign-in (an older link?)")
           {:ok false :message "This doesn't belong to the sign-in in progress (an older link?): start again."})
+
+      (and iss-required? (str/blank? iss))
+      (do (fail! ctx generation "the sign-in came back without saying where from")
+          {:ok false :message "It came back without saying where from (no iss)."})
 
       (and issuer iss (not= issuer iss))
       (do (fail! ctx generation (str "the sign-in came back from " iss ", not " issuer))
@@ -388,28 +395,33 @@
   code flow, with PKCE (S256) and a state bound to the session. The browser
   signs in at (authorize-url {:challenge :state :redirect-uri}), then comes
   back to `redirect-uri`: a loopback address grog listens on for it, as
-  the provider has it (http://localhost:<port><path>), or :lan, grog's page
-  on the network (/c/callback). Wherever the browser is, whoever signs in can
-  paste the address it ended at on the page. (finish! {:code :verifier
-  :redirect-uri}) turns the code into what got connected, showing `note`
-  meanwhile. When `issuer` is given, the authorization server must be it,
-  if it says (RFC 9207). Returns where the browser signs in. Throws ex-info
+  the provider has it (http://localhost:<port><path>); :lan, grog's page
+  on the network (/c/callback); or {:relay base}, the relay page's
+  callback/ (`integrations.relay`), which sends the browser on to grog's
+  page, the state saying where grog is (<address>~<random>). Wherever the
+  browser is, whoever signs in can paste the address it ended at on the
+  page. (finish! {:code :verifier :redirect-uri}) turns the code into what
+  got connected, showing `note` meanwhile. When `issuer` is given, the
+  authorization server must be it, if it says (RFC 9207), and must say so
+  with `iss-required?`. Returns where the browser signs in. Throws ex-info
   when grog can't listen where the browser comes back."
-  [ctx generation {:keys [redirect-uri authorize-url finish! issuer note]}]
+  [ctx generation {:keys [redirect-uri authorize-url finish! issuer iss-required? note]}]
   (let [{:keys [verifier challenge]} (oauth/pkce)
-        state (oauth/random-token)
-        lan? (= :lan redirect-uri)
-        redirect (if lan?
-                   (str "http://" (or (address @(:connect ctx))
-                                      (throw (ex-info "grog isn't on the network for the browser to come back to"
-                                                      {:type ::not-listening})))
-                        "/c/callback")
-                   redirect-uri)
+        relay (when (map? redirect-uri) (:relay redirect-uri))
+        local? (string? redirect-uri)
+        at (when-not local?
+             (or (address @(:connect ctx))
+                 (throw (ex-info "grog isn't on the network for the browser to come back to"
+                                 {:type ::not-listening}))))
+        state (if relay (str at "~" (oauth/random-token)) (oauth/random-token))
+        redirect (cond relay (str relay "callback/")
+                       local? redirect-uri
+                       :else (str "http://" at "/c/callback"))
         url (authorize-url {:challenge challenge :state state :redirect-uri redirect})
         on-callback #(callback! ctx generation {:state state :verifier verifier :redirect-uri redirect :issuer issuer
-                                                :finish! finish! :note note}
+                                                :iss-required? iss-required? :finish! finish! :note note}
                                 %)]
-    (when-not lan?
+    (when local?
       (let [uri (URI. redirect)
             server (try
                      (oauth/start-callback-server! (.getPort uri) (.getPath uri)
@@ -428,31 +440,124 @@
                                    (throw (ex-info message {:type ::not-signed-in})))))}})
     url))
 
+(defn ^:private bad [label what]
+  (throw (ex-info (str label ": " what) {:type ::bad-field})))
+
+(defn ^:private blank? [v]
+  (or (nil? v) (and (string? v) (str/blank? v)) (and (sequential? v) (empty? v))))
+
+(defn ^:private parse-time [f s]
+  (try (f s) true (catch java.time.format.DateTimeParseException _ false)))
+
+(defn ^:private formatted?
+  "Whether the text `s` looks like `format` (loosely)."
+  [format s]
+  (case format
+    "email" (boolean (re-matches #"[^@\s]+@[^@\s]+" s))
+    "uri" (boolean (try (some? (.getScheme (URI. s))) (catch Exception _ false)))
+    "date" (and (boolean (re-matches #"\d{4}-\d{2}-\d{2}" s)) (parse-time #(java.time.LocalDate/parse %) s))
+    "date-time" (or (parse-time #(java.time.OffsetDateTime/parse %) s)
+                    (parse-time #(java.time.LocalDateTime/parse %) s))
+    true))
+
+(def ^:private format-names
+  {"email" "an email address" "uri" "an address (https://...)" "date" "a date (YYYY-MM-DD)"
+   "date-time" "a date and time"})
+
+(defn ^:private within
+  "`n` (a number, or how many), unless `min` or `max` say otherwise."
+  [{:keys [label min max]} n what]
+  (cond (and min (< n min)) (bad label (str "at least " min what))
+        (and max (> n max)) (bad label (str "at most " max what))
+        :else n))
+
+(defn ^:private text-value [{:keys [label format] :as field} v]
+  (cond
+    (not (string? v)) (bad label "text")
+    (> (count v) 2048) (bad label "too long")
+    :else (let [s (str/trim v)]
+            (within field (count s) " characters")
+            (if (formatted? format s) s (bad label (str "not " (format-names format)))))))
+
+(defn ^:private number-value [{:keys [label type] :as field} v]
+  (let [n (cond (number? v) (double v)
+                (string? v) (try (Double/parseDouble (str/trim v)) (catch NumberFormatException _ nil)))]
+    (cond
+      (or (nil? n) (Double/isNaN n) (Double/isInfinite n)) (bad label "a number")
+      (and (= "integer" type) (not= n (Math/floor n))) (bad label "a whole number")
+      :else (do (within field n "")
+                (if (= "integer" type) (long n) n)))))
+
+(defn ^:private boolean-value [{:keys [label]} v]
+  (cond (boolean? v) v
+        (nil? v) false
+        (#{"true" "on"} v) true
+        (= "false" v) false
+        :else (bad label "yes or no")))
+
+(defn ^:private choice-of
+  "The choice of `field` whose value is `v`, or nil."
+  [{:keys [choices]} v]
+  (some #(when (= (str (:value %)) (str v)) %) choices))
+
+(defn ^:private choice-value [{:keys [label] :as field} v]
+  (if-let [choice (and (not (coll? v)) (choice-of field v))]
+    (:value choice)
+    (bad label "pick one of the choices")))
+
+(defn ^:private choices-value [{:keys [label] :as field} v]
+  (let [vs (cond (sequential? v) v (nil? v) [] :else (bad label "pick among the choices"))
+        picked (mapv #(or (and (not (coll? %)) (:value (choice-of field %)))
+                          (bad label "pick among the choices"))
+                     (distinct vs))]
+    (within field (count picked) " of them")
+    picked))
+
+(defn ^:private field-value
+  "What was entered in `field` (`v`, from JSON), as its type has it."
+  [{:keys [type] :as field} v]
+  (case (or type "text")
+    ("number" "integer") (number-value field v)
+    "boolean" (boolean-value field v)
+    "choice" (choice-value field v)
+    "choices" (choices-value field v)
+    (text-value field v)))
+
 (defn form-values
-  "What was entered in `fields` (see `form!`), as `body` says: {id text},
-  without what's blank. Throws ex-info saying what's missing or wrong."
+  "What was entered in `fields` (see `form!`), as `body` says: {id value},
+  typed (text trimmed, a double, a long, true or false, a choice's value, a
+  vector of them), without what's blank (but booleans: unchecked is
+  false). Throws ex-info saying what's missing or wrong."
   [fields body]
-  (reduce (fn [values {:keys [id label optional]}]
+  (reduce (fn [values {:keys [id label optional type min] :as field}]
             (let [v (get body (keyword id))]
               (cond
-                (and (string? v) (> (count v) 2048)) (throw (ex-info (str label ": too long") {:type ::bad-field}))
-                (and (string? v) (not (str/blank? v))) (assoc values id (str/trim v))
-                (or optional (nil? v) (string? v)) (if optional
-                                                     values
-                                                     (throw (ex-info (str label ": fill it in") {:type ::bad-field})))
-                :else (throw (ex-info (str label ": text") {:type ::bad-field})))))
+                (= "boolean" type) (assoc values id (field-value field v))
+                (and (string? v) (> (count v) 2048)) (bad label "too long")
+                (not (blank? v)) (assoc values id (field-value field v))
+                optional values
+                (and (= "choices" type) (= 0 min)) (assoc values id [])
+                (#{"choice" "choices"} type) (bad label "pick one")
+                :else (bad label "fill it in"))))
           {}
           fields))
 
+(def ^:private field-keys
+  [:id :label :example :secret :optional :type :choices :default :min :max :description :format])
+
 (defn form!
-  "Takes the session `generation` through a form step: `fields` ([{:id
-  :label :example :secret :optional}], ids in kebab-case) to fill in on its
-  page, which warns that what's :secret goes over the network as it is;
-  (submit! values), with what was entered ({id text}), takes the session on
-  (another step, or done!), or throws ex-info saying what's wrong, which the
-  page shows."
+  "Takes the session `generation` through a form step: `fields` to fill in
+  on its page, which warns that what's :secret goes over the network as it
+  is. Each field: {:id (kebab-case) :label}, and maybe :example, :secret,
+  :optional, :description, :default (filled in at first), and its :type:
+  text (the usual: :format email, uri, date or date-time; :min and :max
+  characters), number or integer (between :min and :max), boolean (a
+  checkbox), choice (one of :choices, [{:value :label}]) or choices
+  (between :min and :max of them). (submit! values), with what was entered
+  (`form-values`), takes the session on (another step, or done!), or throws
+  ex-info saying what's wrong, which the page shows."
   [ctx generation {:keys [fields submit!]}]
-  (step! ctx generation {:kind "form" :fields (mapv #(select-keys % [:id :label :example :secret :optional]) fields)}
+  (step! ctx generation {:kind "form" :fields (mapv #(select-keys % field-keys) fields)}
          {:submit {"form" (fn [body]
                             (submit! (form-values fields body))
                             {:ok true})}}))
@@ -466,6 +571,24 @@
                           name (assoc :name name)
                           user (assoc :user user))
          {:decide decide!}))
+
+(defn confirm!
+  "Takes the session `generation` through a confirm step: `question` (and
+  its `detail`) shows on grog's screen, where someone allows it, or not:
+  (decide! allow?). Its page only says to answer at grog."
+  [ctx generation {:keys [question detail decide!]}]
+  (step! ctx generation (cond-> {:kind "confirm" :question question}
+                          detail (assoc :detail detail))
+         {:decide decide!}))
+
+(defn link!
+  "Takes the session `generation` through a link step: `url` to open (its
+  QR code on grog's screen, the link on its page), saying why (`message`);
+  once someone at grog says it's done there, (done!). Saying no denies the
+  session; Cancel cancels it."
+  [ctx generation {:keys [url message done!]}]
+  (step! ctx generation {:kind "link" :url url :message message}
+         {:decide #(if % (done!) (deny! ctx generation))}))
 
 (defn decide!
   "Allows what the session's step asks to be allowed (`allow?`), or not:
@@ -527,7 +650,7 @@
       (json-response 400 {:error "Send a JSON object."})
 
       (= "way" what)
-      (try (open! ctx (:integration state) (:way body))
+      (try (open! ctx (:integration state) (:way body) (select-keys state [:kept? :window-ms]))
            (json-response 200 (page-view @(:config ctx) @(:connect ctx)))
            (catch clojure.lang.ExceptionInfo e
              (json-response 400 {:error (ex-message e)})))
@@ -651,22 +774,29 @@
 (defn open!
   "Opens a session connecting `integration` `way` (its usual way when nil),
   or goes on with the one open: the same way, its time starting over;
-  another way, on the same page. Ends any other session first. `kept?`:
-  grog opened it itself (to sign in while it has nothing to pay with, see
-  grog.signin). Returns the session (`view`), with its step whole. Throws
-  ex-info when it can't."
+  another way, on the same page. Ends any other session first, unless
+  `unless-busy?`, when it throws ex-info (::busy) instead. `kept?`: grog
+  opened it itself (to sign in while it has nothing to pay with, see
+  grog.signin). `window-ms`: how long it stays open (`window-ms` by
+  default). `integration` needn't be one of grog.integrations: asking
+  something of whoever is at grog makes up its own. Returns the session
+  (`view`), with its step whole. Throws ex-info when it can't."
   ([ctx integration way]
    (open! ctx integration way nil))
-  ([ctx integration way {:keys [kept?]}]
+  ([ctx integration way {:keys [kept? unless-busy?] :as opts}]
    (let [config @(:config ctx)
-         way (way-of integration way)]
+         way (way-of integration way)
+         window (or (:window-ms opts) window-ms)]
      (locking open-lock
        (let [state @(:connect ctx)
              open? (live? state (:generation state))
              same? (and open? (= (:id integration) (get-in state [:integration :id])))]
          (cond
+           (and open? unless-busy?)
+           (throw (ex-info (str "grog is busy: " (get-in state [:integration :heading])) {:type ::busy}))
+
            (and same? (= way (:way state)))
-           (do (swap! (:connect ctx) #(cond-> (assoc % :until (+ (now) window-ms))
+           (do (swap! (:connect ctx) #(cond-> (assoc % :until (+ (now) window) :window-ms (:window-ms opts))
                                         (not kept?) (assoc :kept? false)))
                (publish! ctx))
 
@@ -675,7 +805,7 @@
              (run-all! state "switched")
              (swap! (:connect ctx) assoc
                     :generation generation :way way :step nil :handlers nil :cleanups nil :finishing? false
-                    :until (+ (now) window-ms) :at (now))
+                    :until (+ (now) window) :window-ms (:window-ms opts) :at (now))
              (log/info (format "connect %s: %s" (:id integration) way))
              (publish! ctx)
              (start-way! ctx generation integration way))
@@ -693,7 +823,8 @@
                  (swap! (:connect ctx) merge {:generation generation :token (new-token) :integration integration
                                               :way way :kept? (boolean kept?) :status "open" :step nil
                                               :handlers nil :cleanups nil :finishing? false :data nil
-                                              :until (+ (now) window-ms) :at (now) :error nil :connected nil})
+                                              :until (+ (now) window) :window-ms (:window-ms opts) :at (now)
+                                              :error nil :connected nil})
                  (log/info (format "connect %s: %s" (:id integration) way))
                  (publish! ctx)
                  (start-way! ctx generation integration way))))

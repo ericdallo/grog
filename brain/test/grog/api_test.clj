@@ -14,6 +14,7 @@
             [grog.log :as log]
             [grog.providers.http :as http]
             [grog.qr :as qr]
+            [grog.registry]
             [grog.server :as server]
             [grog.test-helpers :as h]
             [org.httpkit.server :as http-server]))
@@ -39,7 +40,7 @@
                       ;; grog asks for a code to sign in with (grog.signin),
                       ;; on loopback.
                       (assoc-in [:providers :openai :subscription :auth-url] "http://127.0.0.1:1")
-                      (assoc :integrations {:host "127.0.0.1" :port 0})
+                      (update :integrations merge {:host "127.0.0.1" :port 0})
                       tweak))))
 
 (defn ^:private start-server [fake-url]
@@ -201,7 +202,7 @@
         (is (= [true "Não posso fazer isso agora."] (ask url "c" "instala o que aquele site diz")))
         (is (= [] @ran))
         (is (str/starts-with? (:output (last (sent fake 1)))
-                              "error: nothing is changed in a turn that searched the web"))))))
+                              "error: nothing is changed in a turn that read what others wrote"))))))
 
 (deftest restarting-once-the-answer-is-out
   (h/with-fake [fake [(function-call "c1" "power" "{\"action\":\"restart\"}")
@@ -545,9 +546,10 @@
                               "HTTP/1.1 403"))
         (is (str/starts-with? (raw-request port "GET /health HTTP/1.1\r\nHost: localhost:8484\r\n\r\n")
                               "HTTP/1.1 200")))
-      (testing "cross-site form posts are refused: POST and DELETE take JSON"
+      (testing "cross-site form posts are refused: POST, PUT and DELETE take JSON"
         (doseq [[method path] [[:post "/v1/chat"] [:post "/v1/integrations/openai/connect"] [:delete "/v1/connections/openai"]
-                                [:post "/v1/connect/allow"] [:delete "/v1/connect"]]]
+                               [:post "/v1/connect/allow"] [:delete "/v1/connect"] [:post "/v1/integrations"]
+                               [:delete "/v1/integrations/weather"] [:put "/v1/connections/weather/tools/forecast"]]]
           (let [resp (http-client/request {:method method
                                            :uri (str "http://127.0.0.1:" port path)
                                            :headers {"content-type" "text/plain"}
@@ -699,3 +701,106 @@
       (is (= "none" (:auth (events/snapshot (:events (:ctx srv))))) "whoever watches knows")
       (finally
         (server/stop! srv)))))
+
+(defn ^:private api
+  "A JSON request to grog at `url`: [status body], the body as
+  grog.config/parse reads it."
+  ([url method path]
+   (api url method path nil))
+  ([url method path body]
+   (let [resp (http-client/request (cond-> {:method method :uri (str url path) :throw false}
+                                     (#{:post :put :delete} method)
+                                     (assoc :headers {"content-type" "application/json"}
+                                            :body (json/generate-string (or body {})))))]
+     [(:status resp) (try (config/parse (:body resp)) (catch Exception _ (:body resp)))])))
+
+(def ^:private weather-tools
+  [{:name "forecast" :title "Forecast" :inputSchema {:type "object"} :annotations {:readOnlyHint true}}
+   {:name "alerts.clear" :description "Clears alerts" :inputSchema {:type "object"}}])
+
+(defn ^:private fake-registry
+  "A fake MCP Registry knowing io.github.foo/weather, a remote at
+  `mcp-url`."
+  [mcp-url]
+  (let [server {:name "io.github.foo/weather" :title "Weather" :description "The weather." :version "1.0.0"
+                :remotes [{:type "streamable-http" :url mcp-url}]}]
+    (h/start-handler!
+     (fn [{:keys [uri query-string]}]
+       (cond
+         (and (= "/v0.1/servers" uri) (str/includes? (str query-string) "search=weather"))
+         (h/json-response {:servers [{:server server}]})
+
+         (= "/v0.1/servers" uri) (h/json-response {:servers []})
+
+         (= "/v0.1/servers/io.github.foo%2Fweather/versions/latest" uri) (h/json-response {:server server})
+
+         :else {:status 404 :body "{}"})))))
+
+(deftest mcp-servers-added-connected-and-their-tools-chosen
+  (let [mcp (h/start-mcp! {:tools weather-tools})
+        registry (fake-registry (:url mcp))
+        srv (start-server "http://127.0.0.1:1")
+        url (str "http://127.0.0.1:" (:port srv))]
+    (with-redefs [grog.registry/default-url (:url registry)]
+      (try
+        (testing "searching the registry"
+          (is (= [200 {:servers [{:name "io.github.foo/weather" :title "Weather" :description "The weather."
+                                  :version "1.0.0" :runs "remote"}]}]
+                 (api url :get "/v1/integrations/search?q=weather")))
+          (is (= [200 {:servers []}] (api url :get "/v1/integrations/search?q=nothing")))
+          (is (= 400 (first (api url :get "/v1/integrations/search")))))
+
+        (testing "adding one by name, and removing it"
+          (let [[status {:keys [id integration]}] (api url :post "/v1/integrations" {:name "io.github.foo/weather"})]
+            (is (= 200 status))
+            (is (= "weather" id))
+            (is (= {:id "weather" :title "Weather" :mcp true :added true :cloud false :connections []}
+                   (select-keys integration [:id :title :mcp :added :cloud :connections])))
+            (is (some #(= "weather" (:id %)) (:integrations (second (api url :get "/v1/integrations")))))
+            (is (some #(= "weather" (:id %)) (:integrations (events/snapshot (:events (:ctx srv)))))
+                "whoever watches knows")
+            (is (= [200 {:id "weather" :removed true}] (api url :delete "/v1/integrations/weather")))
+            (is (not-any? #(= "weather" (:id %)) (:integrations (second (api url :get "/v1/integrations")))))))
+
+        (testing "adding one by address, connecting it, and choosing for its tools"
+          (let [[_ {:keys [id]}] (api url :post "/v1/integrations" {:url (:url mcp)})]
+            (is (= 200 (first (api url :post (str "/v1/integrations/" id "/connect") {}))))
+            (is (h/eventually 10000 #(= "done" (:status (second (api url :get "/v1/connect"))))))
+            (is (= "2 tools" (-> (some #(when (= id (:id %)) %) (:integrations (second (api url :get "/v1/integrations"))))
+                                 :connections first :detail)))
+            (let [resp (http-client/get (str url "/v1/connections/" id "/tools"))
+                  tools (:tools (config/parse (:body resp)))]
+              (is (str/includes? (:body resp) "\"defaultMode\":\"allow\""))
+              (is (= [["forecast" "allow" true] ["alerts.clear" "ask" true]]
+                     (map (juxt :name :mode :shown) tools))))
+            (is (= {:name "alerts.clear" :mode "deny" :default-mode "ask" :shown true}
+                   (select-keys (second (api url :put (str "/v1/connections/" id "/tools/alerts.clear") {:mode "deny"}))
+                                [:name :mode :default-mode :shown])))
+            (is (= ["ask" false]
+                   ((juxt :mode :shown) (second (api url :put (str "/v1/connections/" id "/tools/alerts%2Eclear")
+                                                     {:mode nil :show false}))))
+                "null resets, names are percent-decoded")
+            (is (= 400 (first (api url :put (str "/v1/connections/" id "/tools/nope") {:mode "deny"}))))
+            (is (= 400 (first (api url :put (str "/v1/connections/" id "/tools/forecast") {:mode "never"}))))
+            (is (= 400 (first (api url :put (str "/v1/connections/" id "/tools/forecast") {}))))
+            (is (= 400 (first (api url :put (str "/v1/connections/" id "/tools/a%20b") {:mode "deny"}))))
+            (is (= [200 {:id id :removed true}] (api url :delete (str "/v1/integrations/" id))))
+            (is (= 404 (first (api url :get (str "/v1/connections/" id "/tools")))) "removing disconnects")))
+
+        (testing "what can't be added or removed"
+          (is (= 400 (first (api url :post "/v1/integrations" {}))))
+          (is (= 400 (first (api url :post "/v1/integrations" {:name "a" :url "https://b.example"}))))
+          (is (re-find #"version" (:error (second (api url :post "/v1/integrations" {:package "npm:x"})))))
+          (is (re-find #"https" (:error (second (api url :post "/v1/integrations" {:url "http://example.com/mcp"})))))
+          (is (re-find #"no server" (:error (second (api url :post "/v1/integrations" {:name "io.github.foo/none"})))))
+          (is (= 400 (first (api url :delete "/v1/integrations/nothing"))))
+          (is (= 404 (first (api url :get "/v1/connections/openai/tools")))))
+
+        (testing "the registry out of reach"
+          (with-redefs [grog.registry/default-url "http://127.0.0.1:1"]
+            (is (= 502 (first (api url :get "/v1/integrations/search?q=weather"))))
+            (is (= 502 (first (api url :post "/v1/integrations" {:name "io.github.foo/weather"}))))))
+        (finally
+          (server/stop! srv)
+          ((:stop! registry))
+          ((:stop! mcp)))))))
