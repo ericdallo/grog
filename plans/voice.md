@@ -18,6 +18,9 @@ said otherwise.
   (`voice/tools/export_pocket.py`), its speech playing 80 ms at a time as
   it's made, without torch: see "Pocket TTS on OpenVINO" below. On the
   station, 6 threads (`tts.threads`).
+- The station itself speaks in a carioca friend's voice, cloned with his OK
+  from his recordings, the file kept on it (`ttsVoice`, in its own config):
+  see "Accents" below. deep-calm stays the default.
 - grognix speaks with **Supertonic 3** (Supertone, May 2026), voice **M1**,
   in Portuguese (`pt`), on OpenVINO too: the official fp32 ONNX graphs from
   `Supertone/supertonic-3`, pinned at revision
@@ -570,6 +573,54 @@ plugin keeps ~1.7 times its 1.26 GB of weights, from ONNX or from its own
 IR alike (2.15 and 2.13 GB once compiled). The station had 6.7 GB
 available with grog running.
 
+## Accents
+
+The user wanted grog carioca, or mineiro. All in the lab, then on the
+station:
+
+- **Measuring it**: the carioca mark any text shows is the chiado, a
+  syllable's last s said [ʃ] ("fe[ʃ]ta"), where most of Brazil says [s].
+  The lab's `accent.py` reads it from a passage: Parakeet times its words,
+  and in each, the sibilant frames' spectral centroid (2 to 11 kHz) is set
+  against the voice's own [s] (onset s: "sábado", "sol") and [ʃ] ("chuva",
+  "caixa"): 0 for [s], 1 for [ʃ]. The passage has no ti, di, te or de near
+  them (they say [tʃi]). Mineiro has no mark like it: its melody, its R,
+  its swallowed endings are for the ear.
+- **grog's voices**: deep-calm 0.03, radio −0.03.
+- **Qwen3-TTS doesn't do accents**: VoiceDesign asked for a carioca or a
+  mineiro (in English and in Portuguese), and for Lisbon as a control,
+  gave −0.1 to −0.2 every time. The description changes the voice, not its
+  Portuguese.
+- **Spelling it** ("festa" as "fechta", "mesmo" as "mejmo") makes Pocket
+  TTS say it (0.94 and 1.05), with stumbles (Parakeet heard "ecola", "é te
+  está").
+- **Pocket TTS copies the accent of the recording it clones**, even on
+  words that weren't in it: radio cloned from 20 s of its spelled-out
+  chiado read another text, spelled as usual, at 0.82; cloned again from
+  that clone, 0.93. deep-calm held out (0.5 at best). The user found these
+  not good enough: only the s changed.
+- **Not from voice services**: fish.audio's carioca voices, which the user
+  liked, are out: its terms forbid using its output to develop competing
+  models, and its library is mostly clones of real people.
+- **A real carioca, who agreed**: a friend of the user's recorded 37 s,
+  then 20 sentences like grog's answers, one per file (~66 s of speech, MP3
+  at 128 kbps). His own chiado: 0.9. Every prompt cut from them kept it,
+  0.78 to 0.93 on another text, "sexta" included (no other voice said it).
+  - Of 15 prompts, the steadiest is five of his sentences (15 s, 189
+    frames): 4.6% of the words wrong in 30 sentences like grog's answers
+    (deep-calm 4.2%), 9 of 79 in 20 short ones like "Claro!" and "Pronto,
+    desliguei o microfone." (deep-calm 11; Parakeet itself loses "Ok",
+    "Sim" and "Tá bom").
+  - Others derailed on short texts: with three of them, "Claro! Coloquei um
+    alarme..." came out "Claro" and 7 s of fading noise; others lost
+    "Pronto, desliguei o microfone." or another sentence, each its own.
+    Prompts of 20 s and more were no better, and slower (30 to 37 s: 1.5 to
+    1.7 times deep-calm's time in the lab).
+  - On the station (6 threads, bursts): 0.58 s per second of speech, against
+    0.48 for deep-calm, its first sound in 0.1 s.
+  - The station speaks in it since: the voice file stays there, in no
+    repository (`ttsVoice` in its own config).
+
 ## Where to go from here
 
 ### Ears
@@ -599,6 +650,15 @@ available with grog running.
   round 3), would make it steadier, and distilling it to 6 layers would make
   it 3 times as fast for slower CPUs. Measure the ONNX path on grognix
   before it speaks that way there.
+- **The carioca voice, steadier** (see "Accents"):
+  - Fine-tune the 24-layer model on an hour or more of his sentences.
+    Kyutai's training code (open since August 2026) wants an NVIDIA GPU (16
+    GB with a batch of 16 times 4). Minervus00/ft_pocket_tts tuned a voice
+    from 5.5 h in ~1,000 steps, at ~1.8 steps per second on an A100.
+    Nothing here has one: renting one is paid, the user's call.
+  - Or keep grog-voice from derailing: speech gone quiet for over a second
+    mid-piece, without the model saying it's done, is a derailment to stop
+    (or to retry with other noise).
 - **Kokoro / StyleTTS2** can be fine-tuned too, with heavier inference than
   Piper.
 - **Supertonic itself** can't be trained without Supertone (Voice Builder is
