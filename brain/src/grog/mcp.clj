@@ -360,6 +360,33 @@
       :else
       (failure ::failed "The MCP server refused grog (403)." {:status status}))))
 
+;; MCP needs nothing of HTTP/2, and asking a plain http:// server for it
+;; (an h2c upgrade) only adds ways for its connections to end mid-way.
+(def ^:private http-client
+  (delay (http/client (assoc http/default-client-opts :version :http1.1))))
+
+(defn ^:private post!
+  "The response to POSTing `msg`, or an ex-info saying how reaching the
+  server failed. A connection that broke before any answer (one the server
+  had closed, say) is tried again once, but not for a tool call, which the
+  server may have run."
+  [client msg timeout-ms]
+  (let [post #(http/post (:url (:transport client))
+                         {:client @http-client
+                          :headers (http-headers client msg)
+                          :body (json/generate-string msg)
+                          :as :stream
+                          :throw false
+                          :timeout timeout-ms})]
+    (try (post)
+         (catch Exception e
+           (let [failure (transport-failure e timeout-ms)]
+             (if (and (= ::closed (error-type failure)) (not= "tools/call" (:method msg)))
+               (try (post)
+                    (catch Exception e
+                      (throw (transport-failure e timeout-ms))))
+               (throw failure)))))))
+
 (defn ^:private http-post!
   "POSTs `msg` to an HTTP server: its response when it's a request (JSON or
   an SSE stream), nil once it's taken otherwise. Keeps the response's body
@@ -367,15 +394,7 @@
   [client msg stream timeout-ms]
   (let [sent-session (:session-id @(:state client))
         request? (request-message? msg)
-        resp (try
-               (http/post (:url (:transport client))
-                          {:headers (http-headers client msg)
-                           :body (json/generate-string msg)
-                           :as :stream
-                           :throw false
-                           :timeout timeout-ms})
-               (catch Exception e
-                 (throw (transport-failure e timeout-ms))))
+        resp (post! client msg timeout-ms)
         {:keys [status headers]} resp
         content-type (str/lower-case (get headers "content-type" ""))]
     (reset! stream (:body resp))

@@ -1,5 +1,6 @@
 (ns grog.mcp-test
-  (:require [cheshire.core :as json]
+  (:require [babashka.http-client :as http]
+            [cheshire.core :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
@@ -349,6 +350,37 @@
             (is (str/includes? (get headers "accept") "text/event-stream"))
             (is (= "2026-07-28" (get-in call [:body :params :_meta :io.modelcontextprotocol/protocolVersion]))))
           (mcp/close! client))))))
+
+(deftest http-broken-connections
+  (let [calls (atom 0)
+        post http/post
+        break-next (atom true)]
+    (with-server*
+      (fn [req]
+        (let [m (body-of req)]
+          (case (:method m)
+            "server/discover" (json-reply (result m discovered))
+            "tools/list" (json-reply (result m {:tools [{:name "x" :inputSchema {:type "object"}}]}))
+            "tools/call" (do (swap! calls inc)
+                             (json-reply (result m {:content [{:type "text" :text "done"}]})))
+            {:status 400})))
+      (fn [url]
+        (with-redefs [http/post (fn [& args]
+                                  (if (compare-and-set! break-next true false)
+                                    (throw (java.io.IOException. "connection closed"))
+                                    (apply post args)))]
+          (testing "a connection that broke before any answer is tried again"
+            (let [client (mcp/connect! (mcp/http-transport {:url url :headers (constantly {})}) {})]
+              (is (= "2026-07-28" (:version (mcp/info client))))
+              (reset! break-next true)
+              (is (= ["x"] (mapv :name (mcp/tools client))))
+              (testing "but not a tool call, which the server may have run"
+                (reset! break-next true)
+                (is (= ::mcp/closed (:type (thrown-type #(mcp/call-tool! client "x" {})))))
+                (is (= 0 @calls))
+                (is (= "done" (mcp/text-of (mcp/call-tool! client "x" {}))))
+                (is (= 1 @calls)))
+              (mcp/close! client))))))))
 
 (deftest http-sse-response
   (let [changed (promise)]

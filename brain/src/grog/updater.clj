@@ -220,7 +220,9 @@
         (say! {:stage "fetching" :from revision})
         (when-not (= "root" owner)
           (sh ["chown" owner tmp]))
-        (let [fetched (nix "flake" "update" input "--flake" flake "--output-lock-file" fresh-file)
+        ;; --refresh: nix would otherwise take where the branch was an hour
+        ;; ago (tarball-ttl), and miss what was just pushed.
+        (let [fetched (nix "flake" "update" input "--refresh" "--flake" flake "--output-lock-file" fresh-file)
               old (some-> (read-lock lock-file) (locked input))
               fresh (when (zero? (:exit fetched)) (some-> (read-lock fresh-file) (locked input)))
               to (get fresh "rev")

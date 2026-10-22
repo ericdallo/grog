@@ -145,7 +145,7 @@
       (let [fetch (first (filter #(= "flake" (first (nix-args %))) @(:commands w)))]
         (is (= (updater/as-owner (:owner w) (str (if (= "root" (:owner w)) "/root" (str "/home/" (:owner w))))
                                  ["nix" "--extra-experimental-features" "nix-command flakes"
-                                  "flake" "update" "grog" "--flake" (:flake w) "--output-lock-file"])
+                                  "flake" "update" "grog" "--refresh" "--flake" (:flake w) "--output-lock-file"])
                (vec (butlast fetch))))
         (is (not= (str (:flake w) "/flake.lock") (last fetch)))))))
 
