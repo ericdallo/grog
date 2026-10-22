@@ -8,10 +8,13 @@ from fakes import (
     ERROR,
     HEARD,
     LISTENING,
+    PAUSE,
     SILENCE,
+    SOUND,
     SPEECH,
     FakeConnection,
     FakeTts,
+    PausingTts,
     Players,
     StreamingTts,
     answering,
@@ -19,9 +22,10 @@ from fakes import (
     played,
 )
 
+from grog_voice.audio import Silence
 from grog_voice.ears import Heard
 from grog_voice.grog import GrogError
-from grog_voice.mouth import Mouth, Turn
+from grog_voice.mouth import Mouth, Pauses, Turn
 
 
 def heard(text=HEARD, **more):
@@ -67,6 +71,31 @@ class TurnTest(unittest.TestCase):
             " done 5.00 s",
             str(turn),
         )
+
+
+class PausesTest(unittest.TestCase):
+    """At 8 samples a second: a second of sound is 16 bytes, Silence(8)
+    half a second."""
+
+    def setUp(self):
+        self.now = 0.0
+        self.pauses = Pauses(8, clock=lambda: self.now)
+
+    def test_a_pause_plays_once_more_sound_comes(self):
+        self.assertEqual([bytes(16)], self.pauses(bytes(16)))
+        self.assertEqual([], self.pauses(Silence(8)), "held")
+        self.now = 0.5
+        self.assertEqual([bytes(8), b"ab"], self.pauses(b"ab"), "all of it: the second still plays")
+        self.assertEqual([b"cd"], self.pauses(b"cd"))
+
+    def test_what_was_waited_counts(self):
+        self.pauses(bytes(16))
+        self.pauses(Silence(8))
+        self.now = 1.25
+        self.assertEqual([bytes(4), b"ab"], self.pauses(b"ab"), "a quarter of a second already passed")
+        self.pauses(Silence(8))
+        self.now = 5.0
+        self.assertEqual([b"cd"], self.pauses(b"cd"), "grog used a tool meanwhile")
 
 
 class AnswerTest(unittest.TestCase):
@@ -120,6 +149,22 @@ class AnswerTest(unittest.TestCase):
         m.answer(heard(), HEARD)
         self.assertEqual(["Claro! Coloquei um alarme."], m.tts.texts)
         self.assertEqual([ACK] + [t.encode() for t in m.tts.texts], played(m.player))
+
+    def test_pauses_after_a_sentence_before_the_next_only(self):
+        started, done = threading.Event(), threading.Event()
+
+        def ask(text, said=None, on_connect=None):
+            try:
+                yield ("text", "Amanhã faz sol, com vento à tarde. ")
+                started.wait(2)
+                yield ("text", "Leve um casaco. ")
+            finally:
+                done.set()
+
+        m = Mouth(tts=PausingTts(started, done), player=Players(), ask=ask)
+        m.answer(heard(), HEARD)
+        first, second = (text.encode() for text in m.tts.texts)
+        self.assertEqual([ACK, first, SOUND, PAUSE, second, SOUND], played(m.player), "none at the end")
 
     def test_got_it_already_played_as_it_ended(self):
         now = time.monotonic()
