@@ -42,6 +42,7 @@
           services.grog.revision = lib.mkDefault (self.rev or self.dirtyRev or null);
           services.grog.package = lib.mkDefault packages.grog;
           services.grog.voice.package = lib.mkDefault packages.grog-voice;
+          services.grog.music.package = lib.mkDefault packages.grog-music;
           services.grog.skin.package = lib.mkDefault packages.grog-skin;
         };
 
@@ -68,7 +69,7 @@
       checks = forAllSystems (pkgs: {
         # Building the packages runs the unit tests (and shellcheck, for the
         # installer).
-        inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) grog grog-voice grog-skin install;
+        inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) grog grog-voice grog-music grog-skin install;
         # The NixOS module in a minimal VM, against a fake OpenAI.
         module = import ./body/tests/module.nix {
           inherit pkgs;

@@ -1,6 +1,7 @@
 (ns grog.actions
   "What can be asked of grog, beyond answering: to listen now, without its
-  name, or to stop answering (grog-voice, see grog.voice); to turn its mic
+  name, or to stop answering, and its music (grog-voice, see grog.voice;
+  grog.music); to turn its mic
   on or off; to change the speaker's volume; to forget its conversations;
   to connect something to it (grog.integrations); to update itself
   (grog.update); and to go away: restart itself (its voice, then its
@@ -15,6 +16,8 @@
             [grog.integrations :as integrations]
             [grog.log :as log]
             [grog.machine :as machine]
+            [grog.music :as music]
+            [grog.player :as player]
             [grog.update :as update]
             [grog.voice :as voice]))
 
@@ -98,7 +101,9 @@
                         "update" "it can't update itself here: no update service, or no hands to start it"
                         (str "there's no action called " name))
                       {:type ::unavailable})))
-    (when (and (#{"listen" "stop"} name) (not (voice/there? (:voice ctx))))
+    (when (and (or (= "listen" name)
+                   (and (= "stop" name) (not (player/there? config))))
+               (not (voice/there? (:voice ctx))))
       (throw (ex-info "its voice isn't there to ask" {:type ::unavailable})))
     (when-let [{:keys [can]} (power-verbs name)]
       (when-not (zero? (:exit (on-machine! config (root-command can))))
@@ -147,9 +152,10 @@
   {:ok true})
 
 (defn ^:private stop!
-  "Asks grog-voice to stop answering: the turn under way, if any, ends then,
-  stopped (grog.events)."
-  [{:keys [voice events]}]
+  "Asks grog-voice to stop answering, the turn under way, if any, ending
+  then, stopped (grog.events), and pauses grog's music."
+  [{:keys [voice events config]}]
+  (music/pause! @config)
   (events/publish! events {:type :stop})
   (voice/ask! voice :stop)
   {:ok true})

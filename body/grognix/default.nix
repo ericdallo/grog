@@ -117,6 +117,9 @@
     # The volume, how the machine is doing, restarting it or grog, and a
     # shell (as grog, with sudo without a password).
     hands.enable = true;
+    # Music through grog's speaker (or a Bluetooth speaker paired with it),
+    # from YouTube Music.
+    music.enable = true;
     # MCP servers from npm and PyPI, installed when grog first needs them,
     # run apart from it.
     mcp.enable = true;

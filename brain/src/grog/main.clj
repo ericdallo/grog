@@ -59,6 +59,11 @@ Commands:
   mic on|off                  turns grog-voice's mic on or off (off, nothing
                               is heard until it's on again, even after
                               restarts)
+  music                       what's playing
+  music play WHAT|pause|resume|next|previous|stop|volume N|+N|-N
+                              plays music (a song, an artist, an album, a
+                              playlist), or pauses it...: through grog's
+                              player, or what's connected that plays it
   update                      updates grog to the latest grog pushed, saying
                               how it goes (services.grog.update on NixOS)
   updater --flake DIR --host NAME --input NAME --status FILE
@@ -127,6 +132,9 @@ Server: $GROG_URL or " client/default-url))
     "off" (exit (client/mic! (url opts) false))
     (do (binding [*out* *err*] (println "Usage: grog mic on|off"))
         (System/exit 2))))
+
+(defn ^:private music [{:keys [opts args]}]
+  (exit (client/music! (url opts) args)))
 
 (defn ^:private serve-hands [{:keys [opts]}]
   (if (str/blank? (:socket opts))
@@ -209,6 +217,7 @@ Server: $GROG_URL or " client/default-url))
    {:cmds ["settings" "reset"] :fn reset-settings}
    {:cmds ["models"] :fn models}
    {:cmds ["mic"] :fn mic}
+   {:cmds ["music"] :fn music}
    {:cmds ["update"] :fn update-grog}
    {:cmds ["updater"] :fn run-updater :spec {:flake {:coerce :string}
                                              :host {:coerce :string}

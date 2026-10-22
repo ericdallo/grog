@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "grog-music"
+version = "0.1.0"
+description = "grog's music player (mpv and yt-dlp), and YouTube Music's search and library"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = ["ytmusicapi"]
+
+[project.scripts]
+grog-music = "grog_music.main:main"
+
+[tool.setuptools]
+packages = ["grog_music"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "UP", "W"]

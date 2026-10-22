@@ -9,6 +9,7 @@ export const ICONS = {
   computer: '<rect x="5" y="5" width="14" height="10" rx="1.5"/><path d="M3 18.5h18"/>',
   shell: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10l3 2.5L7 15M12.5 15H17"/>',
   bulb: '<path d="M9.5 17.5v-1.3c0-.9-.4-1.6-1.1-2.2a6 6 0 1 1 7.2 0c-.7.6-1.1 1.3-1.1 2.2v1.3zM10 20.5h4"/>',
+  music: '<path d="M9.5 17.5V5.5l9-2v12"/><circle cx="7" cy="17.5" r="2.5"/><circle cx="16" cy="15.5" r="2.5"/>',
   memory: '<path d="M7 4h10v16l-5-3.5L7 20z"/>',
   settings: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
   tool: '<path d="M14.5 5.5a4 4 0 0 0-5 5L4 16l4 4 5.5-5.5a4 4 0 0 0 5-5l-2.5 2.5-2.5-.5-.5-2.5z"/>',

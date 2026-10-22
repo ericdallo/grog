@@ -8,13 +8,14 @@
             [clojure.string :as str]
             [grog.config :as config]
             [grog.log :as log]
+            [grog.music :as music]
             [grog.provider :as provider]
             [grog.state :as state]
             [grog.usage :as usage]
             [grog.validation :as validation]))
 
 ;; What the tool changes, by its argument names.
-(def ^:private settable [:name :language :location :timezone :model :reasoning_effort])
+(def ^:private settable [:name :language :location :timezone :model :reasoning_effort :music_provider])
 
 ;; Those it tries before keeping them.
 (def ^:private tried #{:model :reasoning_effort})
@@ -29,7 +30,8 @@
    :location [[:location]]
    :timezone [[:timezone]]
    :model (provider/model-paths config)
-   :reasoning_effort [[:providers (keyword (:provider config)) :reasoning-effort]]})
+   :reasoning_effort [[:providers (keyword (:provider config)) :reasoning-effort]]
+   :music_provider [[:music :provider]]})
 
 (defn file [config]
   (str (fs/path (config/state-dir config) "settings.json")))
@@ -95,6 +97,7 @@
   [k v]
   (case k
     (:name :model) (some-> v str str/trim)
+    :music_provider (blank->nil (some-> v str str/trim))
     :location (when (map? v)
                 (not-empty (into {} (for [part [:city :region :country]
                                           :let [s (some-> (get v part) str str/trim)]
@@ -160,16 +163,31 @@
   (when-let [bad (seq (validation/problems config))]
     (throw (ex-info (str/join "; " bad) {:type ::invalid}))))
 
+(defn ^:private check-music!
+  "Throws ex-info when `changes` set what plays music to something that
+  can't, with `config`."
+  [config changes]
+  (doseq [[k v] changes
+          :when (and (= :music_provider k) v)]
+    (let [ids (music/provider-ids config)]
+      (when-not (some #{v} ids)
+        (throw (ex-info (if (seq ids)
+                          (format "nothing called %s plays music here (there's %s)" (pr-str v) (str/join ", " ids))
+                          "nothing plays music here")
+                        {:type ::invalid}))))))
+
 (defn change!
   "Applies the `settings` tool's `args` to the context's settings: the
   settings given change, those listed in `reset` go back to how grog
-  started. Checked like at startup, a new model or reasoning effort tried
-  (throws ex-info saying what's wrong), then kept. Returns the current
-  settings; with nothing to change, the models on offer too."
+  started. Checked like at startup, a new model or reasoning effort tried,
+  what plays music checked to be there (throws ex-info saying what's
+  wrong), then kept. Returns the current settings; with nothing to change,
+  the models on offer too."
   [{:keys [config overrides lock] :as ctx} args]
   (let [resets (filter (set settable) (keep #(when (string? %) (keyword %)) (:reset args)))
         changes (for [k settable :when (contains? args k)]
                   [k (normalize k (get args k))])]
+    (check-music! @config changes)
     (if (and (empty? resets) (empty? changes))
       (let [models (offered-models @config)]
         (cond-> (current @config @overrides) models (assoc :models models)))
@@ -204,7 +222,8 @@
   {:name "settings"
    :description (str "Your settings, which you change when the user asks you to: your name (also the word "
                      "you answer to), the language you always answer in, where the home is and its time "
-                     "zone, the AI model you run on, and how much you think before answering. Save where the "
+                     "zone, the AI model you run on, how much you think before answering, and what plays "
+                     "music when asked. Save where the "
                      "home is whenever the user tells you, even if they don't ask you to. Changes are "
                      "kept, and take effect from the user's next message; a new model is tried first. With "
                      "no arguments, it tells the current ones and the models on offer. How the user wants "
@@ -226,6 +245,10 @@
                              :reasoning_effort {:type "string"
                                                 :enum ["low" "medium" "high"]
                                                 :description "How much you think before answering: low answers fastest."}
+                             :music_provider {:type ["string" "null"]
+                                              :description (str "What plays music when asked, by its id: youtube-music, "
+                                                                "or a connected integration's; null for the first "
+                                                                "connected.")}
                              :reset {:type "array"
                                      :items {:type "string" :enum (mapv name settable)}
                                      :description "Settings to put back as they were configured."}}

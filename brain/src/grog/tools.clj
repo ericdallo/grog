@@ -30,6 +30,7 @@
             [grog.machine :as machine]
             [grog.mcp-tools :as mcp-tools]
             [grog.memory :as memory]
+            [grog.music :as music]
             [grog.settings :as settings]
             [grog.update :as update]
             [grog.voice :as voice]))
@@ -38,18 +39,21 @@
   "The tools for a turn: grog's own (its settings, memory and microphone),
   the machine's when it has hands, `power` when it can restart itself or
   the machine, `update` when it can update itself, `computer` with
-  computers paired with it, its capability tools for what's connected
-  (grog.capabilities: `lights`), those of the MCP servers connected to it
-  (grog.mcp-tools), and `connect`, to connect something."
+  computers paired with it, its capability tools (`music` when something
+  plays it, grog.music; `lights` for what's connected, grog.capabilities),
+  those of the MCP servers connected to it (grog.mcp-tools), and
+  `connect`, to connect something."
   [config]
   (let [power (actions/tool config)
         updating (update/tool config)
-        computing (computers/tool config)]
+        computing (computers/tool config)
+        playing (music/tool config)]
     (cond-> [settings/tool memory/tool voice/tool]
       (get-in config [:hands :socket]) (into machine/tools)
       power (conj power)
       updating (conj updating)
       computing (conj computing)
+      playing (conj playing)
       true (into (capabilities/tools config))
       true (into (mcp-tools/tools config))
       true (conj (integrations/tool config)))))

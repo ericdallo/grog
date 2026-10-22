@@ -3,7 +3,9 @@
 # the CLI, signing in to the ChatGPT subscription, what they cost, the
 # sandbox, grog-voice: its user service, and a voice turn with the real
 # models, which whoever watches grog sees go; its skin, served; its hands: a
-# shell, the volume, root, and restarting grog when asked; what grog asks of
+# shell, the volume, root, and restarting grog when asked; its music
+# (grog-music, playing a local file offline): paused, resumed, turned down,
+# going down while someone talks to grog, through its tool; what grog asks of
 # grog-voice: its mic off, listening without its name; a computer pairing
 # with it (pc, with services.grog.computer and no grog), running what grog
 # serves, which the model then acts on, as it allows; MCP servers the user
@@ -59,6 +61,10 @@ let
       | piper -m ${models.jeff}/pt_BR-jeff-medium.onnx -f question.wav
     sox question.wav -r 16000 -c 1 -b 16 $out
   '';
+  # A song for grog-music to play offline: two minutes of a quiet tone.
+  song = pkgs.runCommand "song.flac" { nativeBuildInputs = [ pkgs.sox ]; } ''
+    sox -n -r 44100 -c 2 -t flac $out synth 120 sine 440 vol 0.1
+  '';
 in
 pkgs.testers.runNixOSTest {
   name = "grog-module";
@@ -86,6 +92,7 @@ pkgs.testers.runNixOSTest {
       settings.mic = "null-mic";
     };
     services.grog.hands.enable = true;
+    services.grog.music.enable = true;
     # Served only: no one's desktop shows it.
     services.grog.skin = {
       enable = true;
@@ -408,6 +415,80 @@ pkgs.testers.runNixOSTest {
         out = machine.succeed("su - grog -c 'XDG_RUNTIME_DIR=/run/user/$(id -u) wpctl get-volume @DEFAULT_AUDIO_SINK@'")
         assert out.strip() == "Volume: 0.30", out
 
+    def ask(message, new=False):
+        """What grog answers `message`, in the conversation going on unless `new`."""
+        command = "grog ask " + ("--new " if new else "") + shlex.quote(message)
+        return machine.succeed(f"su - grog -c {shlex.quote(command)}").strip()
+
+    def player(request):
+        """What grog-music answers `request`, asked straight, as grog's user."""
+        command = "grog-music --socket /run/grog-music/music.sock send " + shlex.quote(json.dumps(request))
+        return json.loads(machine.succeed(f"su - grog -c {shlex.quote(command)}"))
+
+    def player_is(check):
+        """A command succeeding when grog-music's status passes `check`, for wait_until_succeeds."""
+        def go(_):
+            return check(player({"command": "status"}))
+        return go
+
+    def position(text):
+        """Where the song is, in seconds, in what `grog music` says."""
+        found = re.search(r"\((\d+):(\d\d) of 2:00\)", text)
+        assert found, text
+        return int(found.group(1)) * 60 + int(found.group(2))
+
+    with subtest("grog plays music through its player, in its user's session"):
+        machine.wait_until_succeeds("systemctl --user -M grog@ is-active grog-music.service")
+        machine.wait_until_succeeds("test -S /run/grog-music/music.sock")
+        machine.succeed("stat -c '%a %G' /run/grog-music/music.sock | grep -qx '660 grog-music'")
+        machine.fail("su - alice -c 'ls /run/grog-music'")
+        listed = grog("integrations")
+        assert re.search(r"(?m)^YouTube Music \(grog connect youtube-music\)\n  nothing connected$", listed), listed
+        assert (out := grog("music")).startswith("Nothing is playing"), out
+
+    with subtest("a song plays, and grog pauses, resumes and turns it down"):
+        reply = player({"command": "play", "items": [{"url": "file://${song}", "title": "Tone", "artist": "Sox"}]})
+        assert reply["ok"], reply
+        retry(player_is(lambda s: s["state"] == "playing" and s.get("positionS", 0) >= 1))
+        assert (out := grog("music")).startswith("Playing Tone by Sox ("), out
+        before = position(out)
+        machine.sleep(3)
+        assert position(after := grog("music")) > before, (out, after)
+        assert (out := grog("music pause")) == "Paused.", out
+        assert (out := grog("music")).startswith("Paused: Tone by Sox"), out
+        assert player({"command": "status"})["state"] == "paused"
+        assert (out := grog("music resume")).startswith("Playing Tone by Sox"), out
+        assert (out := grog("music volume 40")) == "Volume 40.", out
+        assert (out := grog("music")).startswith("Playing Tone") and out.endswith(", volume 40."), out
+        assert (s := player({"command": "status"}))["volume"] == 40 and not s["ducked"], s
+
+    with subtest("while someone talks to grog the music goes down, then back"):
+        # Touching its face: grog-voice listens without its name for a while
+        # (awake), then waits for its name again.
+        machine.succeed(
+            "curl -sf -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8484/v1/actions/listen"
+        )
+        retry(player_is(lambda s: s["ducked"]))
+        assert (s := player({"command": "status"}))["volume"] == 40 and s["state"] == "playing", s
+        retry(player_is(lambda s: not s["ducked"]))
+        assert (s := player({"command": "status"}))["volume"] == 40 and s["state"] == "playing", s
+
+    with subtest("touching grog's face pauses the music"):
+        machine.succeed(
+            "curl -sf -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8484/v1/actions/stop"
+        )
+        retry(player_is(lambda s: s["state"] == "paused"))
+
+    with subtest("the model plays music with its tool"):
+        out = ask('use tool music {"action": "resume"}', new=True)
+        assert out.startswith("Feito: Playing Tone by Sox"), out
+        assert player({"command": "status"})["state"] == "playing"
+        assert (out := ask('use tool music {"action": "pause"}', new=True)) == "Feito: Paused.", out
+        out = ask('use tool music {"action": "status"}', new=True)
+        assert out.startswith("Feito: Paused: Tone by Sox (") and out.endswith(", volume 40."), out
+        assert (out := grog("music stop")) == "Stopped.", out
+        assert player({"command": "status"})["state"] == "idle"
+
     with subtest("its hands' user may do anything: sudo without a password, and what polkit guards"):
         def like_hands(command):
             """`command` run as a service of grog's, like its hands: outside any session."""
@@ -507,11 +588,6 @@ pkgs.testers.runNixOSTest {
         assert "it doesn't let grog in anymore" in (out := grog("disconnect computer:pc")), out
         pc.fail("grep -q ssh-ed25519 /home/bob/.ssh/authorized_keys")
         assert "computer:pc" not in (out := grog("integrations")), out
-
-    def ask(message, new=False):
-        """What grog answers `message`, in the conversation going on unless `new`."""
-        command = "grog ask " + ("--new " if new else "") + shlex.quote(message)
-        return machine.succeed(f"su - grog -c {shlex.quote(command)}").strip()
 
     def uid_of(unit):
         pid = machine.succeed(f"systemctl show -p MainPID --value {unit}").strip()

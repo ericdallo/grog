@@ -46,6 +46,12 @@
    ;; a file: with it and hands, grog can update itself when asked (the
    ;; NixOS module's services.grog.update). nil: it can't.
    :update {:status nil}
+   ;; grog's music (grog.music). socket: the unix socket of its player,
+   ;; grog-music, in the user's session (nil: it plays nothing itself).
+   ;; provider: what plays when asked, by its id (youtube-music, or a
+   ;; connected integration's); nil: the first connected, else the first
+   ;; there. Changed by asking (the settings tool).
+   :music {:socket nil :provider nil}
    ;; The user's computers grog acts on (grog.computers): the ssh it reaches
    ;; them with.
    :computers {:ssh "ssh"}
@@ -225,6 +231,9 @@
         (check config [:skin :dir] (some-fn nil? #(and (string? %) (fs/directory? %))) "a directory or null")
         (check config [:skin :captions] boolean? "true or false")
         (check config [:update :status] (some-fn nil? non-blank-string?) "a file path, or null")
+        (check config [:music :socket] (some-fn nil? non-blank-string?) "a unix socket path, or null")
+        (check config [:music :provider] (some-fn nil? non-blank-string?)
+               "what plays music, like \"youtube-music\", or null")
         (check config [:computers :ssh] non-blank-string? "a program, like \"ssh\"")
         (when (contains? (:computers config) :pairing)
           "computers.pairing: now integrations.host and integrations.port")

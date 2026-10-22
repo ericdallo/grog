@@ -209,7 +209,73 @@ phases land.
   - No switches or climate capabilities yet.
   - It was tested against a fake Home Assistant (unit and VM tests), not
     a real one yet.
-- Next: phase 4 (see "Phases"), music.
+- Music is built (October 2026), YouTube Music first: the user chose it
+  ahead of Spotify.
+  - grog-music (`music/`, `services.grog.music`, on in grognix): a Python
+    service in the session of the user with the speaker, its socket in
+    `/run/grog-music` (the `grog-music` group). A queue of playable items
+    (`{url title artist album}`: http(s), YouTube's through yt-dlp, or
+    `file://`) played by mpv, with its volume and ducking; YouTube Music's
+    search, playing (a song then its up next, an album, a playlist, an
+    artist's top songs, the user's playlist named most like what was said,
+    their likes) and library, as `youtube-music.*` commands. ytmusicapi
+    pinned at 1.12.3 (nixpkgs' 1.12.0 breaks on YouTube Music's answers),
+    yt-dlp with Deno and yt-dlp-ejs, both from nixpkgs.
+  - `grog.player`, its client; `grog.music`, the `music` tool (`play`
+    with a `query`, a `kind`, `song`, `album`, `playlist`, `artist`,
+    `my-playlist` or `liked`, and `shuffle`; `pause`, `resume`, `stop`,
+    `next`, `previous`, `volume`, `status`), a capability tool offered when
+    something plays music, and its providers: YouTube Music, built in,
+    and the connected entries mapping `music` in their `capabilities`, as
+    `lights` is (`grog.capabilities/sources`, at least `play` mapped to a
+    tool they have). What plays: `music.provider` (the settings tool's
+    `music_provider`, checked to be there), else the first connected, else
+    the first there.
+  - `grog.youtube-music`, an integration of grog's own, offered with a
+    player: anonymous search and play; connecting the user's Google account
+    (a `device-code` step at Google, RFC 8628) adds their library. Two
+    ways: grog's own Google client, shipped by the project in
+    `resources/grog/google-client.json` (a "TVs and Limited Input devices"
+    client, whose secret Google doesn't treat as confidential; the way is
+    only offered when it's there, and it isn't yet), or a client the user
+    made, entered in a form first. The tokens refresh in grog, which hands
+    them to grog-music with each request; disconnecting revokes them.
+  - The API (`POST /v1/music`), the CLI (`grog music`), the skin (`music`'s
+    label and a note icon), and the settings (`music.socket`,
+    `music.provider`).
+- Where music differs from what's below ("Music and targets", "YouTube
+  Music", "The voice, with music on grog"):
+  - Targets: only grog's default sink so far. A Bluetooth speaker paired
+    with the machine works through it, as the default sink; nothing pairs
+    one from the screen or by voice yet. No default target to choose, no
+    Spotify (Connect, go-librespot, its MCP server), computers or Cast yet.
+  - The music capability has two kinds of providers: grog's own, playing
+    through grog-music, and catalog entries mapping it (none shipped yet).
+    A provider can't say where it plays.
+  - ytmusicapi's OAuth is refused by YouTube Music (HTTP 400,
+    sigma67/ytmusicapi#813), so the user's library comes through the
+    YouTube Data API v3: their playlists, a playlist's songs, and their
+    likes (all of YouTube's, music or not), not their saved albums or
+    history. grog-music tries ytmusicapi first, and after a refusal not
+    again for 6 hours. Search and play are anonymous.
+  - The Google client is grog's own, shipped by the project, or the user's
+    own: not only the user's. Shipped, its consent screen must be
+    published (in testing, refresh tokens expire after 7 days); unverified,
+    it warns and takes 100 users; its Data API quota is shared by every
+    grog.
+  - Audio focus is the brain's, not grog-voice's: `grog.music` watches
+    grog-voice's states in the events and ducks grog-music (to 20 of 100)
+    while it hears someone after its name, is awake or asked, and while
+    grog answers aloud; then back. grog-voice didn't change. Touching the
+    face while grog answers stops it and pauses the music (the `stop`
+    action); it doesn't stop it whatever happens.
+  - Not measured on grognix yet: transcription's CPU and false wakes with
+    music playing. No echo cancellation with the music as the reference.
+    The docs say grog may hear its name less over loud music.
+  - grog-music gets `CPUWeight=50`: grog-voice, on the same CPU, comes
+    first.
+- Next: measuring music on grognix (CPU, false wakes, the duck level), and
+  shipping grog's Google client; then Spotify (see "Phases").
 
 ## What it should feel like
 
@@ -683,12 +749,15 @@ just the brain too.
    documents, dynamic registration as the fallback, PKCE, issuer, resource)
    with the relay page on GitHub Pages; adding servers from the registry.
 3. **Home Assistant**, and `lights`.
-4. **Music**: targets and the default, go-librespot on grognix (Spotify
-   Connect, zeroconf), Spotify's own MCP server if it takes grog, Bluetooth
-   speakers from the screen.
-5. **The voice's audio focus**, measured on grognix. It can go along with
-   4, and is needed before grog plays music itself by default.
-6. **Wi-Fi bulbs** (Tuya), and **YouTube Music**.
+4. **Music**, partly done: the `music` tool and its providers, grog-music,
+   and YouTube Music (October 2026). Left: targets and the default,
+   go-librespot on grognix (Spotify Connect, zeroconf), Spotify's own MCP
+   server if it takes grog, Bluetooth speakers from the screen.
+5. **The voice's audio focus**, partly done: ducking, from grog-voice's
+   states, in the brain. Left: measuring it on grognix (CPU, false wakes),
+   and echo cancellation with the music as the reference, if it's needed
+   for grog to hear its name over music.
+6. **Wi-Fi bulbs** (Tuya).
 
 ## Later, not decided
 

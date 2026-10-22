@@ -2,8 +2,9 @@
   "The server: grog's HTTP API (grog.api) and, when enabled, an nREPL, with
   what runs in the background: pings to whoever watches what grog is up
   to, and to grog-voice, keeping what they know of its usage current, and of
-  how an update goes (grog.update), and a sign-in with a code going while
-  grog has nothing to pay with, for its skin to show (grog.signin)."
+  how an update goes (grog.update), a sign-in with a code going while
+  grog has nothing to pay with, for its skin to show (grog.signin), and
+  its music going down while someone talks to it (grog.music)."
   (:require [babashka.nrepl.server :as nrepl]
             [grog.api :as api]
             [grog.assistant :as assistant]
@@ -12,6 +13,7 @@
             [grog.credentials :as credentials]
             [grog.events :as events]
             [grog.log :as log]
+            [grog.music :as music]
             [grog.provider :as provider]
             [grog.servers :as servers]
             [grog.signin :as signin]
@@ -80,6 +82,7 @@
         {:keys [provider auth model]} (provider/describe-quietly config)]
     (reset! current ctx)
     (watch-connected! ctx)
+    (music/watch-voice! ctx)
     (assistant/publish-status! ctx)
     (log/info (format "listening on http://%s:%d (provider=%s auth=%s model=%s)" host port provider auth model))
     {:ctx ctx
@@ -104,6 +107,7 @@
   (when nrepl
     (nrepl/stop-server! nrepl))
   (remove-watch (:connect ctx) ::connected)
+  (music/unwatch-voice! ctx)
   (connect/stop! ctx)
   (servers/stop-all! ctx)
   (http/server-stop! server)

@@ -3,11 +3,14 @@
             [cheshire.core :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [grog.config :as config]
             [grog.mcp :as mcp]
             [grog.oauth :as oauth]
             [grog.sse :as sse]
             [org.httpkit.server :as http])
   (:import (java.io PipedInputStream PipedOutputStream)
+           (java.net StandardProtocolFamily UnixDomainSocketAddress)
+           (java.nio.channels Channels ServerSocketChannel)
            (java.util Base64)))
 
 (defn sse
@@ -81,6 +84,34 @@
 
 (defn temp-dir []
   (str (fs/create-temp-dir {:prefix "grog-test"})))
+
+(defn start-player!
+  "A fake grog-music on a unix socket in a temp directory: each
+  connection's line kept as it came (:lines) and parsed (:requests, as
+  grog.config/parse reads it), answered with (answer request) as JSON in
+  lowerCamelCase, or not at all when that's nil. Returns {:socket :lines
+  :requests :stop!}."
+  [answer]
+  (let [socket (str (fs/path (temp-dir) "music.sock"))
+        lines (atom [])
+        requests (atom [])
+        server (doto (ServerSocketChannel/open StandardProtocolFamily/UNIX)
+                 (.bind (UnixDomainSocketAddress/of socket)))]
+    (future
+      (loop []
+        (when-let [ch (try (.accept server) (catch Exception _ nil))]
+          (future
+            (with-open [ch ch]
+              (let [line (.readLine (io/reader (Channels/newInputStream ch)))
+                    request (config/parse line)]
+                (swap! lines conj line)
+                (swap! requests conj request)
+                (when-let [reply (answer request)]
+                  (let [out (Channels/newOutputStream ch)]
+                    (.write out (.getBytes (str (config/generate reply) "\n") "UTF-8"))
+                    (.flush out))))))
+          (recur))))
+    {:socket socket :lines lines :requests requests :stop! #(.close server)}))
 
 (defn free-port []
   (with-open [socket (java.net.ServerSocket. 0)]

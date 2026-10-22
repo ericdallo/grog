@@ -26,14 +26,14 @@
     (with-redefs [settings/try-model! (fn [_ _])]
       (testing "with no arguments, it tells them, changing nothing"
         (is (= {:name "grog" :language nil :location nil :timezone (config/timezone config/defaults)
-                :model "gpt-6-luna" :reasoning_effort "low" :changed []}
+                :model "gpt-6-luna" :reasoning_effort "low" :music_provider nil :changed []}
                (settings/change! ctx {})))
         (is (nil? (saved ctx))))
 
       (testing "changes take effect right away"
         (is (= {:name "Jarvis" :language nil :location {:city "Campinas" :country "BR"}
                 :timezone (config/timezone config/defaults) :model "gpt-6-luna"
-                :reasoning_effort "medium" :changed ["name" "location" "reasoning_effort"]}
+                :reasoning_effort "medium" :music_provider nil :changed ["name" "location" "reasoning_effort"]}
                (settings/change! ctx {:name " Jarvis " :location {:city "Campinas" :region " " :country "BR"}
                                       :reasoning_effort "medium"})))
         (is (= "Jarvis" (:name @(:config ctx))))

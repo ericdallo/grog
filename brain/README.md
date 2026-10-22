@@ -31,12 +31,16 @@ grog integrations          # what it can connect to, and what's connected
 grog connect openai        # sign in to the ChatGPT subscription (--browser: in a browser); so does grog login
 grog connect computer      # pair one of your computers
 grog connect home-assistant  # your Home Assistant: its lights and the rest
+grog connect youtube-music # your playlists and liked songs; it plays without it too
 grog disconnect ID         # computer:NAME forgets one; openai signs out, like grog logout
 grog integrations add WHAT # an MCP server: its name in the MCP Registry, npm:pkg@1.2.3, pypi:pkg==1.2.3 or https://...
 grog integrations search TEXT  # servers of the MCP Registry (it can be slow)
 grog integrations remove ID    # one you added
 grog tools ID              # an MCP server's tools, and what grog does with each
 grog tools ID TOOL allow   # or ask, deny, show, hide, default
+grog music                 # what's playing
+grog music play legião urbana  # or pause, resume, next, previous, stop; play alone resumes
+grog music volume 40       # or +10, -10
 ```
 
 It finds the server through `$GROG_URL`.
@@ -71,9 +75,10 @@ this month. The spending is an estimate, at the prices in
 ## Changing it by asking
 
 Some settings change when you ask: its `name` (and so its wake word),
-`language`, `location`, `timezone`, the model and its reasoning effort.
-"From now on your name is Jarvis", "I live in Campinas", "switch to
-gpt-6-astra", "think harder". Without a `location`, it asks which city you
+`language`, `location`, `timezone`, the model and its reasoning effort,
+and what plays [music](#music) (`music.provider`). "From now on your name
+is Jarvis", "I live in Campinas", "switch to gpt-6-astra", "think harder",
+"play music on YouTube Music from now on". Without a `location`, it asks which city you
 live in the first time an answer needs it, like the weather, and keeps
 that. A new model gets a quick test first, and is refused if it doesn't
 answer. These stay in `settings.json`, in the state directory, until `grog
@@ -140,7 +145,8 @@ grog sees (`update` in `/v1/events`).
 
 What grog connects to, its integrations ([`integrations.clj`](src/grog/integrations.clj)),
 all connect the same way ([`connect.clj`](src/grog/connect.clj)): the
-ChatGPT subscription (`openai`), your computers (`computer`), and
+ChatGPT subscription (`openai`), your computers (`computer`),
+[YouTube Music](#youtube-music) (`youtube-music`), and
 [MCP servers](#mcp-servers), [Home Assistant](#home-assistant) among them.
 Someone at grog opens a window for one, on its screen (Integrations, in its
 actions), by asking it ("connect my computer"), or with `grog connect ID`.
@@ -329,11 +335,95 @@ says more than `server.json` does:
   steps. Its remotes are tried in order, the next on a 404.
 - `name`: where to read what the connection is called.
 - `errors`: what to say when it answers a status (404: no MCP server yet).
-- `capabilities`: what `lights` calls of it, and with what.
+- `capabilities`: what `lights` and `music` call of it, and with what.
 - `policy` and `show`: its tools' default modes, and which the model sees.
 
 A tool named there also matches a server's ending in `__` and that name
 (`intent__HassTurnOn`), as Home Assistant's change by version.
+
+## Music
+
+The model has one tool for music, `music` ([`music.clj`](src/grog/music.clj)),
+whatever plays it: `play`, `pause`, `resume`, `stop`, `next`, `previous`,
+`volume` (0 to 100, or up or down by some) and `status` (what's playing).
+What to play comes as you said it, with its `kind` when the model knows it:
+`song`, `album`, `playlist`, `artist`, `my-playlist` (one of yours, by its
+name) or `liked` (your liked songs), maybe shuffled. Like `lights`, it's
+grog's own: it never asks first, though it doesn't change anything after a
+web search.
+
+What plays it, its providers, are integrations:
+
+- **YouTube Music**, grog's own ([below](#youtube-music)), playing through
+  grog-music, its player ([`music/`](../music/README.md), `music.socket`),
+  on grog's speaker. Only there with grog-music.
+- **MCP servers** whose entry, one that comes with grog, maps `music` in its
+  `capabilities` ([above](#what-grog-reads-in-its-own-entries)), as Home
+  Assistant's maps `lights`: `play` (`{query}`, `{kind}`), `pause`,
+  `resume`, `next`, `previous`, `stop`, `volume` (`{level}`, `{change}`)
+  and `status`, at least `play`. A Spotify server would plug in that way,
+  with an entry and no code. None comes with grog yet.
+
+What plays is the one `music.provider` names, changed by asking ("play
+music on Spotify from now on"); else the first connected (YouTube Music with
+your account, then the servers in catalog order); else the first there. The
+tool only offers what that one can do.
+
+### YouTube Music
+
+It searches and plays with no account: a song (then what YouTube Music
+plays after it), an album, a playlist, an artist's top songs, up to 100 in
+the queue. Connecting your Google account adds your playlists and liked
+songs ([`youtube_music.clj`](src/grog/youtube_music.clj)): ask grog
+("connect YouTube Music"), tap it in Integrations on its screen, or run
+`grog connect youtube-music`. The card shows a code, to enter at Google's
+page (`google.com/device`) on a phone or computer.
+
+That takes a Google client of type "TVs and Limited Input devices": grog's
+own, when the project ships one
+([`google-client.json`](#for-the-maintainer-grogs-google-client)), or one
+you made, which grog's page asks for first: make it the
+[same way](#for-the-maintainer-grogs-google-client), in a project of yours.
+While its consent screen is in testing, only its test users can sign in,
+and the sign-in lasts 7 days.
+
+YouTube Music refuses grog's sign-in for its own API (ytmusicapi's), so
+your library comes through the YouTube Data API v3: your playlists, a
+playlist's songs, and what you liked (all your likes on YouTube, music or
+not). Not your saved albums or history, for now. The tokens refresh on
+their own; once they can't, connect it again. Disconnecting revokes them.
+
+### While grog listens
+
+While grog-voice hears someone after its name (or a touch), waits for them
+after being called or asking something, and while grog answers aloud, the
+music goes down, to 20 of 100, then back once it waits for its name again.
+It's the brain's doing, from what grog-voice says it's doing: grog-voice
+knows nothing of the music. Touching grog's face while it answers stops it,
+and pauses the music (`POST /v1/actions/stop` does too).
+
+grog-voice still hears the music, and doesn't take it out: over loud music,
+grog may hear its name less.
+
+### For the maintainer: grog's Google client
+
+grog's own client lets anyone connect YouTube Music without making one. To
+make it:
+
+1. Create a project in the [Google Cloud console](https://console.cloud.google.com),
+   and enable the YouTube Data API v3 in it.
+2. Configure its OAuth consent screen: External, with the scopes
+   `youtube`, `openid` and `email`, and publish it. In testing, only the
+   test users listed can sign in, and their refresh tokens expire after 7
+   days. Until Google verifies the app, its sign-in shows a warning, and
+   it's capped at 100 users.
+3. Create an OAuth client ID of type "TVs and Limited Input devices".
+4. Commit its ID and secret as `brain/resources/grog/google-client.json`:
+   `{"clientId": "...", "clientSecret": "..."}`. Google doesn't treat this
+   kind of client's secret as confidential.
+
+The Data API's daily quota is the project's, shared by every grog using its
+client.
 
 ## The prompt
 
@@ -378,6 +468,8 @@ says which one.
 | `skin.dir` | `null` | Files of its [skin](../skin/README.md), served at `/` |
 | `skin.captions` | `false` | Whether the skin shows what's said |
 | `update.status` | `null` | Where the update service says how an update goes: with it and hands, grog can [update itself](#updating) |
+| `music.socket` | `null` | Unix socket of grog-music, the player it plays [music](#music) with. `null`: it plays nothing itself |
+| `music.provider` | `null` | What plays music, by its id: `youtube-music`, or a connected integration's. `null`: the first connected, else the first there. Also changed by asking |
 | `computers.ssh` | `"ssh"` | The ssh it reaches its [computers](#computers) with. The `ssh-keygen` next to it makes grog's key |
 | `integrations.host`, `.port` | `"0.0.0.0"`, `8485` | Where it listens while someone at grog [connects something](#connecting-things), and only then: its page, and what pairs a computer |
 | `integrations.runner` | `null` | Unix socket of its runner (`grog mcp`), which runs [MCP servers](#mcp-servers) from npm and PyPI apart from it. `null`: only remote ones |
@@ -425,7 +517,8 @@ JSON keys are lowerCamelCase.
 | `GET /v1/events` | What it's up to, as server-sent events: a `snapshot`, then each change ([`events.clj`](src/grog/events.clj)) |
 | `POST /v1/voice` `{"state", "conversationId", "heard"}` | grog-voice saying what it's doing, and with captions what it heard. Answers `{"captions", "name"}` |
 | `GET /v1/voice/commands` | What grog-voice is asked, as server-sent events: a `snapshot` with whether its `mic` is `"on"` or `"off"`, then `mic` when that changes, `listen` (now, without its name) and `stop` (answering) |
-| `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice), `mic` `{"on"}`, `volume` (`{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `new-conversation` (forgets them all), `connect` `{"integration", "way"}` (opens a session, like `POST /v1/integrations/<id>/connect`), `update` (starts [updating](#updating), unless it is: `{"started"}`), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
+| `POST /v1/music` `{"action", "query", "kind", "shuffle", "level", "change"}` | Does it through what plays [music](#music), as the `music` tool takes them: `{"provider", "text"}`, `text` saying what it did. A 400 without a known `action`, or saying why it can't |
+| `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice; `stop` also pauses the music), `mic` `{"on"}`, `volume` (`{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `new-conversation` (forgets them all), `connect` `{"integration", "way"}` (opens a session, like `POST /v1/integrations/<id>/connect`), `update` (starts [updating](#updating), unless it is: `{"started"}`), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
 | `GET /` | The skin, with `skin.dir` |
 | `GET /health` | `ok` |
 
@@ -481,6 +574,11 @@ it in text the script reads, a line of `key=value` each
   added count as changing things and as reading what others wrote, so
   nothing changes after them in that turn, and destructive ones ask first.
   What tools are given and answer is never logged.
+- grog-music runs in the session of the user with the speaker, apart from
+  grog, which reaches its socket through a group. Your Google tokens stay
+  in grog's `secrets/`, and go to grog-music with each request that needs
+  them, which keeps them in memory for that request only, never on disk.
+  Neither logs what's asked or played.
 - The relay page sees OAuth codes, never tokens: a code is useless without
   the verifier grog keeps (PKCE). The state it reads has grog's address on
   your network, which isn't secret. Signing in to Home Assistant doesn't go

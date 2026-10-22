@@ -1,9 +1,9 @@
 (ns grog.capabilities
   "grog's own tools for what's connected (plans/integrations.md, what the
   model sees): few, voice-friendly names that don't change, whatever is
-  behind them. For now `lights`, through the first connected MCP server,
-  in catalog order, whose shipped entry maps it and that has the tools of
-  at least its on and off.
+  behind them. Here `lights`, through the first connected MCP server, in
+  catalog order, whose shipped entry maps it and that has the tools of at
+  least its on and off; `music` (grog.music) maps its actions the same way.
 
   An entry maps them in its _meta capabilities: {\"lights\" {\"<action>\"
   {\"tool\" name \"args\" template}}}, the tool matched to the server's as
@@ -54,42 +54,43 @@
                   [k v])))
         template))
 
-(defn ^:private params-of
+(defn params-of
   "The parameters `mapping`'s templates use."
   [mapping]
   (set (keep param (mapcat (comp vals :args) (vals mapping)))))
 
-(defn ^:private mapping-of
-  "What `entry` maps `lights` to, {action {:tool :args}}, only the actions
-  grog knows, when it's shipped; else nil."
-  [entry]
+(defn mapping-of
+  "What `entry` maps `capability` (\"lights\", \"music\") to, {action {:tool
+  :args}}, only of `known` actions, when it's shipped; else nil."
+  [entry capability known]
   (when (catalog/trusted? entry)
-    (let [m (get-in (catalog/grog-meta entry) [:capabilities :lights])]
+    (let [m (get-in (catalog/grog-meta entry) [:capabilities (keyword capability)])]
       (when (map? m)
         (not-empty (into {}
                          (keep (fn [a]
                                  (let [{:keys [tool args] :as one} (get m (keyword a))]
                                    (when (and (map? one) (string? tool) (not (str/blank? tool)))
                                      [a {:tool tool :args (if (map? args) args {})}]))))
-                         actions))))))
+                         known))))))
 
 (defn ^:private usable?
-  "Whether the server's `tools` have those of `mapping`'s on and off."
-  [mapping tools]
-  (every? #(some->> (get-in mapping [% :tool]) (mcp-tools/find-tool tools)) ["on" "off"]))
+  "Whether the server's `tools` have those of `mapping`'s `needed` actions."
+  [mapping tools needed]
+  (every? #(some->> (get-in mapping [% :tool]) (mcp-tools/find-tool tools)) needed))
 
-(defn ^:private lights-source
-  "The first connected server, in catalog order, `lights` can go through:
-  {:id :entry :mapping}, or nil."
-  [config]
+(defn sources
+  "The connected servers, in catalog order, whose shipped entries map
+  `capability` (only its `known` actions), and whose tools include those
+  of its `needed` actions: [{:id :entry :mapping}]."
+  [config capability known needed]
   (let [connected (set (keep #(when (= "connected" (:status %)) (:id %))
                              (connections/all (config/state-dir config))))]
-    (some (fn [entry]
-            (let [id (catalog/id-of entry)
-                  mapping (when (connected id) (mapping-of entry))]
-              (when (and mapping (usable? mapping (servers/cached-tools config id)))
-                {:id id :entry entry :mapping mapping})))
-          (catalog/entries config))))
+    (vec (keep (fn [entry]
+                 (let [id (catalog/id-of entry)
+                       mapping (when (connected id) (mapping-of entry capability known))]
+                   (when (and mapping (usable? mapping (servers/cached-tools config id) needed))
+                     {:id id :entry entry :mapping mapping})))
+               (catalog/entries config)))))
 
 (defn ^:private parameters
   "The schema of `lights` for `mapping`: its actions, and what its
@@ -116,35 +117,36 @@
                                (when (some? temperature) (str temperature " K"))])]
     (when (seq parts) (str/join ", " parts))))
 
-(defn ^:private call!
-  "Does `args`'s action through connection `id`: the result's text."
-  [ctx id title mapping args]
-  (let [action (:action args)
+(defn call!
+  "Does `args`'s action, `capability`'s, through `source` ({:id :entry
+  :mapping}, see `sources`): the result's text."
+  [ctx {:keys [id entry mapping]} capability args]
+  (let [title (catalog/title entry)
+        action (:action args)
         {:keys [tool] :as one} (get mapping (str action))
         found (when one (mcp-tools/find-tool (servers/cached-tools @(:config ctx) id) tool))]
     (when-not found
-      (throw (ex-info (str "lights can't " action " through " title) {:type ::unmapped})))
+      (throw (ex-info (str capability " can't " action " through " title) {:type ::unmapped})))
     (try
       (mcp/text-of (servers/call! ctx id (:name found) (fill (:args one) args)))
       (catch clojure.lang.ExceptionInfo e
         (throw (ex-info (str title ": " (ex-message e)) {:type ::failed}))))))
 
 (defn ^:private lights
-  "The `lights` tool, through connection `id`."
-  [{:keys [id entry mapping]}]
-  (let [title (catalog/title entry)]
-    {:name "lights"
-     :description (description title)
-     :parameters (parameters mapping)
-     :changes? (fn [args] (not= "state" (:action args)))
-     :open-world? false
-     :detail detail
-     :run (fn [ctx args _turn] (call! ctx id title mapping args))}))
+  "The `lights` tool, through `source`."
+  [{:keys [entry mapping] :as source}]
+  {:name "lights"
+   :description (description (catalog/title entry))
+   :parameters (parameters mapping)
+   :changes? (fn [args] (not= "state" (:action args)))
+   :open-world? false
+   :detail detail
+   :run (fn [ctx args _turn] (call! ctx source "lights" args))})
 
 (defn tools
   "The capability tools to offer with `config`: `lights`, when something
-  connected can do it."
+  connected can do it (`music` is grog.music's)."
   [config]
-  (if-let [source (lights-source config)]
+  (if-let [source (first (sources config "lights" actions ["on" "off"]))]
     [(lights source)]
     []))

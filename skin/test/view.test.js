@@ -539,6 +539,16 @@ describe("words and numbers", () => {
     assert.ok(ICONS.bulb);
   });
 
+  it("music, grog's own, with a note", () => {
+    assert.deepEqual(tool("music"), {
+      label: "Seeing to the music",
+      done: "Saw to the music",
+      short: "Music",
+      icon: "music",
+    });
+    assert.ok(ICONS.music);
+  });
+
   it("an MCP server's tools, in words, with their server when there's room", () => {
     assert.deepEqual(tool("github__create_issue"), {
       label: "Create issue · github",
@@ -840,6 +850,30 @@ describe("connecting something", () => {
       "only when grog can connect things",
     );
     assert.equal(closes("connect:computer"), true, "the card shows instead");
+  });
+
+  it("YouTube Music, with its note", () => {
+    const youtube = {
+      id: "youtube-music",
+      title: "YouTube Music",
+      heading: "Connect YouTube Music",
+      about: "your playlists and liked songs; it plays without it too",
+      icon: "music",
+      multiple: false,
+      connections: [],
+    };
+    const [connect] = menu(state({ actions: ["connect"], integrations: [youtube] }));
+    assert.deepEqual(
+      [connect.id, connect.label, connect.detail, connect.icon],
+      ["connect:youtube-music", "Connect YouTube Music", "your playlists and liked songs; it plays without it too", "music"],
+    );
+    assert.ok(ICONS[connect.icon]);
+    const connected = { ...youtube, connections: [{ id: "youtube-music", name: "greg@example.com", status: "connected" }] };
+    const [disconnect] = menu(state({ actions: ["connect"], integrations: [connected] }));
+    assert.deepEqual(
+      [disconnect.id, disconnect.label, disconnect.detail, disconnect.icon],
+      ["disconnect:youtube-music", "YouTube Music", "greg@example.com", "music"],
+    );
   });
 
   it("MCP servers: what they are, who added them, where they run", () => {

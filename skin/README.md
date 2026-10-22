@@ -29,17 +29,20 @@ grog's skin: a page showing what grog is up to, for a screen next to it.
   Only when nothing else is on the card.
 - An MCP server's tools (`<server>__<tool>`) show as the tool in words,
   with the server when it fits: "Create issue · github". `lights`, grog's
-  own tool for them, shows as "Seeing to the lights", with a bulb.
+  own tool for them, shows as "Seeing to the lights", with a bulb, and
+  `music` as "Seeing to the music", with a note.
 
 ## Touching it
 
 On a touch screen, or with a mouse:
 
 - Touching grog's face talks to it, no name needed. While it answers, it
-  stops it. With its mic off, it turns it on and listens.
+  stops it, and pauses the music. With its mic off, it turns it on and
+  listens.
 - The button by the clock opens its actions: the volume, the mic, a new
   conversation, its integrations (signing in to ChatGPT or out of it,
-  adding a computer, forgetting one, connecting an MCP server, with how
+  adding a computer, forgetting one, connecting YouTube Music with a code
+  entered at Google's page, connecting an MCP server, with how
   many tools it has, whether you added it, which grog didn't check, and
   whether it's in the cloud), updating grog, restarting it or the
   machine, and turning the machine off. Those that can't be undone take a

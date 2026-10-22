@@ -607,6 +607,39 @@
       :else (do (println (str "Disconnected " id "."))
                 true))))
 
+(def ^:private music-words #{"pause" "resume" "next" "previous" "stop"})
+
+(defn music-request
+  "What `grog music` asks grog for, from its `args`: what's playing without
+  any; play and what to play; pause, resume, next, previous, stop; volume
+  and a level, or a change (+10, -10). nil when they make no sense."
+  [args]
+  (let [[word & more] args
+        rest-text (str/trim (str/join " " more))]
+    (cond
+      (empty? args) {:action "status"}
+      (= "play" word) (cond-> {:action "play"} (seq rest-text) (assoc :query rest-text))
+      (and (music-words word) (empty? more)) {:action word}
+      (and (= "volume" word) (= 1 (count more)))
+      (let [[_ sign digits] (re-matches #"([+-]?)(\d{1,3})" rest-text)]
+        (cond
+          (nil? digits) nil
+          (seq sign) {:action "volume" :change (* (if (= "-" sign) -1 1) (parse-long digits))}
+          (<= (parse-long digits) 100) {:action "volume" :level (parse-long digits)}))
+      :else nil)))
+
+(defn music!
+  "Asks grog's music for what `args` say (`music-request`), saying what it
+  did."
+  [url args]
+  (if-let [request (music-request args)]
+    (let [[ok? body] (call :post url "/v1/music" request)]
+      (if ok?
+        (do (println (:text body))
+            true)
+        (fail body)))
+    (fail "Say: grog music [play WHAT | pause | resume | next | previous | stop | volume N|+N|-N]")))
+
 (defn models! [url]
   (let [[ok? body] (call :get url "/v1/models")]
     (if-not ok?

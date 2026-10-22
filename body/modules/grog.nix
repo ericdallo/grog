@@ -20,6 +20,11 @@ let
   handsDir = "/run/grog-hands";
   handsSocket = "${handsDir}/hands.sock";
 
+  # grog-music's socket: its user creates it, grog (in the group) connects.
+  musicDir = "/run/grog-music";
+  musicSocket = "${musicDir}/music.sock";
+  musicConfigFile = json.generate "grog-music.json" cfg.music.settings;
+
   # grog's runner's socket: its dynamic user creates it, grog (in the group)
   # connects.
   mcpSocket = "/run/grog-mcp/mcp.sock";
@@ -309,6 +314,48 @@ in
       };
     };
 
+    music = {
+      enable = lib.mkEnableOption ''
+        grog-music, the player grog plays music with (mpv and yt-dlp), and
+        YouTube Music's search and library (music/ in the repo), run by a
+        service of `user`, playing through their session's default sink:
+        its speaker, or a Bluetooth speaker paired with it'';
+
+      package = lib.mkOption {
+        type = lib.types.package;
+        default = packages.grog-music;
+        defaultText = lib.literalMD "grog-music, built from this repo (`body/packages`)";
+        description = "The grog-music package.";
+      };
+
+      user = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = cfg.user;
+        defaultText = lib.literalExpression "config.services.grog.user";
+        example = "alice";
+        description = ''
+          Whose systemd user service plays the music, in their PipeWire
+          session: the user with the speaker (`voice.user`).
+        '';
+      };
+
+      settings = lib.mkOption {
+        inherit (json) type;
+        default = { };
+        example = lib.literalExpression ''
+          {
+            duckLevel = 10;
+            youtubeMusic.location = "BR";
+          }
+        '';
+        description = ''
+          Settings rendered to JSON (lowerCamelCase keys) and merged over
+          grog-music's defaults (music/grog_music/config.py, documented in
+          music/README.md). Its socket is the module's.
+        '';
+      };
+    };
+
     mcp = {
       enable = lib.mkEnableOption ''
         grog's runner, for MCP servers from npm and PyPI: a service of its
@@ -487,6 +534,50 @@ in
           RestartSec = 5;
           # Unlike grog-voice, no NoNewPrivileges: shell commands may use sudo.
           LockPersonality = true;
+        };
+      };
+    })
+
+    (lib.mkIf cfg.music.enable {
+      assertions = [
+        {
+          assertion = cfg.enable;
+          message = "services.grog.music goes with grog: enable services.grog.";
+        }
+        {
+          assertion = cfg.music.user != null;
+          message = "services.grog.music runs in a user's session: set services.grog.user.";
+        }
+      ];
+
+      # `grog-music --socket ... send '{"command": "status"}'`, to try it.
+      environment.systemPackages = [ cfg.music.package ];
+      users.groups.grog-music = { };
+      systemd.tmpfiles.rules = [ "d ${musicDir} 2750 ${cfg.music.user} grog-music -" ];
+      services.grog.settings.music.socket = musicSocket;
+      systemd.services.grog.serviceConfig.SupplementaryGroups = [ "grog-music" ];
+
+      # In the session of the user with the speaker (PipeWire, Bluetooth).
+      systemd.user.services.grog-music = {
+        description = "grog-music, the player grog plays music with";
+        wantedBy = [ "default.target" ];
+        wants = [ "pipewire.service" ];
+        after = [ "pipewire.service" "wireplumber.service" ];
+        unitConfig.ConditionUser = cfg.music.user;
+        serviceConfig = {
+          ExecStart = utils.escapeSystemdExecArgs [
+            (lib.getExe cfg.music.package)
+            "--config"
+            musicConfigFile
+            "--socket"
+            musicSocket
+          ];
+          Restart = "always";
+          RestartSec = 5;
+          # grog-voice, on the same CPU, comes first.
+          CPUWeight = 50;
+          LockPersonality = true;
+          NoNewPrivileges = true;
         };
       };
     })

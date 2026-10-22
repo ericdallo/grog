@@ -3,5 +3,6 @@
 pkgs: {
   grog = pkgs.callPackage ./grog.nix { };
   grog-voice = pkgs.callPackage ./grog-voice.nix { };
+  grog-music = pkgs.callPackage ./grog-music.nix { };
   grog-skin = pkgs.callPackage ./grog-skin.nix { };
 }

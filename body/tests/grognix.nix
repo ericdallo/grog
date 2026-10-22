@@ -133,6 +133,13 @@ pkgs.testers.runNixOSTest {
         machine.wait_until_succeeds("test -S /run/grog-hands/hands.sock")
         machine.succeed("stat -c '%a %U %G' /run/grog-hands/hands.sock | grep -qx '660 grog grog-hands'")
 
+    with subtest("grog's music player waits in the same session, for grog only"):
+        machine.wait_until_succeeds("systemctl --user -M grog@ is-active grog-music.service")
+        machine.wait_until_succeeds("test -S /run/grog-music/music.sock")
+        machine.succeed("stat -c '%a %U %G' /run/grog-music/music.sock | grep -qx '660 grog grog-music'")
+        out = machine.succeed("su - grog -c 'grog music'").strip()
+        assert out.startswith("Nothing is playing"), out
+
     with subtest("grog's skin fills the screen once logged in, over the overview, keeping it on"):
         machine.wait_until_succeeds("systemctl --user -M grog@ is-active grog-skin.service")
         session = "su - grog -c 'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus gdbus call --session {}'"
@@ -170,6 +177,7 @@ pkgs.testers.runNixOSTest {
         headless.wait_until_succeeds("loginctl show-user grog -p Linger | grep -qx Linger=yes")
         headless.wait_until_succeeds("systemctl --user -M grog@ is-active grog-voice.service")
         headless.wait_until_succeeds("journalctl -o cat _SYSTEMD_USER_UNIT=grog-voice.service | grep -qx 'INFO listening'")
+        headless.wait_until_succeeds("systemctl --user -M grog@ is-active grog-music.service")
 
     with subtest("headless: grog's skin is served, for a screen elsewhere"):
         headless.wait_for_open_port(8484)

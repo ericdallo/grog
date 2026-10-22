@@ -1,7 +1,7 @@
 (ns grog.integrations
   "What grog can connect to (plans/integrations.md): its own, signing in
-  to the provider's subscription (grog.signin) and the user's computers
-  (grog.pairing), and the MCP servers of its catalog (grog.catalog,
+  to the provider's subscription (grog.signin), the user's computers
+  (grog.pairing) and YouTube Music (grog.youtube-music), and the MCP servers of its catalog (grog.catalog,
   grog.mcp-connect). Each connects the same way (grog.connect), and
   has its connections, which `summary` tells whoever watches grog and the
   API.
@@ -19,13 +19,17 @@
             [grog.connect :as connect]
             [grog.mcp-connect :as mcp-connect]
             [grog.pairing :as pairing]
-            [grog.signin :as signin]))
+            [grog.signin :as signin]
+            [grog.youtube-music :as youtube-music]))
 
 (defn all
-  "The integrations grog has with `config`: its own, then the MCP servers
-  of its catalog (grog.mcp-connect)."
+  "The integrations grog has with `config`: its own (YouTube Music with a
+  player to play it), then the MCP servers of its catalog
+  (grog.mcp-connect)."
   [config]
-  (into (vec (remove nil? [(signin/integration (:provider config)) pairing/integration]))
+  (into (vec (remove nil? [(signin/integration (:provider config))
+                           pairing/integration
+                           (when (youtube-music/offered? config) (youtube-music/integration))]))
         (mcp-connect/integrations config)))
 
 (defn by-id

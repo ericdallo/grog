@@ -4,7 +4,7 @@ What grog runs on, all in Nix: how it's built, a NixOS module to run it on
 any machine, and grognix, a PC set up just for it.
 
 ```
-packages/        how grog, grog-voice and grog-skin are built, and the speech models
+packages/        how grog, grog-voice, grog-music and grog-skin are built, and the speech models
 modules/grog.nix services.grog, for any NixOS machine
 modules/computer.nix  services.grog.computer, for a computer grog acts on
 grognix/         grognix
@@ -91,6 +91,8 @@ On grognix:
   undo, `sudo nixos-rebuild switch --rollback`.
 - `journalctl -u grog -f` shows the brain's log, and
   `journalctl --user -u grog-voice -f` the voice's. Neither has what was said.
+  `journalctl --user -u grog-music -f` shows the player's, without what it
+  played.
 - A Wi-Fi profile made in GNOME only works on the USB port the dongle was
   in. `sudo nmcli connection modify <name> connection.interface-name ""`
   makes it work on any.
@@ -183,6 +185,28 @@ Python rather than downloading its own). grog reaches it on
 `/run/grog-mcp/mcp.sock`, through the `grog-mcp` group. Some packages
 bring prebuilt binaries, which expect a standard Linux loader that NixOS
 doesn't have: grognix turns on `programs.nix-ld` for them.
+
+## Music
+
+grog plays [music](../brain/README.md#music) with grog-music
+([`music/`](../music/README.md)), a service in the session of the user with
+the speaker (`services.grog.music.user`, `services.grog.user` by default),
+like the voice, playing through that session's default sink. grog reaches
+it on `/run/grog-music/music.sock`, through the `grog-music` group. It's on
+in grognix; on another machine:
+
+```nix
+services.grog.music = {
+  enable = true;
+  settings.youtubeMusic.location = "BR"; # what YouTube Music finds; the rest in music/README.md
+};
+```
+
+To play on a Bluetooth speaker, pair it with the machine (GNOME's
+Bluetooth settings, or `bluetoothctl` over SSH) and make it the default
+sink, if it isn't (`wpctl set-default <id>` as grog): grog plays there.
+grog-voice speaks there too, unless `services.grog.voice.settings.speaker`
+pins another.
 
 ## Audio
 

@@ -13,6 +13,7 @@
             [grog.log :as log]
             [grog.mcp-connect :as mcp-connect]
             [grog.mcp-tools :as mcp-tools]
+            [grog.music :as music]
             [grog.oauth :as oauth]
             [grog.provider :as provider]
             [grog.qr :as qr]
@@ -227,6 +228,19 @@
       :else
       (api-call #(actions/perform! ctx name (or args {}))))))
 
+(defn ^:private music
+  "Does what the body asks of grog's music, {\"action\": play, pause,
+  resume, stop, next, previous, volume or status, and \"query\", \"kind\",
+  \"shuffle\", \"level\", \"change\" as the `music` tool takes them}
+  (grog.music): {\"provider\", \"text\"}, what it says it did."
+  [ctx req]
+  (let [body (read-json req)]
+    (if-not (and (map? body) (some #{(:action body)} music/actions))
+      (json-response 400 {:error (str "Send {\"action\": one of " (str/join ", " music/actions)
+                                      ", and maybe \"query\", \"kind\", \"shuffle\", \"level\" or \"change\"}.")})
+      (api-call #(let [text (music/perform! ctx body)]
+                   {:provider (:id (music/chosen @(:config ctx))) :text text})))))
+
 (def ^:private registry-trouble
   "What the MCP Registry not answering, or answering nonsense, is called."
   #{:grog.registry/unreachable :grog.registry/bad-answer})
@@ -440,6 +454,9 @@
 
        (and action-name (= :post request-method))
        (action ctx action-name req)
+
+       (= [:post "/v1/music"] [request-method uri])
+       (music ctx req)
 
        :else
        (or (when (= :get request-method)

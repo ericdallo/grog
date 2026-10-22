@@ -6,7 +6,9 @@ Grog is an AI home assistant, think of it as a smarter Alexa.
 You connect it to your AI provider and install it in a separated machine with optional voice/sound support.
 
 > **You:** Grog, will it rain tomorrow?<br>
-> **grog:** Probably not. 10% chance in São Paulo, with a high of 27.
+> **grog:** Probably not. 10% chance in São Paulo, with a high of 27.<br>
+> **You:** Grog, toca Legião Urbana.<br>
+> **grog:** Tocando Tempo Perdido, da Legião Urbana.
 
 
 ## How it works
@@ -19,6 +21,7 @@ You connect it to your AI provider and install it in a separated machine with op
 | [voice](voice/README.md)       | Its ears and mouth: hears its name, turns speech into text and the answer back into speech | Python, Parakeet, Pocket TTS, Supertonic |
 | [skin](skin/README.md)         | A page, fullscreen on its screen, showing what it's up to                                  | HTML, CSS, JS                            |
 | [hands](brain/README.md#hands) | Runs things on the machine for the brain, which is sandboxed                               | Babashka                                 |
+| [music](music/README.md)       | Its player: plays music on its speaker, from YouTube Music                                 | Python, mpv, yt-dlp                      |
 | [body](body/README.md)         | What it runs on: a NixOS module, a PC set up just for grog                                 | Nix                                      |
 
 ## Running it
@@ -54,6 +57,8 @@ grog login     # sign in with a ChatGPT subscription: a code, on any phone or co
 grog update    # to the latest grog pushed (also by asking it, or on its screen)
 grog connect computer  # pair one of your computers, for grog to act on it
 grog connect home-assistant  # your Home Assistant's lights and the rest
+grog connect youtube-music   # your playlists; it plays without it too
+grog music play legião urbana  # or pause, next, volume 40...
 grog integrations add npm:some-mcp@1.2.3  # an MCP server, then grog connect some-mcp
 ```
 

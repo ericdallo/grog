@@ -3,12 +3,13 @@ SERVER ?= grog@grognix.local
 
 .PHONY: test lint check check-vm build vm install-grognix deploy login
 
-# Unit tests, no Nix needed: the brain's (Babashka), the voice's (Python,
-# standard library only), the skin's and the relay page's (Node, no
-# dependencies).
+# Unit tests, no Nix needed: the brain's (Babashka), the voice's and the
+# music player's (Python, standard library only), the skin's and the relay
+# page's (Node, no dependencies).
 test:
 	cd brain && bb test
 	cd voice && python3 -m unittest discover -s tests
+	cd music && python3 -m unittest discover -s tests
 	cd skin && node --test
 	cd pages && node --test
 
@@ -16,6 +17,7 @@ test:
 lint:
 	cd brain && clj-kondo --lint src test
 	cd voice && ruff check . && ruff format --check .
+	cd music && ruff check . && ruff format --check .
 	cd skin && for f in kiosk.js web/*.js test/*.js; do node --check "$$f" || exit 1; done
 	cd pages && for f in oauth/callback/*.js test/*.js; do node --check "$$f" || exit 1; done
 
@@ -24,7 +26,7 @@ lint:
 check:
 	system=$$($(NIX) eval --impure --raw --expr builtins.currentSystem) && \
 	$(NIX) build --no-link -L ".#checks.$$system.grog" ".#checks.$$system.grog-voice" \
-	  ".#checks.$$system.grog-skin" ".#checks.$$system.install"
+	  ".#checks.$$system.grog-music" ".#checks.$$system.grog-skin" ".#checks.$$system.install"
 
 # The VM tests, one at a time (each takes 4 to 7 GB of RAM; `nix flake check`
 # runs everything at once): the NixOS module, grognix, and grognix's disk.

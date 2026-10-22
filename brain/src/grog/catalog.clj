@@ -51,7 +51,7 @@
 (def ^:private lock (Object.))
 
 ;; The integrations' ids that aren't servers.
-(def ^:private reserved #{"computer" "ask" "elicit"})
+(def ^:private reserved #{"computer" "ask" "elicit" "youtube-music"})
 
 (defn grog-meta
   "grog's fields of `entry`, or {}."
