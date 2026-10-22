@@ -1,7 +1,9 @@
-"""What Pocket TTS reads, and when it's done speaking (see speech.Pocket):
-plain Python, like pocket_tts's own text handling (kyutai-labs/pocket-tts,
-MIT), plus Portuguese numbers spelled out, as the model reads digits badly."""
+"""What Pocket TTS reads, when it's done speaking, and which of its tries at
+a short text it says (see speech.Pocket): plain Python, like pocket_tts's
+own text handling (kyutai-labs/pocket-tts, MIT), plus Portuguese numbers
+spelled out, as the model reads digits badly."""
 
+import itertools
 import math
 import os
 import re
@@ -106,6 +108,41 @@ class Ending:
         if eos and self.at is None and frame >= self.min_frames:
             self.at = frame
         return self.at is not None and frame >= self.at + self.frames_after
+
+
+# Pocket TTS says some short texts breathy, like a hoarse whisper, whatever
+# the voice (4 to 6 of 20 short answers; lower temperatures, more), where
+# other noise says them well. So a piece of CHECK_WORDS words or fewer is
+# made CHECK_FRAMES frames ahead (800 ms, most of it) before it plays, up to
+# ATTEMPTS times while those sound like noise, NOISY being where breathy
+# begins (speech is ~0.01). Measured in plans/voice.md ("Breathy short
+# answers").
+CHECK_WORDS = 8
+CHECK_FRAMES = 10
+ATTEMPTS = 3
+NOISY = 0.03
+
+
+def checked(text):
+    """Whether a piece is checked before it plays (see steadiest): a short
+    one, where Pocket TTS goes breathy."""
+    return len(text.split()) <= CHECK_WORDS
+
+
+def steadiest(attempts, noisiness, check=CHECK_FRAMES, limit=NOISY):
+    """The frames of the first of `attempts` (iterators of frames, each made
+    only once the one before it is turned down) whose first `check` frames'
+    `noisiness` is `limit` at most, else of the least noisy one: the frames
+    it already made, then the rest of it."""
+    best = None
+    for attempt in attempts:
+        head = list(itertools.islice(attempt, check))
+        score = noisiness(head)
+        if score <= limit:
+            return itertools.chain(head, attempt)
+        if best is None or score < best[0]:
+            best = (score, head, attempt)
+    return itertools.chain(best[1], best[2]) if best else iter(())
 
 
 _UNITS = (

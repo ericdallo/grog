@@ -621,6 +621,31 @@ station:
   - The station speaks in it since: the voice file stays there, in no
     repository (`ttsVoice` in its own config).
 
+## Breathy short answers
+
+Live, in the carioca voice, "Tô ouvindo, sim!" came out breathy, like a
+hoarse whisper, and the next answer well. Not the station falling behind:
+every frame came in time, even after a minute idle. Pocket TTS itself:
+
+- Of 20 short answers ("Ok.", "Pronto! Tudo certo.", "Claro! Já está
+  ligado."...) and 10 sentences, every voice tried says 4 to 6 of the 30
+  breathy, deep-calm included, nearly all of 7 words or fewer. Measured as
+  the median spectral flatness of a rendering's loud 32 ms windows, 100 to
+  4000 Hz: speech ~0.01, those 0.03 to 0.2 ("Tô ouvindo, sim!" 0.077).
+- Lower temperatures make it worse (0.1 or 0: 8 or 9 of 30); other noise
+  says them well (other seeds: 2 of 30, other texts each time).
+- The first 800 ms tell: above 0.03 there, 27 of 28 breathy renderings,
+  and 9 of 222 good ones.
+- So grog-voice makes a piece of 8 words or fewer 800 ms ahead before it
+  plays, and again with other noise while that sounds breathy, up to 3
+  times, keeping the least breathy (`pocket.steadiest`). Breathy ones: 5 to
+  0 of 30 in the carioca voice, 6 to 4 in deep-calm (one-word answers left,
+  0.03 to 0.054); words wrong in the short answers: 9 to 7 of 79, and 11 to
+  7.
+- Its cost: a short answer starts 0.46 to 0.49 s after its text on the
+  station rather than 0.1 (0.4 s more each time it's made again); longer
+  pieces stream as before.
+
 ## Where to go from here
 
 ### Ears
@@ -658,7 +683,9 @@ station:
     Nothing here has one: renting one is paid, the user's call.
   - Or keep grog-voice from derailing: speech gone quiet for over a second
     mid-piece, without the model saying it's done, is a derailment to stop
-    (or to retry with other noise).
+    (or to retry with other noise). The check for breathy short answers
+    (see "Breathy short answers") misses it: its noise comes after the
+    first words, quieter.
 - **Kokoro / StyleTTS2** can be fine-tuned too, with heavier inference than
   Piper.
 - **Supertonic itself** can't be trained without Supertone (Voice Builder is

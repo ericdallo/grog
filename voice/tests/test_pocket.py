@@ -90,6 +90,44 @@ class TimingTest(unittest.TestCase):
         self.assertFalse(any(never(f, False) for f in range(200)))
 
 
+class SteadiestTest(unittest.TestCase):
+    def attempts(self, *scores):
+        """Attempts of 12 frames, each frame being its attempt's noisiness,
+        noting which were made."""
+        self.made = []
+        for n, score in enumerate(scores):
+            self.made.append(n)
+            yield iter([score] * 12)
+
+    def steadiest(self, attempts):
+        return list(pocket.steadiest(attempts, max, check=10, limit=0.03))
+
+    def test_the_first_steady_attempt(self):
+        self.assertEqual(
+            [0.01] * 12, self.steadiest(self.attempts(0.01, 0.5)), "its checked frames, then the rest"
+        )
+        self.assertEqual([0], self.made, "the next one isn't made")
+
+    def test_noisy_ones_made_again(self):
+        self.assertEqual([0.02] * 12, self.steadiest(self.attempts(0.2, 0.02, 0.01)))
+        self.assertEqual([0, 1], self.made)
+
+    def test_the_least_noisy_when_they_all_are(self):
+        self.assertEqual([0.05] * 12, self.steadiest(self.attempts(0.2, 0.05, 0.1)))
+        self.assertEqual([0, 1, 2], self.made)
+
+    def test_shorter_than_checked(self):
+        self.assertEqual([0.01, 0.01], self.steadiest(iter([iter([0.01, 0.01])])))
+
+    def test_nothing_to_say(self):
+        self.assertEqual([], self.steadiest(iter([])))
+
+    def test_short_pieces_checked(self):
+        self.assertTrue(pocket.checked("        Tô ouvindo, sim!"))
+        self.assertTrue(pocket.checked("Pronto! A luz da cozinha está apagada."))
+        self.assertFalse(pocket.checked("Amanhã deve fazer vinte e oito graus em São Paulo."))
+
+
 class NumbersTest(unittest.TestCase):
     def test_cardinals(self):
         for n, said in [

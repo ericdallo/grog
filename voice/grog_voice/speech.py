@@ -97,7 +97,9 @@ class Pocket:
     voice/tools/export_pocket.py made of it: its speech streams out 80 ms
     at a time as it's made. On a Core Ultra 7 155H with 6 threads, its
     24-layer model takes 0.5 s per second of speech, its first sound in 0.1
-    s (the 6-layer one: 0.17 s, and 0.03 s). `model` has the graphs
+    s (the 6-layer one: 0.17 s, and 0.03 s). A short piece (8 words or
+    fewer) starts once its first 800 ms are made, as they're made again when
+    they come out breathy (see pocket.steadiest). `model` has the graphs
     (flow_lm.onnx, mimi_decoder.onnx), tokenizer.model and pocket.json (how
     to run them); `voice`, a voice's file (see pocket.voice_file)."""
 
@@ -137,14 +139,40 @@ class Pocket:
         return len(self.tokenizer.encode(text))
 
     def _synthesize(self, text, guess):
+        """The frames of `text`: a short one's made ahead, and again with
+        other noise while it comes out breathy (see pocket.steadiest)."""
+        if not pocket.checked(text):
+            return self._frames(text, guess, 0)
+        attempts = (self._frames(text, guess, attempt) for attempt in range(pocket.ATTEMPTS))
+        return pocket.steadiest(attempts, self._noisiness)
+
+    def _noisiness(self, frames):
+        """How much like noise `frames` (16-bit mono audio) sound: the median
+        spectral flatness (0 for a tone, 1 for white noise) of their loudest
+        32 ms windows (within 25 dB), 100 to 4000 Hz. Speech is ~0.01."""
+        import numpy as np
+
+        x = np.frombuffer(b"".join(frames), dtype=np.int16).astype(np.float32) / 32768
+        size, hop = int(0.032 * self.sample_rate), int(0.01 * self.sample_rate)
+        if len(x) < size:
+            return 0.0
+        windows = np.lib.stride_tricks.sliding_window_view(x, size)[::hop] * np.hanning(size)
+        power = np.abs(np.fft.rfft(windows, axis=1)) ** 2
+        freqs = np.fft.rfftfreq(size, 1 / self.sample_rate)
+        level = 10 * np.log10(power.sum(axis=1) + 1e-12)
+        band = power[level > level.max() - 25][:, (freqs >= 100) & (freqs <= 4000)] + 1e-12
+        return float(np.median(np.exp(np.log(band).mean(axis=1)) / band.mean(axis=1)))
+
+    def _frames(self, text, guess, attempt):
         import numpy as np
 
         rules = self.rules
         tokens = np.array([self.tokenizer.encode(text)], dtype=np.int64)
         no_tokens, no_noise = np.zeros((1, 0), dtype=np.int64), np.zeros((1, 32), dtype=np.float32)
         # The text first, into the voice's cache, then a latent at a time from
-        # "speech starts" (NaN), with noise seeded by the text: the same text
-        # sounds the same, and sentences don't all start alike.
+        # "speech starts" (NaN), with noise seeded by the text (and the
+        # attempt): the same text sounds the same, and sentences don't all
+        # start alike.
         cache = self.flow(
             {
                 "tokens": tokens,
@@ -154,7 +182,7 @@ class Pocket:
             }
         )["cache_out"]
         latent = np.full((1, 1, 32), np.nan, dtype=np.float32)
-        rng, std = np.random.default_rng(zlib.crc32(text.encode())), rules["temperature"] ** 0.5
+        rng, std = np.random.default_rng(zlib.crc32(text.encode()) + attempt), rules["temperature"] ** 0.5
         after = rules["frames_after_eos"] if rules["frames_after_eos"] is not None else guess + 2
         ending = pocket.Ending(rules["min_frames_before_eos"], after)
         state = np.zeros(rules["mimi_state"], dtype=np.float32)
