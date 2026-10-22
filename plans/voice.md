@@ -618,6 +618,10 @@ station:
     1.7 times deep-calm's time in the lab).
   - On the station (6 threads, bursts): 0.58 s per second of speech, against
     0.48 for deep-calm, its first sound in 0.1 s.
+  - His recordings were hot (speech ~-13 dBFS RMS, peaks at -1), and the
+    clone spoke as hot: 5 to 10 dB louder than deep-calm, clipping, until
+    the export lowered voices too, not only raised them (-4.7 dB for his;
+    deep-calm's +2.6 stays).
   - The station speaks in it since: the voice file stays there, in no
     repository (`ttsVoice` in its own config).
 

@@ -23,7 +23,7 @@ writes to OUT_DIR:
 writes a voice cloned from RECORDING.wav (a few seconds of clean speech), for
 voices/NAME.npz in the model's directory or for tts.voice: `cache`, the
 FlowLM's KV cache once it heard the recording, and `gain_db`, to bring its
-speech up to ~-18 dBFS (RMS), peaking at -1 dBFS at most.
+speech to ~-18 dBFS (RMS), up or down, peaking at -1 dBFS at most.
 
 CONFIG.yaml: a pocket_tts config with voice cloning weights (`weights_path`),
 the same for the model and its voices. The graphs follow
@@ -213,14 +213,15 @@ SAMPLE = (
 
 
 def gain_db(model, state):
-    """How much louder the voice should be: its speech to ~-18 dBFS (RMS),
-    peaking at -1 dBFS at most, by up to +12 dB."""
+    """How much louder (or quieter) the voice should be: its speech to ~-18
+    dBFS (RMS), peaking at -1 dBFS at most, by up to 12 dB. A voice
+    recorded hot speaks hot, and clips."""
     torch.manual_seed(0)
     audio = model.generate_audio(state, SAMPLE).numpy()
     speech = audio[np.abs(audio) > 0.01]
     rms = 20 * np.log10(np.sqrt(np.mean(speech**2)))
     peak = 20 * np.log10(np.abs(audio).max())
-    return float(np.clip(min(-18 - rms, -1 - peak), 0, 12))
+    return float(np.clip(min(-18 - rms, -1 - peak), -12, 12))
 
 
 def readme(config, language):
