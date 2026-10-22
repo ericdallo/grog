@@ -1,0 +1,430 @@
+<!doctype html>
+<!-- The page of a session connecting something to grog (grog.connect), at
+     grog's address on the network, behind the session's token. It follows
+     the session, asking grog every 2 s how it goes (`state`, next to it),
+     shows its step, and sends back what's entered (POST, JSON). A Selmer
+     template, with `name` (grog's) and `heading`, escaped. Plain HTML, CSS
+     and JS, no dependencies: anything grog says is put in as text, never as
+     HTML. Its colors are the skin's (skin/web/skin.css). -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <title>{{heading}} · {{name}}</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #2f3542;
+        --card: #3b414d;
+        --ink: #ffffff;
+        --muted: #a4b0be;
+        --red: #ff4757;
+        --amber: #ffa502;
+        --green: #2ed573;
+        --on: #111621;
+        --mono: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: var(--bg);
+        color: var(--ink);
+        font: 18px/1.5 "Inter", "Cantarell", system-ui, sans-serif;
+      }
+      main {
+        width: min(40rem, 100%);
+        box-sizing: border-box;
+        padding: 2rem 1.25rem;
+      }
+      h1 {
+        margin: 0 0 0.25rem;
+        font-size: 2rem;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+      }
+      .on {
+        margin: 0 0 1.75rem;
+        color: var(--muted);
+      }
+      p {
+        margin: 0 0 1rem;
+      }
+      .muted,
+      .left {
+        color: var(--muted);
+      }
+      .left {
+        margin-top: 1.5rem;
+        font-size: 0.9rem;
+      }
+      .error {
+        color: var(--red);
+      }
+      .error:empty {
+        display: none;
+      }
+      .warning {
+        padding: 0.75rem 1rem;
+        border-left: 0.3rem solid var(--amber);
+        border-radius: 0.5rem;
+        background: var(--card);
+      }
+      .done {
+        color: var(--green);
+        font-size: 1.5rem;
+        font-weight: 700;
+      }
+      a.button,
+      button {
+        display: inline-block;
+        box-sizing: border-box;
+        margin: 0 0 1.25rem;
+        padding: 0.8rem 1.25rem;
+        border: 0;
+        border-radius: 0.75rem;
+        background: var(--amber);
+        color: var(--on);
+        font: inherit;
+        font-weight: 700;
+        text-decoration: none;
+        overflow-wrap: anywhere;
+        cursor: pointer;
+      }
+      button.secondary {
+        margin: 0;
+        background: var(--card);
+        color: var(--ink);
+      }
+      button.link {
+        display: block;
+        padding: 0;
+        background: none;
+        color: var(--muted);
+        font-weight: 400;
+        text-decoration: underline;
+      }
+      button:disabled {
+        opacity: 0.6;
+      }
+      /* What to copy: a tap selects it all. */
+      .copy {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin: 0 0 1.25rem;
+        padding: 1rem 1.25rem;
+        border-radius: 0.75rem;
+        background: var(--card);
+      }
+      .copy code {
+        flex: 1;
+        min-width: 0;
+        font: 600 1.1rem/1.4 var(--mono);
+        overflow-wrap: anywhere;
+        user-select: all;
+      }
+      .copy button {
+        font: 700 1rem/1.2 "Inter", "Cantarell", system-ui, sans-serif;
+      }
+      .copy.big code,
+      .code {
+        color: var(--amber);
+        font: 700 2rem/1.2 var(--mono);
+        letter-spacing: 0.06em;
+      }
+      .code {
+        margin: 0 0 1rem;
+      }
+      .help {
+        margin: 0 0 1.25rem;
+        padding: 0.75rem 1rem;
+        border-left: 0.3rem solid var(--amber);
+        border-radius: 0.5rem;
+        background: var(--card);
+      }
+      .help a {
+        color: var(--muted);
+        overflow-wrap: anywhere;
+      }
+      form label {
+        display: block;
+        margin: 0 0 1rem;
+      }
+      form input {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        margin-top: 0.35rem;
+        padding: 0.7rem 0.9rem;
+        border: 1px solid #4a4f5b;
+        border-radius: 0.5rem;
+        background: var(--card);
+        color: var(--ink);
+        font: 1rem var(--mono);
+      }
+    </style>
+  </head>
+  <body data-name="{{name}}">
+    <main>
+      <h1 id="heading">{{heading}}</h1>
+      <p class="on" id="on">on {{name}}</p>
+      <div id="step"><p>One moment…</p></div>
+      <p class="error" id="error"></p>
+      <p class="left" id="left"></p>
+    </main>
+    <script>
+      "use strict";
+      const base = location.pathname.replace(/\/+$/, "");
+      const $ = (id) => document.getElementById(id);
+      let name = document.body.dataset.name || "grog";
+      // What's shown, as grog said it (but the time left): drawn again only
+      // when it changes, so that what someone types stays.
+      let shown = "";
+      let failures = 0;
+      let timer = null;
+
+      function el(tag, className, text) {
+        const e = document.createElement(tag);
+        if (className) e.className = className;
+        if (text !== undefined && text !== null) e.textContent = text;
+        return e;
+      }
+
+      function shortUrl(url) {
+        return String(url ?? "").replace(/^https?:\/\//, "");
+      }
+
+      function spaced(code) {
+        const s = String(code ?? "");
+        return /^\d{6}$/.test(s) ? `${s.slice(0, 3)} ${s.slice(3)}` : s;
+      }
+
+      async function copy(text) {
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            return true;
+          }
+        } catch {
+          // As below.
+        }
+        // Pages on a plain address have no clipboard API.
+        const area = el("textarea");
+        area.value = text;
+        area.readOnly = true;
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.append(area);
+        area.select();
+        let ok = false;
+        try {
+          ok = document.execCommand("copy");
+        } catch {
+          ok = false;
+        }
+        area.remove();
+        return ok;
+      }
+
+      /** `text` to copy: a tap selects it, and a button copies it. */
+      function copyable(text, className) {
+        const box = el("div", `copy ${className}`);
+        const button = el("button", "secondary", "Copy");
+        button.type = "button";
+        button.addEventListener("click", async () => {
+          button.textContent = (await copy(text)) ? "Copied" : "Select it";
+        });
+        box.append(el("code", null, text), button);
+        return box;
+      }
+
+      function linkButton(url, label) {
+        const a = el("a", "button", label);
+        a.href = url;
+        a.target = "_blank";
+        a.rel = "noreferrer noopener";
+        return a;
+      }
+
+      function p(text, className) {
+        return el("p", className, text);
+      }
+
+      function help({ text, url }) {
+        const box = el("div", "help");
+        box.append(el("div", null, text));
+        if (url) {
+          const a = el("a", null, shortUrl(url));
+          a.href = url;
+          a.target = "_blank";
+          a.rel = "noreferrer noopener";
+          box.append(a);
+        }
+        return box;
+      }
+
+      async function send(what, body) {
+        const resp = await fetch(`${base}/${what}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const answer = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(answer.error ?? `${name} answered ${resp.status}`);
+        return answer;
+      }
+
+      /** `fields` to fill in, sent as `what`, each under its id. */
+      function form(what, fields, label) {
+        const f = el("form");
+        const inputs = fields.map((field) => {
+          const row = el("label");
+          const input = el("input");
+          input.name = field.id;
+          input.type = field.secret ? "password" : "text";
+          input.autocomplete = "off";
+          input.spellcheck = false;
+          if (field.example) input.placeholder = field.example;
+          row.append(el("span", null, field.label), input);
+          f.append(row);
+          return input;
+        });
+        const error = el("p", "error");
+        const button = el("button", null, label);
+        button.type = "submit";
+        f.append(button, error);
+        f.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          button.disabled = true;
+          error.textContent = "";
+          try {
+            await send(what, Object.fromEntries(inputs.map((i) => [i.name, i.value])));
+            refresh();
+          } catch (err) {
+            error.textContent = err.message;
+          } finally {
+            button.disabled = false;
+          }
+        });
+        return f;
+      }
+
+      // What each step shows (brain/src/grog/connect.clj).
+      const STEPS = {
+        "device-code": (s) => [
+          p("Open this page, and sign in there if it asks:"),
+          linkButton(s.url, shortUrl(s.url)),
+          p("Then enter this code:"),
+          copyable(s.code, "big"),
+          ...(s.help ? [help(s.help)] : []),
+        ],
+        oauth: (s) => [
+          p("Sign in here:"),
+          linkButton(s.url, "Sign in"),
+          p(
+            `Then the browser goes to ${shortUrl(s.backTo)}. If it can't open it, that's fine:` +
+              " copy the address it ended at, and send it here.",
+          ),
+          form("oauth", [{ id: "url", label: "Where the browser ended", example: s.backTo }], "Send"),
+        ],
+        form: (s) => [
+          ...(s.fields.some((f) => f.secret)
+            ? [p(`What you type here goes to ${name} over the network as it is: someone reading it could see it.`, "warning")]
+            : []),
+          form("form", s.fields, "Send"),
+        ],
+        script: (s) => [p("In a terminal on it, run"), copyable(s.command, "command"), ...(s.note ? [p(s.note, "muted")] : [])],
+        "code-compare": (s) => [
+          p(s.name ? `${s.name}${s.user ? ` (${s.user})` : ""} asks with the code` : "The code is"),
+          el("div", "code", spaced(s.code)),
+          p(`If ${name}'s screen shows the same, allow it there.`),
+        ],
+        wait: (s) => [p(s.note ?? "One moment…")],
+      };
+
+      function outcome(state) {
+        switch (state.status) {
+          case "done":
+            return [
+              p("Done", "done"),
+              p(state.connected ? `${state.title}: ${state.connected}` : `${state.title} is connected.`),
+              p("You can close this page.", "muted"),
+            ];
+          case "denied":
+            return [p(`It wasn't allowed on ${name}.`, "error")];
+          case "expired":
+            return [p(`Time's up: start again on ${name}.`)];
+          case "cancelled":
+            return [p(`It was cancelled on ${name}.`)];
+          default:
+            return [p(`It didn't work: ${state.error ?? "something went wrong"}`, "error"), p(`Start again on ${name}.`, "muted")];
+        }
+      }
+
+      /** The other ways to connect, while it goes. */
+      function ways(state) {
+        if (state.status !== "open") return [];
+        return (state.ways ?? [])
+          .filter((w) => w.id !== state.way)
+          .map((w) => {
+            const b = el("button", "link", w.label);
+            b.type = "button";
+            b.addEventListener("click", async () => {
+              try {
+                await send("way", { way: w.id });
+                refresh();
+              } catch (e) {
+                $("error").textContent = e.message;
+              }
+            });
+            return b;
+          });
+      }
+
+      function minutes(s) {
+        return s < 60 ? "less than a minute" : `${Math.ceil(s / 60)} minutes`;
+      }
+
+      function draw(state) {
+        name = state.name || name;
+        $("left").textContent = state.status === "open" ? `This page closes in ${minutes(state.leftS)}.` : "";
+        const { leftS, ...rest } = state;
+        const json = JSON.stringify(rest);
+        if (json === shown) return;
+        shown = json;
+        document.title = `${state.heading} · ${name}`;
+        $("heading").textContent = state.heading;
+        $("on").textContent = `on ${name}`;
+        $("error").textContent = "";
+        const step = state.step && STEPS[state.step.kind];
+        const parts = state.status !== "open" ? outcome(state) : step ? step(state.step) : [p("One moment…")];
+        $("step").replaceChildren(...parts, ...ways(state));
+      }
+
+      async function refresh() {
+        clearTimeout(timer);
+        try {
+          const resp = await fetch(`${base}/state`, { cache: "no-store" });
+          if (!resp.ok) throw new Error(String(resp.status));
+          const state = await resp.json();
+          failures = 0;
+          draw(state);
+          if (state.status === "open") timer = setTimeout(refresh, 2000);
+        } catch {
+          failures += 1;
+          if (failures < 3) {
+            timer = setTimeout(refresh, 2000);
+          } else {
+            $("left").textContent = "";
+            $("step").replaceChildren(p(`This page is closed: start again on ${name}.`));
+          }
+        }
+      }
+
+      refresh();
+    </script>
+  </body>
+</html>

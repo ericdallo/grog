@@ -25,27 +25,33 @@ grog ask --new "Hi"        # follow-ups continue the conversation for 10 min, un
 grog status                # model, account, usage, and settings changed by asking
 grog settings reset        # puts those settings back
 grog models                # the models on offer, * marks the one in use
-grog login / grog logout   # the ChatGPT subscription (--browser: in a browser here)
 grog mic off / grog mic on # off, nothing is heard until it's on again
 grog update                # to the latest grog pushed, saying how it goes
-grog computers             # the computers it acts on (computers add, computers forget NAME)
+grog integrations          # what it can connect to, and what's connected
+grog connect openai        # sign in to the ChatGPT subscription (--browser: in a browser); so does grog login
+grog connect computer      # pair one of your computers
+grog disconnect ID         # computer:NAME forgets one; openai signs out, like grog logout
 ```
 
 It finds the server through `$GROG_URL`.
 
 ## Paying for it
 
-- **ChatGPT subscription**: sign in with a code, on any phone or computer:
-  `grog login` prints it, with where to enter it
-  (`auth.openai.com/codex/device`). With a skin (`skin.dir`), grog shows one
-  whenever it has nothing to pay with, renewed as it expires. ChatGPT has to
+- **ChatGPT subscription**: sign in with a code, on any phone or computer
+  ([connecting](#connecting-things) `openai`): `grog login` prints it, with
+  where to enter it (`auth.openai.com/codex/device`), and the link to grog's
+  page, which has both. With a skin (`skin.dir`), grog shows that page's QR
+  code whenever it has nothing to pay with, and the code. ChatGPT has to
   allow it once per account, on its website (its app doesn't have it): in
   Settings, Security and login, turn on "Enable device code sign-in for
-  Codex, Excel, PowerPoint, and Word". Without that, `grog login --browser`
-  prints a link instead, and the browser comes back to `localhost:1455`: on a
-  server, forward that port (`ssh -L 1455:127.0.0.1:1455 <server> grog login
-  --browser`). The tokens stay in the state directory and refresh on their
-  own.
+  Codex, Excel, PowerPoint, and Word". Without that, sign in in a browser
+  (`grog login --browser`, or on grog's page): it comes back to
+  `localhost:1455`, which works on grog's own screen; elsewhere, paste the
+  address it ended at on grog's page, or forward that port (`ssh -L
+  1455:127.0.0.1:1455 <server> grog login --browser`). The tokens stay in
+  the state directory (`secrets/openai.json`) and refresh on their own. Once
+  they can't, the sign-in needs doing again, and the API key pays meanwhile,
+  if there's one.
 - **API key**: in `OPENAI_API_KEY`. On NixOS, in `/etc/grog/secrets.env`
   (mode 0600), never in the Nix config.
 
@@ -123,6 +129,25 @@ follows it to the end, and starts the service itself when grog doesn't
 answer. How it goes is in the `update.status` file, which whoever watches
 grog sees (`update` in `/v1/events`).
 
+## Connecting things
+
+What grog connects to, its integrations ([`integrations.clj`](src/grog/integrations.clj)),
+all connect the same way ([`connect.clj`](src/grog/connect.clj)): the
+ChatGPT subscription (`openai`) and your computers (`computer`), for now.
+Someone at grog opens a window for one, on its screen (Integrations, in its
+actions), by asking it ("connect my computer"), or with `grog connect ID`.
+For 10 minutes, grog listens on the network (`integrations.host`, `.port`),
+where a page follows the steps (sign in, enter a code, run a command),
+behind a random token, only in the link and QR code on grog's screen and in
+the CLI: `http://192.168.15.10:8485/c/K7Q2M9AB4X`. Open it on any phone or
+computer at home. Once it's connected, or the window closes, grog leaves
+the network again. One at a time: opening another closes the first.
+
+What's connected stays in `integrations.json`, in the state directory, and
+the tokens apart, in `secrets/` (both only grog can read). `grog
+integrations` lists it, and `grog disconnect ID` disconnects it (signing
+out, forgetting a computer).
+
 ## Computers
 
 grog can act on your other computers: tell how one is doing, show a
@@ -131,9 +156,9 @@ volume, lock its screen, suspend it, turn it off, wake it up (Wake-on-LAN,
 if it's wired and set up for it), or run a command. Linux ones, for now.
 
 To pair one, let it at grog: "Add a computer" on its screen, or `grog
-computers add`. For 5 minutes, grog listens on the network for it
-(`computers.pairing`), and serves what pairs it. In a terminal on the
-computer, run what grog's screen says:
+connect computer` ([connecting](#connecting-things)). For 10 minutes, grog
+listens on the network for it, and serves what pairs it. In a terminal on
+the computer, run what grog's screen says:
 
 ```sh
 curl -fsS 192.168.15.10:8485 | bash
@@ -164,9 +189,10 @@ everything; `--name` says what grog calls it (its host name by default),
 when it isn't in `/etc/ssh`. Suspending it and turning it off also take
 sudo without a password there, or polkit allowing them.
 
-`grog computers` lists them. `grog computers forget NAME` forgets one, which
-then stops letting grog in, if it can be reached. Once grog changes how it
-talks to its hands, the computers paired before say so: pair them again.
+`grog integrations` lists them. `grog disconnect computer:NAME` forgets one,
+which then stops letting grog in, if it can be reached. Once grog changes
+how it talks to its hands, the computers paired before say so: pair them
+again.
 
 ## The prompt
 
@@ -212,8 +238,8 @@ says which one.
 | `skin.captions` | `false` | Whether the skin shows what's said |
 | `update.status` | `null` | Where the update service says how an update goes: with it and hands, grog can [update itself](#updating) |
 | `computers.ssh` | `"ssh"` | The ssh it reaches its [computers](#computers) with. The `ssh-keygen` next to it makes grog's key |
-| `computers.pairing.host`, `.port` | `"0.0.0.0"`, `8485` | Where it listens for a computer to pair, and serves what pairs it, only while someone at grog lets one |
-| `stateDir` | `null` | Credentials, changed settings, memory, the mic's switch, usage and computers. `null`: `$STATE_DIRECTORY` or `~/.local/state/grog` |
+| `integrations.host`, `.port` | `"0.0.0.0"`, `8485` | Where it listens while someone at grog [connects something](#connecting-things), and only then: its page, and what pairs a computer |
+| `stateDir` | `null` | What's connected and its tokens, changed settings, memory, the mic's switch, usage and computers. `null`: `$STATE_DIRECTORY` or `~/.local/state/grog` |
 | `providers.openai.auth` | `"auto"` | `"subscription"` or `"api-key"` to force one |
 | `providers.openai.model` | `"gpt-6-luna"` | Model with an API key |
 | `providers.openai.subscription.model` | `"gpt-6-luna"` | Model with the subscription |
@@ -241,27 +267,29 @@ JSON keys are lowerCamelCase.
 | `GET /v1/status` | `name`, its `revision`, `provider`, `model`, the account, `changed` settings, `usage`, whether someone is talking to it (`busy`), and how the last update goes (`update`) |
 | `DELETE /v1/settings` | Puts the settings changed by asking back |
 | `GET /v1/models` | `{"models": [{"id", "description", "current"...}]}` |
-| `POST /v1/auth/<provider>/login` `{"method"}` | Starts signing in, or goes on with the sign-in in progress: `"device"` (the provider's way when it can) answers `{"code", "url", "expiresAt", "help"...}`, the code to enter at `url`; `"browser"`, `{"url", "redirectUri"...}`, the link to sign in at |
-| `GET /v1/auth/<provider>` | `{"signedIn", "email"...}`, and the last sign-in: `login` (`pending`, `exchanging`, `done`, `error` or `expired`), `method`, and while it waits for one, the `code`, `url` and `codeExpiresAt` |
-| `DELETE /v1/auth/<provider>` | Signs out |
+| `GET /v1/integrations` | `{"integrations": [{"id", "title", "heading", "about", "icon", "ways", "multiple", "connections"}], "connect"}`: what it can [connect to](#connecting-things), what's connected (`{"id", "name", "detail", "status", "addedAt"}`, `status` being `connected` or `signed-out`), and the last session |
+| `POST /v1/integrations/<id>/connect` `{"way"}` | Opens a session connecting it (`way`: its usual one without), or goes on with the one open: `{"integration", "heading", "way", "status", "step", "link", "until"...}`, `step` saying what to do now (`{"kind": "device-code", "code", "url"}`, `{"kind": "oauth", "url", "backTo"}`, `{"kind": "script", "command"}`...), `link` its page on the network |
+| `GET /v1/connect` | The last session, the same way (`status`: `open`, `done`, `denied`, `expired`, `cancelled` or `failed`), without what only its page shows; `{}` before any |
+| `DELETE /v1/connect` | Cancels it |
+| `POST /v1/connect/allow`, `POST /v1/connect/deny` | Allows what its step asks to be allowed (a computer, its `code` the same on both screens), or not |
+| `DELETE /v1/connections/<id>` | Disconnects it: signs out (`openai`), or forgets a computer (`computer:NAME`) after asking it to stop letting grog in, if it can be reached (`{"name", "unpaired"}`) |
+| `GET /v1/qr?text=...` | Its QR code, as SVG, for the skin |
 | `GET /v1/events` | What it's up to, as server-sent events: a `snapshot`, then each change ([`events.clj`](src/grog/events.clj)) |
 | `POST /v1/voice` `{"state", "conversationId", "heard"}` | grog-voice saying what it's doing, and with captions what it heard. Answers `{"captions", "name"}` |
 | `GET /v1/voice/commands` | What grog-voice is asked, as server-sent events: a `snapshot` with whether its `mic` is `"on"` or `"off"`, then `mic` when that changes, `listen` (now, without its name) and `stop` (answering) |
-| `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice), `mic` `{"on"}`, `volume` (`{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `new-conversation` (forgets them all), `pair` (lets a computer pair, like `POST /v1/pairing`), `update` (starts [updating](#updating), unless it is: `{"started"}`), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
-| `GET /v1/computers` | `{"computers": [{"name", "user", "host", "addedAt"}], "pairing"}`: the [computers](#computers) paired with it, and how pairing one goes |
-| `DELETE /v1/computers/<name>` | Forgets it, after asking it to stop letting grog in, if it can be reached: `{"name", "unpaired"}` |
-| `POST /v1/pairing` | Lets a computer pair for 5 minutes: `{"status", "until", "addresses", "port"}` |
-| `DELETE /v1/pairing` | Stops letting one |
-| `POST /v1/pairing/allow`, `POST /v1/pairing/deny` | Allows the computer asking, or not (its `name`, `user` and `code` are in `pairing`) |
+| `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice), `mic` `{"on"}`, `volume` (`{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `new-conversation` (forgets them all), `connect` `{"integration", "way"}` (opens a session, like `POST /v1/integrations/<id>/connect`), `update` (starts [updating](#updating), unless it is: `{"started"}`), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
 | `GET /` | The skin, with `skin.dir` |
 | `GET /health` | `ok` |
 
 An error before the answer starts is a 502 with `{"error"}`. One in the
 middle of it ends the text with `[error] ...`, or comes as an `error` event.
 
-While pairing, grog also listens on `computers.pairing`, for the computer:
-it serves what pairs it at `/` (and a page saying to run it, for browsers),
-then answers it in text the script reads, a line of `key=value` each
+While a session is open, grog also listens on `integrations.port`, on the
+network: the session's page at `/c/<token>`, which asks `/c/<token>/state`
+how it goes, and posts what's entered there as JSON; `/c/callback`, where
+a browser signing in may come back to; and while a computer pairs, what
+pairs it at `/` (and a page saying to run it, for browsers), then answers
+it in text the script reads, a line of `key=value` each
 ([`pairing.clj`](src/grog/pairing.clj)).
 
 ## Security
@@ -278,17 +306,22 @@ then answers it in text the script reads, a line of `key=value` each
   actions, like restarting the machine (`POST /v1/actions/<name>`).
 - Updating runs what was pushed to grog's flake input, as root: whoever can
   push there runs code on the machine, once someone asks for an update.
-- grog only listens on the network to pair a computer, while someone at it
-  lets one, and someone there has to allow it, with the same code on both
+- grog only listens on the network while someone at it connects something,
+  for 10 minutes at most, its page behind a random token that only its
+  screen and its CLI show. It's plain HTTP: codes to enter at a provider,
+  and those a browser brings back from signing in, which are useless without
+  what grog keeps (PKCE), cross it safely.
+- A computer pairing has to be allowed at grog, with the same code on both
   screens: one in between swapping keys can't make them match. But the
-  script it serves for that goes over plain HTTP: someone who can intercept
-  the network in those minutes could swap it for anything, which would run
-  as the computer's user, and show the right code. Pair on a network you
-  trust. Then anyone who can talk to grog, or reach it as a local user, can
-  ask it for what that computer allows, as its user. What it asks first
-  needs someone at the computer.
+  script grog serves for that goes over plain HTTP: someone who can
+  intercept the network in those minutes could swap it for anything, which
+  would run as the computer's user, and show the right code. Pair on a
+  network you trust. Then anyone who can talk to grog, or reach it as a
+  local user, can ask it for what that computer allows, as its user. What
+  it asks first needs someone at the computer.
 - Any local user can watch `/v1/events`, which has what's said, and what
-  tools were used with (commands, searches), with `skin.captions`.
+  tools were used with (commands, searches), with `skin.captions`; and
+  while something connects, the link to its page, with its token.
 
 ## Development
 

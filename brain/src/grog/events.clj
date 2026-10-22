@@ -3,7 +3,8 @@
   events changing it, sent as they happen to whoever watches (`GET
   /v1/events`, as server-sent events, keys in lowerCamelCase). Turns
   (grog.assistant), grog-voice (`POST /v1/voice`) and the server (who grog
-  is, how signing in goes, what it consumed) publish them.
+  is, what's connected to it and how connecting goes, what it consumed)
+  publish them.
 
   The state:
     :name :provider :model :auth  who grog is, and how it's paid
@@ -41,16 +42,16 @@
                forgotten
     :history   the turns before it, up to 20, oldest first, as :turn; only
                sent with the events changing it (and the snapshot)
-    :login     the last sign-in to the provider's subscription, as
-               grog.login/view tells: {:provider :status :method :label},
-               and while it waits for a code to be entered, the :code, the
-               :url to enter it at, its :expires-at and :help {:text :url};
-               nil before any
+    :integrations  what grog can connect to, and what's connected, as
+               grog.integrations/summary tells: [{:id :title :heading
+               :about :icon :ways :multiple :connections}], no secrets
+    :connect   the last session connecting something, as grog.connect/view
+               tells: {:integration :title :heading :way :ways :status
+               :kept :until :at :step :link :error :connected}, its :step
+               saying what to do now ({:kind ...}: a device-code's :code and
+               :url, a script's :command, a code-compare's :code...), its
+               :link the page on the network, with its token; nil before any
     :usage     what it consumed (grog.usage)
-    :pairing   how pairing a computer goes, as grog.pairing/view tells:
-               {:status :until :addresses :port :at}, the computer's :name,
-               :user and the :code once one asks, the :error when it
-               failed; nil before any
     :captions  whether what's said is in it
     :now       when it was sent
 
@@ -79,7 +80,7 @@
   (System/currentTimeMillis))
 
 (def initial-state
-  {:voice nil :turn nil :history [] :login nil :usage nil})
+  {:voice nil :turn nil :history [] :connect nil :usage nil})
 
 (defn ^:private turn-path
   "Where in `state` the turn `event` is about is: [:turn], [:history i], or
@@ -235,15 +236,15 @@
     (:done :failed) (on-end state event)
     :stop (on-stop state)
     :forgot (assoc state :turn nil :heard nil :history [])
-    :status (merge state (select-keys event [:name :provider :model :auth :revision :timezone :actions :mic]))
+    :status (merge state (select-keys event [:name :provider :model :auth :revision :timezone :actions :mic
+                                             :integrations]))
     :mic (assoc state :mic (:mic event))
     :volume (assoc state :volume (select-keys event [:level :muted]))
     ;; Without an action, it stays after all.
     :restarting (assoc state :restarting (when (:action event) (select-keys event [:action :at])))
     :update (assoc state :update (:update event))
-    :login (assoc state :login (:login event))
     :usage (assoc state :usage (:usage event))
-    :pairing (assoc state :pairing (:pairing event))
+    :connect (assoc state :connect (:connect event))
     state))
 
 (defn redact

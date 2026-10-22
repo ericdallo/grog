@@ -173,7 +173,8 @@
 
 (defn fresh-credentials!
   "The saved credentials, refreshed and saved again when they expire within a
-  minute, or when `force?` (the backend rejected them)."
+  minute, or when `force?` (the backend rejected them). When they can't be
+  anymore, they're signed out (grog.credentials/signed-out!)."
   [{:keys [state-dir] :as cfg} force?]
   (locking refresh-lock
     (let [credentials (credentials/saved state-dir "openai")]
@@ -184,10 +185,11 @@
                         ;; The refresh token expired or was revoked (e.g. by
                         ;; signing out of ChatGPT everywhere).
                         (throw (if (#{400 401} (:status (ex-data e)))
-                                 (ex-info (str "The ChatGPT sign-in is no longer valid (" (ex-message e)
-                                               "). Sign in again: grog login openai")
-                                          {:type ::signed-out}
-                                          e)
+                                 (do (credentials/signed-out! state-dir "openai")
+                                     (ex-info (str "The ChatGPT sign-in is no longer valid (" (ex-message e)
+                                                   "). Sign in again: grog login openai")
+                                              {:type ::signed-out}
+                                              e))
                                  e))))]
           (credentials/save! state-dir "openai" fresh)
           fresh)

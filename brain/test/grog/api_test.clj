@@ -8,10 +8,12 @@
             [grog.actions :as actions]
             [grog.client :as client]
             [grog.config :as config]
+            [grog.credentials :as credentials]
             [grog.events :as events]
             [grog.hands :as hands]
             [grog.log :as log]
             [grog.providers.http :as http]
+            [grog.qr :as qr]
             [grog.server :as server]
             [grog.test-helpers :as h]
             [org.httpkit.server :as http-server]))
@@ -34,8 +36,10 @@
                       (assoc-in [:server :port] 0)
                       (assoc-in [:providers :openai :base-url] fake-url)
                       ;; Not OpenAI's: with a skin, and nothing to pay with,
-                      ;; grog asks for a code to sign in with (grog.login).
+                      ;; grog asks for a code to sign in with (grog.signin),
+                      ;; on loopback.
                       (assoc-in [:providers :openai :subscription :auth-url] "http://127.0.0.1:1")
+                      (assoc :integrations {:host "127.0.0.1" :port 0})
                       tweak))))
 
 (defn ^:private start-server [fake-url]
@@ -494,6 +498,23 @@
           (finally
             (server/stop! srv)))))))
 
+(deftest qr-codes
+  (let [srv (start-server "http://127.0.0.1:1")
+        url (str "http://127.0.0.1:" (:port srv) "/v1/qr")
+        get* #(http-client/get (str url %) {:throw false})]
+    (try
+      (testing "of a link, for the skin"
+        (let [{:keys [status headers body]} (get* "?text=http%3A%2F%2F192.168.15.10%3A8485%2Fc%2FK7Q2M9AB4X")]
+          (is (= [200 "image/svg+xml"] [status (get headers "content-type")]))
+          (is (= (qr/svg "http://192.168.15.10:8485/c/K7Q2M9AB4X") body))))
+      (testing "of nothing, or too much"
+        (is (= [400 "Say what the code holds: /v1/qr?text=..."]
+               ((juxt :status #(:error (config/parse (:body %)))) (get* ""))))
+        (is (= [400 "The text is too long for a QR code here: 300 bytes, 213 at most."]
+               ((juxt :status #(:error (config/parse (:body %)))) (get* (str "?text=" (apply str (repeat 300 "a"))))))))
+      (finally
+        (server/stop! srv)))))
+
 (deftest bad-requests
   (let [srv (start-server "http://127.0.0.1:1")
         url (str "http://127.0.0.1:" (:port srv))]
@@ -525,7 +546,8 @@
         (is (str/starts-with? (raw-request port "GET /health HTTP/1.1\r\nHost: localhost:8484\r\n\r\n")
                               "HTTP/1.1 200")))
       (testing "cross-site form posts are refused: POST and DELETE take JSON"
-        (doseq [[method path] [[:post "/v1/chat"] [:post "/v1/auth/openai/login"] [:delete "/v1/auth/openai"]]]
+        (doseq [[method path] [[:post "/v1/chat"] [:post "/v1/integrations/openai/connect"] [:delete "/v1/connections/openai"]
+                                [:post "/v1/connect/allow"] [:delete "/v1/connect"]]]
           (let [resp (http-client/request {:method method
                                            :uri (str "http://127.0.0.1:" port path)
                                            :headers {"content-type" "text/plain"}
@@ -663,12 +685,17 @@
         (server/stop! srv)))))
 
 (deftest signing-out-forgets-the-subscriptions-limits
-  (let [srv (start-server "http://127.0.0.1:1")
+  (let [state-dir (h/temp-dir)
+        _ (credentials/save! state-dir "openai" {:type "chatgpt" :access-token "t" :email "grog@example.com"})
+        srv (start-server-at "http://127.0.0.1:1" state-dir)
         quota (:quota (:ctx srv))]
     (try
       (reset! quota {:updated-at 1 :windows [{:id "primary" :label "5h" :used-percent 90.0}]})
-      (is (= 200 (:status (http-client/delete (str "http://127.0.0.1:" (:port srv) "/v1/auth/openai")
-                                              {:headers {"content-type" "application/json"} :body "{}"}))))
+      (is (= {:id "openai" :disconnected true}
+             (config/parse (:body (http-client/delete (str "http://127.0.0.1:" (:port srv) "/v1/connections/openai")
+                                                      {:headers {"content-type" "application/json"} :body "{}"})))))
       (is (nil? @quota) "another account has its own")
+      (is (nil? (credentials/saved state-dir "openai")))
+      (is (= "none" (:auth (events/snapshot (:events (:ctx srv))))) "whoever watches knows")
       (finally
         (server/stop! srv)))))

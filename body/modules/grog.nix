@@ -23,8 +23,9 @@ let
   # How an update goes (`grog updater`, as root), for grog to read.
   updateStatus = "/run/grog-update/status.json";
 
-  # Where grog listens for a computer to pair (brain/src/grog/config.clj).
-  pairingPort = cfg.settings.computers.pairing.port or 8485;
+  # Where grog listens while someone at it connects something: its page, and
+  # what a computer pairing asks (brain/src/grog/config.clj).
+  connectPort = cfg.settings.integrations.port or 8485;
 
   models = pkgs.callPackage ../packages/voice-models.nix { };
   voiceConfigFile = json.generate "grog-voice.json" (lib.recursiveUpdate
@@ -41,6 +42,10 @@ let
     cfg.voice.settings);
 in
 {
+  imports = [
+    (lib.mkRenamedOptionModule [ "services" "grog" "computers" "openFirewall" ] [ "services" "grog" "integrations" "openFirewall" ])
+  ];
+
   options.services.grog = {
     enable = lib.mkEnableOption "grog, the home voice assistant (LLM chat server and `grog` CLI)";
 
@@ -106,13 +111,15 @@ in
       '';
     };
 
-    computers.openFirewall = lib.mkOption {
+    integrations.openFirewall = lib.mkOption {
       type = lib.types.bool;
       default = true;
       description = ''
-        Whether to open the port where grog listens for a computer to pair,
-        and serves what pairs it (`settings.computers.pairing.port`): it
-        only listens while someone at grog lets one, for a few minutes.
+        Whether to open the port where grog listens while someone at it
+        connects something (`settings.integrations.port`): the page a phone
+        or computer follows the steps on, and what a computer pairing asks.
+        It only listens then, for a few minutes, and the page is behind a
+        token only grog's screen and CLI show.
       '';
     };
 
@@ -347,7 +354,7 @@ in
     (lib.mkIf cfg.enable {
       environment.systemPackages = [ cfg.package ];
       environment.variables.GROG_URL = grogUrl;
-      networking.firewall.allowedTCPPorts = lib.mkIf cfg.computers.openFirewall [ pairingPort ];
+      networking.firewall.allowedTCPPorts = lib.mkIf cfg.integrations.openFirewall [ connectPort ];
 
       systemd.services.grog = {
         description = "grog, the home voice assistant";

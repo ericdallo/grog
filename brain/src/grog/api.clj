@@ -6,13 +6,14 @@
   (:require [clojure.string :as str]
             [grog.actions :as actions]
             [grog.assistant :as assistant]
-            [grog.computers :as computers]
             [grog.config :as config]
+            [grog.connect :as connect]
             [grog.events :as events]
+            [grog.integrations :as integrations]
             [grog.log :as log]
-            [grog.login :as login]
-            [grog.pairing :as pairing]
+            [grog.oauth :as oauth]
             [grog.provider :as provider]
+            [grog.qr :as qr]
             [grog.settings :as settings]
             [grog.skin :as skin]
             [grog.sse :as sse]
@@ -189,16 +190,14 @@
                                               " and maybe \"heard\": {\"text\", \"final\": true or false}}.")
                                          (str/join ", " (sort events/voice-states)))}))))
 
-(defn ^:private login-method
-  "How a /v1/auth/<provider>/login `body` asks to sign in: :device, :browser,
-  or nil, the provider's way."
+(defn ^:private way
+  "How a connect request's `body` asks to connect: its way, or nil for the
+  usual one."
   [body]
-  (case (when (map? body) (:method body))
-    nil nil
-    "device" :device
-    "browser" :browser
-    (throw (ex-info "Send {\"method\": \"device\" or \"browser\"}, or {} for the provider's way."
-                    {:type ::bad-method}))))
+  (let [way (when (map? body) (:way body))]
+    (when-not (or (nil? way) (string? way))
+      (throw (ex-info "Send {\"way\": how to connect}, or {} for the usual way." {:type ::bad-way})))
+    way))
 
 (defn ^:private api-call
   "Answers the result of `f` as JSON; errors as 400 (ex-info) or 502."
@@ -225,6 +224,23 @@
       :else
       (api-call #(actions/perform! ctx name (or args {}))))))
 
+(defn ^:private qr-image
+  "The QR code of what the query's `text` says, as SVG (grog.qr): the skin
+  shows links it can't know in advance, like a session's (grog.connect)."
+  [{:keys [query-string]}]
+  (let [text (try (:text (oauth/form-decode query-string))
+                  (catch IllegalArgumentException _ nil))]
+    (if (str/blank? text)
+      (json-response 400 {:error "Say what the code holds: /v1/qr?text=..."})
+      (try
+        {:status 200
+         :headers {"Content-Type" "image/svg+xml"
+                   "Cache-Control" "no-store"
+                   "X-Content-Type-Options" "nosniff"}
+         :body (qr/svg text)}
+        (catch clojure.lang.ExceptionInfo e
+          (json-response 400 {:error (str "The text is " (ex-message e) ".")}))))))
+
 (defn ^:private host-name
   "A Host header without the port: \"[::1]:8484\" -> \"[::1]\"."
   [host]
@@ -248,9 +264,9 @@
   "Answers `req`, with what the context `ctx` holds (grog.assistant)."
   [ctx {:keys [request-method uri] :as req}]
   (let [config @(:config ctx)
-        [_ provider login?] (re-matches #"/v1/auth/([a-z]+)(/login)?" uri)
         [_ action-name] (re-matches #"/v1/actions/([a-z-]+)" uri)
-        [_ computer] (re-matches #"/v1/computers/([a-z0-9][a-z0-9-]{0,31})" uri)]
+        [_ integration] (re-matches #"/v1/integrations/([a-z0-9-]+)/connect" uri)
+        [_ connection] (re-matches #"/v1/connections/([a-z0-9:-]+)" uri)]
     (or
      (refusal config req)
      (cond
@@ -278,19 +294,32 @@
        (= [:get "/v1/models"] [request-method uri])
        (api-call #(hash-map :models (provider/models config)))
 
-       (and provider login? (= :post request-method))
-       (api-call #(login/start! config provider (login-method (read-json req))))
+       (= [:get "/v1/qr"] [request-method uri])
+       (qr-image req)
 
-       ;; Polled while signing in: whoever watches sees it as it happens.
-       (and provider (not login?) (= :get request-method))
-       (api-call #(do (assistant/publish-status! ctx)
-                      (login/status config provider)))
+       (= [:get "/v1/integrations"] [request-method uri])
+       (api-call #(hash-map :integrations (integrations/summary config) :connect (connect/view @(:connect ctx))))
 
-       (and provider (not login?) (= :delete request-method))
-       (api-call #(do (login/logout! config provider)
-                      (usage/forget-quota! ctx)
-                      (assistant/publish-status! ctx)
-                      (login/status config provider)))
+       (and integration (= :post request-method))
+       (api-call #(integrations/open! ctx integration (way (read-json req))))
+
+       ;; Polled while connecting: whoever watches sees it as it happens.
+       (= [:get "/v1/connect"] [request-method uri])
+       (api-call #(or (connect/view @(:connect ctx)) {}))
+
+       (= [:delete "/v1/connect"] [request-method uri])
+       (api-call #(connect/cancel! ctx))
+
+       (= [:post "/v1/connect/allow"] [request-method uri])
+       (api-call #(connect/decide! ctx true))
+
+       (= [:post "/v1/connect/deny"] [request-method uri])
+       (api-call #(connect/decide! ctx false))
+
+       (and connection (= :delete request-method))
+       (api-call #(let [result (integrations/disconnect! ctx connection)]
+                    (assistant/publish-status! ctx)
+                    result))
 
        (= [:get "/v1/events"] [request-method uri])
        (watch ctx req)
@@ -300,24 +329,6 @@
 
        (= [:get "/v1/voice/commands"] [request-method uri])
        (voice-commands ctx req)
-
-       (= [:get "/v1/computers"] [request-method uri])
-       (api-call #(hash-map :computers (computers/summary config) :pairing (pairing/view @(:pairing ctx))))
-
-       (and computer (= :delete request-method))
-       (api-call #(computers/forget! config computer))
-
-       (= [:post "/v1/pairing"] [request-method uri])
-       (api-call #(pairing/open! ctx))
-
-       (= [:delete "/v1/pairing"] [request-method uri])
-       (api-call #(pairing/close! ctx))
-
-       (= [:post "/v1/pairing/allow"] [request-method uri])
-       (api-call #(pairing/decide! ctx true))
-
-       (= [:post "/v1/pairing/deny"] [request-method uri])
-       (api-call #(pairing/decide! ctx false))
 
        (and action-name (= :post request-method))
        (action ctx action-name req)

@@ -52,7 +52,7 @@ grog ask "Will it rain tomorrow?"
 grog status    # model, account, and what it has spent
 grog login     # sign in with a ChatGPT subscription: a code, on any phone or computer
 grog update    # to the latest grog pushed (also by asking it, or on its screen)
-grog computers add  # pair one of your computers, for grog to act on it
+grog connect computer  # pair one of your computers, for grog to act on it
 ```
 
 Without a subscription, put an OpenAI API key in `OPENAI_API_KEY` (on NixOS,
@@ -71,7 +71,7 @@ More in [security](brain/README.md#security).
 ## Development
 
 ```sh
-nix develop    # bb, clj-kondo, python3, ruff, node, shellcheck
+nix develop    # bb, clj-kondo, python3, ruff, node, shellcheck, qrencode
 make test
 make lint
 make check     # builds the packages with Nix, running the tests

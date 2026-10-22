@@ -48,9 +48,12 @@
     (computers/add! config attic)
     (is (= ["attic" "deluxe"] (map :name (computers/all config))))
     (is (= deluxe (computers/by-name config "deluxe")))
-    (is (= [{:name "attic" :user "greg" :host "192.168.15.91" :added-at 1792427875000}
-            {:name "deluxe" :user "greg" :host "192.168.15.90" :added-at 1792427875000}]
-           (computers/summary config)))
+    (is (= [{:id "computer:attic" :name "attic" :detail "greg@192.168.15.91" :status "connected"
+             :added-at 1792427875000}
+            {:id "computer:deluxe" :name "deluxe" :detail "greg@192.168.15.90" :status "connected"
+             :added-at 1792427875000}]
+           (computers/connections config))
+        "as connections")
     (testing "their host keys, pinned by name"
       (is (= "attic ssh-ed25519 AAAAattic\ndeluxe ssh-ed25519 AAAAdeluxe\n"
              (slurp (computers/known-hosts-file config)))))

@@ -26,16 +26,16 @@
   (let [names #(mapv :name (tools/available %))
         hands (assoc-in config/defaults [:hands :socket] "/run/grog-hands/hands.sock")]
     (with-redefs [actions/service? (constantly false)]
-      (is (= ["settings" "memory" "microphone"] (names config/defaults)))
-      (is (= ["settings" "memory" "microphone" "volume" "system_status" "shell" "power"] (names hands))))
+      (is (= ["settings" "memory" "microphone" "connect"] (names config/defaults)))
+      (is (= ["settings" "memory" "microphone" "volume" "system_status" "shell" "power" "connect"] (names hands))))
     (testing "as a service, it can restart itself"
       (with-redefs [actions/service? (constantly true)]
-        (is (= ["settings" "memory" "microphone" "power"] (names config/defaults)))))
+        (is (= ["settings" "memory" "microphone" "power" "connect"] (names config/defaults)))))
     (testing "with the update service, and hands to start it, it can update itself"
       (with-redefs [actions/service? (constantly false)]
-        (is (= ["settings" "memory" "microphone" "volume" "system_status" "shell" "power" "update"]
+        (is (= ["settings" "memory" "microphone" "volume" "system_status" "shell" "power" "update" "connect"]
                (names (assoc-in hands [:update :status] "/run/grog-update/status.json"))))
-        (is (= ["settings" "memory" "microphone"]
+        (is (= ["settings" "memory" "microphone" "connect"]
                (names (assoc-in config/defaults [:update :status] "/run/grog-update/status.json"))))))))
 
 (deftest runs-tools-for-the-model
@@ -89,4 +89,5 @@
       (is (= "restart" (detail "power" {:action "restart"})))
       (is (= "deluxe: shell uptime" (detail "computer" {:computer "deluxe" :action "shell" :command "uptime"})))
       (is (= "deluxe: volume 30%" (detail "computer" {:computer "deluxe" :action "volume" :level 30})))
-      (is (= "deluxe: lock" (detail "computer" {:computer "deluxe" :action "lock"}))))))
+      (is (= "deluxe: lock" (detail "computer" {:computer "deluxe" :action "lock"})))
+      (is (= "computer" (detail "connect" {:integration "computer"}))))))

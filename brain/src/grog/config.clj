@@ -47,15 +47,18 @@
    ;; NixOS module's services.grog.update). nil: it can't.
    :update {:status nil}
    ;; The user's computers grog acts on (grog.computers): the ssh it reaches
-   ;; them with, and where it listens for one asking to pair, only while
-   ;; someone at grog lets one, for a few minutes (grog.pairing).
-   :computers {:ssh "ssh" :pairing {:host "0.0.0.0" :port 8485}}
-   ;; Where grog keeps its files: the credentials of `grog login`
-   ;; (auth.json), the settings changed by asking (settings.json), what it
-   ;; was told to remember (memory.json), whether grog-voice's mic is on
-   ;; (voice.json), what it consumed (usage.json), and the computers paired
-   ;; with it (computers.json, its SSH key and their host keys in
-   ;; computers/).
+   ;; them with.
+   :computers {:ssh "ssh"}
+   ;; Where grog listens on the network while someone at it connects
+   ;; something (grog.connect), and only then: the page showing how, and
+   ;; what a computer pairing asks (grog.pairing).
+   :integrations {:host "0.0.0.0" :port 8485}
+   ;; Where grog keeps its files: what's connected to it (integrations.json,
+   ;; their secrets in secrets/), the settings changed by asking
+   ;; (settings.json), what it was told to remember (memory.json), whether
+   ;; grog-voice's mic is on (voice.json), what it consumed (usage.json),
+   ;; and the computers paired with it (computers.json, its SSH key and
+   ;; their host keys in computers/).
    ;; nil: $STATE_DIRECTORY (set by systemd) or ~/.local/state/grog.
    :state-dir nil
    ;; Settings per provider (see grog.provider).
@@ -213,8 +216,10 @@
         (check config [:skin :captions] boolean? "true or false")
         (check config [:update :status] (some-fn nil? non-blank-string?) "a file path, or null")
         (check config [:computers :ssh] non-blank-string? "a program, like \"ssh\"")
-        (check config [:computers :pairing :host] non-blank-string? "an address, like \"0.0.0.0\"")
-        (check config [:computers :pairing :port] port? "a port number")
+        (when (contains? (:computers config) :pairing)
+          "computers.pairing: now integrations.host and integrations.port")
+        (check config [:integrations :host] non-blank-string? "an address, like \"0.0.0.0\"")
+        (check config [:integrations :port] port? "a port number")
         (check config [:state-dir] (some-fn nil? non-blank-string?) "a directory or null")
         (check config [:provider] non-blank-string? "a provider, like \"openai\"")
         (check config [:providers] map? "the settings of each provider")]

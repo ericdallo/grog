@@ -2,6 +2,7 @@
 , stdenvNoCC
 , babashka-unwrapped
 , curl
+, qrencode
 , rlwrap
 , runtimeShell
 , shellcheck
@@ -18,8 +19,9 @@ stdenvNoCC.mkDerivation {
 
   # The app only uses libraries built into babashka, so the plain native
   # binary is enough (the `babashka` wrapper would pull a JDK for `bb clojure`).
-  # curl: the tests pair computers as they do, with computer.sh.
-  nativeCheckInputs = [ babashka-unwrapped curl shellcheck ];
+  # curl: the tests pair computers as they do, with computer.sh. qrencode:
+  # they check grog's QR codes against its.
+  nativeCheckInputs = [ babashka-unwrapped curl qrencode shellcheck ];
 
   # The suite includes HTTP round-trips against fake LLM servers on loopback,
   # which the build sandbox allows.

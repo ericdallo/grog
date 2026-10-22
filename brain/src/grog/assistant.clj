@@ -6,6 +6,7 @@
             [grog.config :as config]
             [grog.conversation :as conversation]
             [grog.events :as events]
+            [grog.integrations :as integrations]
             [grog.log :as log]
             [grog.memory :as memory]
             [grog.prompt :as prompt]
@@ -22,7 +23,7 @@
   to remember, the conversation histories, how many turns there were (each
   turn's number), what grog is up to, for whoever watches (grog.events),
   what it asks of grog-voice (grog.voice), what it consumed (grog.usage),
-  and how pairing a computer goes (grog.pairing)."
+  and how connecting something goes (grog.connect)."
   [config]
   (let [overrides (settings/load-overrides config)
         live-config (atom (settings/apply-overrides config overrides))]
@@ -40,12 +41,12 @@
      :usage (atom (usage/load-days config))
      :quota (atom nil)
      :quota-failing? (atom false)
-     :pairing (atom nil)}))
+     :connect (atom nil)}))
 
 (defn publish-status!
   "Tells whoever watches (grog.events) who grog is (its revision too), how
   it's paid, its time zone, what can be asked of it, whether its mic is on,
-  and what it consumed, now."
+  what's connected to it, and what it consumed, now."
   [ctx]
   (let [config @(:config ctx)]
     (events/publish! (:events ctx) (merge {:type :status
@@ -53,7 +54,8 @@
                                            :revision (update/revision)
                                            :timezone (config/timezone config)
                                            :actions (actions/available config)
-                                           :mic (voice/mic (:voice ctx))}
+                                           :mic (voice/mic (:voice ctx))
+                                           :integrations (integrations/summary config)}
                                           (select-keys (provider/describe-quietly config) [:provider :model :auth])))
     (usage/publish! ctx)))
 

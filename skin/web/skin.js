@@ -9,6 +9,7 @@ import { ICONS } from "./icons.js";
 import {
   account,
   activeTurn,
+  card,
   chat,
   closes,
   CONFIRM_MS,
@@ -18,10 +19,8 @@ import {
   isNight,
   menu,
   mode,
-  pairing,
   pipeline,
   request,
-  signIn,
   stale,
   tap,
   timeFormats,
@@ -33,7 +32,6 @@ import {
 
 // The event types grog sends: see brain/src/grog/events.clj.
 const EVENTS = ["snapshot", "voice", "turn", "tool", "tool-detail", "text", "done", "failed", "status"].concat([
-  "login",
   "usage",
   "restarting",
   "mic",
@@ -41,7 +39,7 @@ const EVENTS = ["snapshot", "voice", "turn", "tool", "tool-detail", "text", "don
   "stop",
   "forgot",
   "update",
-  "pairing",
+  "connect",
 ]);
 // How close to its end the chat is still at its end, in pixels.
 const END_PX = 8;
@@ -58,10 +56,9 @@ const $ = (id) => document.getElementById(id);
 const els = Object.fromEntries(
   ["name", "model", "account", "clock", "date", "avatar", "label", "detail", "timer"]
     .concat(["chat", "chat-end", "pipeline", "usage"])
-    .concat(["signin", "signin-title", "signin-qr", "signin-url", "signin-code", "signin-expires"])
-    .concat(["signin-note", "signin-error", "signin-help", "signin-help-text", "signin-help-url"])
-    .concat(["pairing", "pairing-title", "pairing-detail", "pairing-hint", "pairing-command", "pairing-code"])
-    .concat(["pairing-note", "pairing-buttons", "pairing-expires", "pairing-error"])
+    .concat(["card", "card-title", "card-detail", "card-qr", "card-hint", "card-link", "card-hint2", "card-code"])
+    .concat(["card-command", "card-expires", "card-note", "card-error", "card-help", "card-help-text"])
+    .concat(["card-help-url", "card-buttons", "card-asked"])
     .concat(["open-actions", "close-actions", "sheet", "items", "sheet-error", "sheet-version", "notice"])
     .map((id) => [id, $(id)]),
 );
@@ -277,7 +274,7 @@ function follow() {
   els.chat.scrollTop = els.chat.scrollHeight;
 }
 
-/** The QR code `src` in `img`, shown once it loads: none for pages the skin has no code of. */
+/** The QR code `src` in `img`, shown once it loads: none without one. */
 function showQr(img, src) {
   if (!src) {
     img.hidden = true;
@@ -289,46 +286,33 @@ function showQr(img, src) {
 }
 
 /**
- * How to sign in, while grog has nothing to pay with: in place of what was
- * said and done, which there's none of then.
+ * Connecting something to grog (view.js card): the link to its page and its
+ * QR code, what to do now, a code when there's one, Allow and Deny when it's
+ * asked, Cancel; in place of what was said and done, while it shows.
  */
-function drawSignIn(t) {
-  const s = offline ? null : signIn(state, t);
-  els.signin.hidden = !s;
-  document.body.classList.toggle("signing-in", Boolean(s));
-  if (!s) return;
-  els.signin.classList.toggle("waiting", Boolean(s.code));
-  setText(els["signin-title"], s.title);
-  setText(els["signin-url"], s.shortUrl ?? "");
-  setText(els["signin-code"], s.code ?? "");
-  setText(els["signin-expires"], s.expires ?? "");
-  setText(els["signin-note"], s.note ?? "");
-  setText(els["signin-error"], s.error ?? "");
-  showQr(els["signin-qr"], s.qr);
-  els["signin-help"].hidden = !s.help;
-  setText(els["signin-help-text"], s.help?.text ?? "");
-  setText(els["signin-help-url"], s.help?.shortUrl ?? "");
-}
-
-/**
- * Pairing a computer: what to run on it, then its code to check, with Allow
- * and Deny; in place of what was said and done, while it goes.
- */
-function drawPairing(t) {
-  const p = offline ? null : pairing(state, t);
-  document.body.classList.toggle("adding-computer", Boolean(p));
-  once("pairing", p, (v) => {
-    els.pairing.hidden = !v;
+function drawCard(t) {
+  const c = offline ? null : card(state, t);
+  document.body.classList.toggle("connecting", Boolean(c));
+  once("card", c, (v) => {
+    els.card.hidden = !v;
     if (!v) return;
-    els.pairing.classList.toggle("failed", v.failed);
-    setText(els["pairing-title"], v.title);
-    setText(els["pairing-detail"], v.detail);
-    setText(els["pairing-hint"], v.hint);
-    setText(els["pairing-command"], v.command);
-    setText(els["pairing-code"], v.code);
-    setText(els["pairing-note"], v.note);
-    setText(els["pairing-expires"], v.expires);
-    els["pairing-buttons"].replaceChildren(
+    els.card.classList.toggle("failed", v.failed);
+    els.card.classList.toggle("with-qr", Boolean(v.qr));
+    setText(els["card-title"], v.title);
+    setText(els["card-detail"], v.detail);
+    setText(els["card-hint"], v.hint);
+    setText(els["card-link"], v.link);
+    setText(els["card-hint2"], v.hint2);
+    setText(els["card-code"], v.code);
+    setText(els["card-command"], v.command);
+    setText(els["card-expires"], v.expires);
+    setText(els["card-note"], v.note);
+    setText(els["card-error"], v.error);
+    showQr(els["card-qr"], v.qr);
+    els["card-help"].hidden = !v.help;
+    setText(els["card-help-text"], v.help?.text ?? "");
+    setText(els["card-help-url"], v.help?.shortUrl ?? "");
+    els["card-buttons"].replaceChildren(
       ...v.buttons.map((b) => {
         const button = el("button", `choice${b.primary ? " primary" : ""}`, b.label);
         button.type = "button";
@@ -457,7 +441,7 @@ function actionItem(item) {
   return li;
 }
 
-/** The actions, when they show: everyday ones, then those that can't be undone. */
+/** The actions, when they show: everyday ones, what's connected, then going away. */
 function drawSheet() {
   const can = !offline && Boolean(state?.actions?.length);
   if (els["open-actions"].hidden === can) els["open-actions"].hidden = !can;
@@ -472,7 +456,12 @@ function drawSheet() {
       ul.append(...some.map((item) => (item.kind === "volume" ? volumeItem(item) : actionItem(item))));
       return ul;
     };
-    els.items.replaceChildren(list(items.filter((i) => !i.confirm)), list(items.filter((i) => i.confirm)));
+    const integrations = items.filter((i) => i.group === "integrations");
+    els.items.replaceChildren(
+      list(items.filter((i) => i.group === "everyday")),
+      ...(integrations.length ? [el("h3", "group-title", "Integrations"), list(integrations)] : []),
+      list(items.filter((i) => i.group === "power")),
+    );
   });
 }
 
@@ -480,8 +469,7 @@ function draw() {
   const t = now();
   drawMode(t);
   drawBrand(t);
-  drawSignIn(t);
-  drawPairing(t);
+  drawCard(t);
   drawNotice(t);
   drawChat(t);
   drawPipeline(t);
@@ -511,10 +499,10 @@ async function ask(action, step = null, failed = showError) {
   }
 }
 
-/** What went wrong pairing, for a moment. */
-function showPairingError(message) {
-  setText(els["pairing-error"], message);
-  later("pairing-error", SHEET_ERROR_MS, () => setText(els["pairing-error"], ""));
+/** What went wrong asking grog from the card, for a moment. */
+function showCardError(message) {
+  setText(els["card-asked"], message);
+  later("card-asked", SHEET_ERROR_MS, () => setText(els["card-asked"], ""));
 }
 
 function later(name, ms, f) {
@@ -655,16 +643,16 @@ els.items.addEventListener("click", (e) => {
   const button = e.target.closest("button[data-action]");
   if (button) choose(button);
 });
-// Allowing the computer asking to pair, or not, or no longer letting one.
-els["pairing-buttons"].addEventListener("click", (e) => {
+// Allowing what asks to connect, or not, or no longer connecting it.
+els["card-buttons"].addEventListener("click", (e) => {
   const button = e.target.closest("button[data-action]");
-  if (button) ask(button.dataset.action, null, showPairingError);
+  if (button) ask(button.dataset.action, null, showCardError);
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && sheetOpen) closeSheet();
 });
-els["signin-qr"].addEventListener("load", () => {
-  els["signin-qr"].hidden = false;
+els["card-qr"].addEventListener("load", () => {
+  els["card-qr"].hidden = false;
 });
 draw();
 connect();

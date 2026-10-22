@@ -34,7 +34,7 @@
     :model-paths    optional: every place in its settings a model it calls
                     can be (e.g. the API's and the subscription's), which the
                     `settings` tool keeps track of, :model-path's among them.
-    :login          optional: signing in to a subscription, see `grog.login`.
+    :login          optional: signing in to a subscription, see `grog.signin`.
     :validate       optional, (fn [cfg]): what's wrong with its settings, as
                     messages (see `grog.config/check`), checked at startup.
 

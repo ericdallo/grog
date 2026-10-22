@@ -20,6 +20,7 @@
             [clojure.string :as str]
             [grog.actions :as actions]
             [grog.computers :as computers]
+            [grog.integrations :as integrations]
             [grog.log :as log]
             [grog.machine :as machine]
             [grog.memory :as memory]
@@ -30,8 +31,8 @@
 (defn available
   "The tools for a turn: grog's own (its settings, memory and microphone),
   the machine's when it has hands, `power` when it can restart itself or
-  the machine, `update` when it can update itself, and `computer` with
-  computers paired with it."
+  the machine, `update` when it can update itself, `computer` with
+  computers paired with it, and `connect`, to connect something."
   [config]
   (let [power (actions/tool config)
         updating (update/tool config)
@@ -40,7 +41,8 @@
       (get-in config [:hands :socket]) (into machine/tools)
       power (conj power)
       updating (conj updating)
-      computing (conj computing))))
+      computing (conj computing)
+      true (conj (integrations/tool config)))))
 
 (defn definitions
   "What the provider tells the model about `tools`."

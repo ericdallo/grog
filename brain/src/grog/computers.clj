@@ -98,10 +98,14 @@
   [config name]
   (some #(when (= name (:name %)) %) (all config)))
 
-(defn summary
-  "What grog tells of its computers: [{:name :user :host :added-at}]."
+(defn connections
+  "The computers paired with grog, as the `computer` integration's
+  connections (grog.integrations): [{:id :name :detail :status
+  :added-at}], `computer:<name>` their ids."
   [config]
-  (mapv #(select-keys % [:name :user :host :added-at]) (all config)))
+  (mapv (fn [{:keys [name user host added-at]}]
+          {:id (str "computer:" name) :name name :detail (str user "@" host) :status "connected" :added-at added-at})
+        (all config)))
 
 (defn known-hosts
   "The known_hosts of `computers`: their host keys, by name (ssh's
@@ -367,6 +371,12 @@
     (remove! config name)
     (log/info (format "computer %s: forgotten" name))
     {:name name :unpaired unpaired}))
+
+(defn disconnect!
+  "Forgets the computer of connection `id` (`computer:<name>`): see
+  `forget!`."
+  [ctx id]
+  (forget! @(:config ctx) (second (re-matches #"computer:(.+)" (str id)))))
 
 (def ^:private tool-actions
   ["status" "notify" "open" "media" "volume" "lock" "suspend" "power-off" "wake" "shell"])

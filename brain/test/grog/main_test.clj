@@ -13,4 +13,5 @@
   (is (= {:provider "openai" :browser true} (parse ["login"] ["openai" "--browser"])))
   (is (= {:provider "openai" :browser true} (parse ["login"] ["--browser" "openai"])))
   (is (= {:browser true} (parse ["login"] ["--browser"])))
-  (is (= {:name "123"} (parse ["computers" "forget"] ["123"])) "a name stays a name"))
+  (is (= {:id "openai" :browser true} (parse ["connect"] ["openai" "--browser"])))
+  (is (= {:id "computer:123"} (parse ["disconnect"] ["computer:123"])) "an id stays an id"))

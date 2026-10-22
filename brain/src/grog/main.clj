@@ -22,12 +22,19 @@ Commands:
                               (reads it from stdin when omitted). Follow-up
                               questions continue the conversation until it's
                               idle for a while; --new (-n) starts a new one
+  integrations                what grog can connect to, and what's connected
+  connect ID [--browser]      connects one, saying what to do, with a page
+                              on the network for any phone or computer:
+                              openai signs in to the ChatGPT subscription,
+                              with a code (or in a browser, --browser);
+                              computer pairs one of your computers (nothing
+                              to install there)
+  disconnect ID               disconnects one (`grog integrations` lists
+                              them); a computer stops letting grog in
   login [provider] [--browser]
-                              sign in to the provider's subscription (openai:
-                              ChatGPT; the server's provider by default) with
-                              a code entered on any phone or computer, or
-                              with a browser on this machine (--browser)
-  logout [provider]           sign out
+                              grog connect <provider>: the server's by
+                              default
+  logout [provider]           signs out of it
   status                      provider, model and credentials in use, and the
                               settings changed by asking grog
   settings reset              puts those back as configured
@@ -40,11 +47,6 @@ Commands:
   updater --flake DIR --host NAME --input NAME --status FILE
                               what updates grog, as root (what the
                               grog-update service runs)
-  computers                   the computers grog acts on, paired with it
-  computers add               lets a computer pair for 5 minutes, saying what
-                              to run on it (nothing to install there), then
-                              asks to allow it
-  computers forget NAME       forgets a computer, which stops letting grog in
 
 Server: $GROG_URL or " client/default-url))
 
@@ -125,16 +127,18 @@ Server: $GROG_URL or " client/default-url))
                                                    :revision (update/revision)}
                                                   (updater/system (client/server-url nil))))))))
 
-(defn ^:private list-computers [{:keys [opts]}]
-  (exit (client/computers! (url opts))))
+(defn ^:private integrations [{:keys [opts]}]
+  (exit (client/integrations! (url opts))))
 
-(defn ^:private add-computer [{:keys [opts]}]
-  (exit (client/add-computer! (url opts))))
+(defn ^:private connect [{:keys [opts]}]
+  (if (str/blank? (:id opts))
+    (die "Usage: grog connect ID [--browser] (grog integrations lists them)")
+    (exit (client/connect! (url opts) (:id opts) (when (:browser opts) "browser")))))
 
-(defn ^:private forget-computer [{:keys [opts]}]
-  (if (str/blank? (:name opts))
-    (die "Usage: grog computers forget NAME")
-    (exit (client/forget-computer! (url opts) (:name opts)))))
+(defn ^:private disconnect [{:keys [opts]}]
+  (if (str/blank? (:id opts))
+    (die "Usage: grog disconnect ID (grog integrations lists them)")
+    (exit (client/disconnect! (url opts) (:id opts)))))
 
 (defn ^:private help [_]
   (println usage))
@@ -158,9 +162,9 @@ Server: $GROG_URL or " client/default-url))
                                              :host {:coerce :string}
                                              :input {:coerce :string}
                                              :status {:coerce :string}}}
-   {:cmds ["computers" "add"] :fn add-computer}
-   {:cmds ["computers" "forget"] :fn forget-computer :args->opts [:name] :spec {:name {:coerce :string}}}
-   {:cmds ["computers"] :fn list-computers}
+   {:cmds ["integrations"] :fn integrations}
+   {:cmds ["connect"] :fn connect :args->opts [:id] :spec {:id {:coerce :string} :browser {:coerce :boolean}}}
+   {:cmds ["disconnect"] :fn disconnect :args->opts [:id] :spec {:id {:coerce :string}}}
    {:cmds [] :fn help}])
 
 (defn -main [& args]

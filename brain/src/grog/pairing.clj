@@ -1,14 +1,15 @@
 (ns grog.pairing
-  "Pairing a computer with grog, for grog to act on it (grog.computers).
-  Someone at grog lets one pair (its skin, `grog computers add`, `POST
-  /v1/pairing`): for a few minutes, grog listens on the network for one
-  asking (`computers.pairing`), and serves what pairs it,
-  resources/grog/computer.sh, so there's nothing to install there: its user
-  runs `curl -fsS <grog's address>:8485 | bash`, or opens that address in a
-  browser, which says so. Both screens show a code made from both keys, and
-  someone at grog allows it when they're the same. The computer then lets
-  grog's key in, only to run grog's hands there (a copy of the script), and
-  only from grog's network.
+  "Pairing a computer with grog, for grog to act on it (grog.computers): how
+  the `computer` integration connects (`integration`, grog.connect).
+  Someone at grog opens a session for it (Add a computer on its skin, `grog
+  connect computer`), and grog serves what pairs one on the network
+  meanwhile, resources/grog/computer.sh, so there's nothing to install
+  there: its user runs `curl -fsS <grog's address>:8485 | bash` (a script
+  step), or opens that address in a browser, which says so. Both screens
+  show a code made from both keys (a code-compare step), and someone at grog
+  allows it when they're the same. The computer then lets grog's key in,
+  only to run grog's hands there (a copy of the script), and only from
+  grog's network.
 
   Someone in between, swapping keys, can't make the codes match (but once
   in a million): the computer commits to its nonce (sends its hash) before
@@ -16,8 +17,9 @@
   as it goes, over plain HTTP, could run anything there though: pairing
   trusts the network for those minutes.
 
-  On the network, while pairing is open, answering text the script reads
-  without a JSON parser, a line of key=value each (`answer-text`):
+  On the network, while the session is the last one, answering text the
+  script reads without a JSON parser, a line of key=value each
+  (`answer-text`):
     GET  /                    the script; a page saying to run it, for
                               browsers (Accept: text/html)
     GET  /computer.sh         the script
@@ -35,21 +37,11 @@
             [clojure.string :as str]
             [grog.computers :as computers]
             [grog.config :as config]
-            [grog.events :as events]
+            [grog.connect :as connect]
             [grog.log :as log]
-            [org.httpkit.server :as server]
             [selmer.parser :as selmer])
-  (:import (java.net DatagramSocket InetAddress)
-           (java.nio ByteBuffer)
+  (:import (java.nio ByteBuffer)
            (java.security MessageDigest SecureRandom)))
-
-(def window-ms
-  "How long someone at grog lets a computer pair."
-  (* 5 60 1000))
-
-;; How long grog still answers the computer once pairing is over, for it
-;; to hear how it went.
-(def ^:private linger-ms 15000)
 
 ;; How long a computer has to reveal its nonce, before another may ask.
 (def ^:private reveal-ms 30000)
@@ -57,15 +49,9 @@
 ;; How long an allowed computer has to let grog in.
 (def ^:private finish-ms 60000)
 
-;; What a request may weigh.
-(def ^:private max-body-bytes 16384)
-
 (def host-key-pattern
   "An SSH public key: its type, then its base64."
   #"(ssh-ed25519|ecdsa-sha2-nistp(256|384|521)|ssh-rsa) [A-Za-z0-9+/]+={0,3}")
-
-;; Opening and stopping the listener, one at a time.
-(def ^:private lock (Object.))
 
 (defn ^:private now []
   (System/currentTimeMillis))
@@ -99,69 +85,6 @@
   "A code as it's shown: 482 913."
   [code]
   (str (subs code 0 3) " " (subs code 3)))
-
-(defn address-toward
-  "grog's address on the way to `host`, or nil: what it comes from."
-  [host]
-  (try
-    (with-open [socket (DatagramSocket.)]
-      (.connect socket (InetAddress/getByName host) 9)
-      (some-> (.getLocalAddress socket) .getHostAddress))
-    (catch Exception _ nil)))
-
-(defn ^:private addresses
-  "Where computers reach grog: the address it listens on, or else its own on
-  the way out."
-  [config]
-  (let [host (get-in config [:computers :pairing :host])]
-    (if (contains? #{"0.0.0.0" "::"} host)
-      (vec (keep identity [(address-toward "192.0.2.1")]))
-      [host])))
-
-(defn view
-  "How pairing goes, as pairing `state` says, for whoever watches
-  (grog.events) and the API: nil until it's opened; then {:status :until
-  :addresses :port :at}, the computer's :name, :user and the :code once
-  one asks, and the :error when it failed. Statuses: open (waiting for a
-  computer), asking (someone at grog allows it, or not), allowed, paired,
-  denied, expired, closed, failed."
-  [state]
-  (when-let [{:keys [status until addresses port session error at]} state]
-    (cond-> {:status status :until until :addresses addresses :port port :at at}
-      (:code session) (merge (select-keys (:request session) [:name :user]) {:code (:code session)})
-      error (assoc :error error))))
-
-(defn ^:private publish! [ctx]
-  (events/publish! (:events ctx) {:type :pairing :pairing (view @(:pairing ctx))}))
-
-(defn ^:private stop-listener!
-  "Stops listening on the network, if grog was."
-  [ctx]
-  (locking lock
-    (let [[before _] (swap-vals! (:pairing ctx) #(some-> % (dissoc :stop)))]
-      (when-let [stop (:stop before)]
-        (stop)
-        (log/info "pairing: no longer listening")))))
-
-(defn ^:private later!
-  "Runs (f) in `ms`, unless pairing was opened again since."
-  [ctx ms f]
-  (let [generation (:generation @(:pairing ctx))]
-    (future
-      (Thread/sleep ms)
-      (when (= generation (:generation @(:pairing ctx)))
-        (try (f)
-             (catch Exception e (log/info "pairing:" (.getSimpleName (class e)))))))))
-
-(defn ^:private finish!
-  "Ends pairing with `status` (and `error`): whoever watches is told, and
-  grog stops listening a moment later, once the computer heard."
-  ([ctx status]
-   (finish! ctx status nil))
-  ([ctx status error]
-   (swap! (:pairing ctx) assoc :status status :error error :at (now))
-   (publish! ctx)
-   (later! ctx linger-ms #(stop-listener! ctx))))
 
 (defn answer-text
   "`fields` as the computer's script reads them (computer.sh's `call`): a
@@ -220,94 +143,115 @@
        :commitment commitment})))
 
 (defn ^:private can-start?
-  "Whether a computer may ask to pair now, as pairing `state` says: while
-  it's open, and no other is asking (but one that didn't go on)."
-  [{:keys [status until session]} at]
+  "Whether a computer may ask to pair now, as the session's `state` says:
+  while it's open, and no other is asking (but one that didn't go on)."
+  [{:keys [status until data]} at]
   (and (= "open" status)
        (< at until)
-       (or (nil? session)
-           (and (= "started" (:status session)) (> (- at (:at session)) reveal-ms)))))
+       (or (nil? data)
+           (and (= "started" (:status data)) (> (- at (:at data)) reveal-ms)))))
 
 (defn ^:private start!
   "A computer asks to pair: grog's key and nonce."
-  [ctx req]
+  [ctx state req]
   (let [config @(:config ctx)
         request (check-request (read-json req))
         host (:remote-addr req)
         at (now)
-        session {:id (random-hex 16) :nonce (random-hex 16) :request request :host host :status "started" :at at}]
+        pairing {:id (random-hex 16) :nonce (random-hex 16) :request request :host host :status "started" :at at}]
     (when-not (and (string? host) (re-matches computers/host-pattern host))
       (problem 400 "grog can't tell where this computer is"))
-    (let [state (swap! (:pairing ctx) #(if (can-start? % at) (assoc % :session session) %))]
+    (let [after (connect/change! ctx (:generation state) #(cond-> % (can-start? % at) (assoc :data pairing)))]
       (cond
-        (= session (:session state))
-        {:id (:id session) :key (computers/public-key! config) :nonce (:nonce session) :name (:name config)
-         :expires-in (max 0 (quot (- (:until state) at) 1000))}
+        (= pairing (:data after))
+        {:id (:id pairing) :key (computers/public-key! config) :nonce (:nonce pairing) :name (:name config)
+         :expires-in (max 0 (quot (- (:until after) at) 1000))}
 
-        (contains? #{"asking" "allowed"} (:status state))
+        (:data after)
         (problem 409 "another computer is pairing with grog: try again in a minute")
 
         :else
         (problem 403 "grog doesn't let a computer pair now: let one on grog first")))))
 
-(defn ^:private session-of
-  "The pairing `id` names, in `state`: a 404 when it's not the one going on."
+(defn ^:private pairing-of
+  "The pairing `id` names, in the session's `state`: a 404 when it's not
+  the one going on."
   [state id]
-  (let [session (:session state)]
-    (if (= id (:id session))
-      session
+  (let [pairing (:data state)]
+    (if (= id (:id pairing))
+      pairing
       (problem 404 "there's no such pairing going on"))))
+
+(defn ^:private decide!
+  "Someone at grog allows the computer asking in the session `generation`
+  (`allow?`), or not: allowed, grog keeps it, and waits for it to let grog
+  in, for a while; and forgets it unless it does."
+  [ctx generation allow?]
+  (let [config @(:config ctx)
+        {:keys [request host]} (:data @(:connect ctx))
+        computer (:name request)]
+    (log/info (format "pairing: %s %s" computer (if allow? "allowed" "denied")))
+    (if-not allow?
+      (connect/deny! ctx generation)
+      (do (computers/add! config {:name computer :host host :port (:ssh-port request) :user (:user request)
+                                  :host-key (:host-key request) :mac (:mac request) :added-at (now)})
+          (connect/on-end! ctx generation #(when (not= "done" %) (computers/remove! config computer)))
+          (connect/change! ctx generation #(assoc-in % [:data :status] "allowed"))
+          (connect/step! ctx generation {:kind "wait" :note (str "waiting for " computer " to finish")})
+          (connect/later! ctx generation finish-ms #(connect/fail! ctx generation "the computer didn't finish pairing"))))))
 
 (defn ^:private reveal!
   "The computer reveals its nonce: the code shows at grog."
-  [ctx id body]
+  [ctx state id body]
   (let [nonce (when (map? body) (:nonce body))
-        session (session-of @(:pairing ctx) id)
-        computer (get-in session [:request :name])]
-    (when-not (= "started" (:status session))
+        generation (:generation state)
+        {:keys [request] :as pairing} (pairing-of state id)
+        shown (delay (code (computers/public-key! @(:config ctx)) (:nonce pairing) (:host-key request) nonce))]
+    (when-not (and (= "open" (:status state)) (= "started" (:status pairing)))
       (problem 409 "it's past that"))
     (when-not (and (string? nonce)
                    (re-matches #"[0-9a-f]{32,128}" nonce)
-                   (= (commitment nonce) (get-in session [:request :commitment])))
+                   (= (commitment nonce) (:commitment request)))
       (problem 400 "nonce: not the one this computer committed to"))
-    (let [shown (code (computers/public-key! @(:config ctx)) (:nonce session) (get-in session [:request :host-key]) nonce)]
-      (swap! (:pairing ctx) (fn [state]
-                              (if (= id (get-in state [:session :id]))
-                                (-> state
-                                    (update :session assoc :status "asking" :code shown)
-                                    (assoc :status "asking" :at (now)))
-                                state)))
-      (log/info (format "pairing: %s asks" computer))
-      (publish! ctx)
-      {:status "asking"})))
+    (when-not (connect/change! ctx generation #(cond-> % (= id (get-in % [:data :id])) (assoc-in [:data :status] "asking")))
+      (problem 409 "it's past that"))
+    (connect/code-compare! ctx generation {:code @shown :name (:name request) :user (:user request)
+                                           :decide! #(decide! ctx generation %)})
+    (log/info (format "pairing: %s asks" (:name request)))
+    {:status "asking"}))
 
 (defn ^:private status-of
-  "How the pairing `id` goes, for the computer."
-  [ctx id]
-  (let [{:keys [status error] :as state} @(:pairing ctx)
-        session (session-of state id)]
-    (case status
-      "allowed" {:status status :from (address-toward (:host session))}
-      "open" {:status "started"}
-      (cond-> {:status status}
-        error (assoc :error error)))))
+  "How the pairing `id` goes, for the computer, as the session's `state`
+  says."
+  [state id]
+  (let [{:keys [host] :as pairing} (pairing-of state id)]
+    (case (:status state)
+      "open" (case (:status pairing)
+               "allowed" {:status "allowed" :from (connect/address-toward host)}
+               "asking" {:status "asking"}
+               {:status "started"})
+      "done" {:status "paired"}
+      "denied" {:status "denied"}
+      "expired" {:status "expired"}
+      "cancelled" {:status "closed"}
+      {:status "failed" :error (:error state)})))
 
 (defn ^:private check!
-  "The computer let grog in: grog says hello, and pairing is over."
-  [ctx id]
+  "The computer let grog in: grog says hello, and it's paired."
+  [ctx state id]
   (let [config @(:config ctx)
-        state @(:pairing ctx)
-        computer (get-in (session-of state id) [:request :name])]
-    (when-not (= "allowed" (:status state))
+        generation (:generation state)
+        computer (get-in (pairing-of state id) [:request :name])]
+    (when-not (and (= "open" (:status state)) (= "allowed" (get-in state [:data :status])))
       (problem 409 "it isn't allowed"))
     (try
       (computers/ask! config computer {:action "hello"} 10000)
       (log/info (format "pairing: %s paired" computer))
-      (finish! ctx "paired")
+      (connect/done! ctx generation computer)
       {:status "paired"}
       (catch clojure.lang.ExceptionInfo e
-        (computers/remove! config computer)
-        (finish! ctx "failed" (ex-message e))
+        ;; grog forgets it then (decide!).
+        (connect/fail! ctx generation (ex-message e))
         (problem 502 (str "grog can't reach this computer: " (ex-message e)))))))
 
 (defn reached-at
@@ -323,11 +267,9 @@
 (defn ^:private address-of
   "Where the computer asking reaches grog, `host:port`: as it says, or
   else grog's own address."
-  [ctx req]
-  (let [{:keys [addresses port]} @(:pairing ctx)
-        own (or (first addresses) "127.0.0.1")]
-    (or (reached-at (get-in req [:headers "host"]) port)
-        (str (if (str/includes? own ":") (str "[" own "]") own) ":" port))))
+  [state req]
+  (or (reached-at (get-in req [:headers "host"]) (:port state))
+      (connect/address state)))
 
 (defn script
   "What grog serves for a computer to pair, resources/grog/computer.sh,
@@ -353,8 +295,8 @@
 (defn ^:private served
   "The script, or for a browser asking for a page (`page?`), the page
   saying to run it."
-  [ctx req page?]
-  (let [address (address-of ctx req)]
+  [ctx state req page?]
+  (let [address (address-of state req)]
     {:status 200
      :headers {"Content-Type" (if page? "text/html; charset=utf-8" "text/plain; charset=utf-8")
                "Cache-Control" "no-store"}
@@ -370,92 +312,43 @@
     (text-response 415 {:error "Send requests with Content-Type: application/json."})))
 
 (defn handle
-  "Answers a computer asking to pair, on the network (see the ns)."
-  [ctx {:keys [request-method uri headers] :as req}]
+  "Answers a computer asking to pair, on the network (see the ns), as the
+  session's `state` says."
+  [ctx state {:keys [request-method uri headers] :as req}]
   (let [[_ id step] (re-matches #"/v1/pair/([0-9a-f]{32})(?:/(nonce|check))?" uri)]
     (or (refusal req)
         (try
           (cond
             (= [:get "/"] [request-method uri])
-            (served ctx req (str/includes? (str (get headers "accept")) "text/html"))
+            (served ctx state req (str/includes? (str (get headers "accept")) "text/html"))
 
-            (= [:get "/computer.sh"] [request-method uri]) (served ctx req false)
-            (= [:post "/v1/pair"] [request-method uri]) (text-response 200 (start! ctx req))
-            (and id (= "nonce" step) (= :post request-method)) (text-response 200 (reveal! ctx id (read-json req)))
-            (and id (nil? step) (= :get request-method)) (text-response 200 (status-of ctx id))
-            (and id (= "check" step) (= :post request-method)) (text-response 200 (check! ctx id))
+            (= [:get "/computer.sh"] [request-method uri]) (served ctx state req false)
+            (= [:post "/v1/pair"] [request-method uri]) (text-response 200 (start! ctx state req))
+            (and id (= "nonce" step) (= :post request-method)) (text-response 200 (reveal! ctx state id (read-json req)))
+            (and id (nil? step) (= :get request-method)) (text-response 200 (status-of state id))
+            (and id (= "check" step) (= :post request-method)) (text-response 200 (check! ctx state id))
             :else (text-response 404 {:error "Not found."}))
           (catch clojure.lang.ExceptionInfo e
             (text-response (:status (ex-data e) 400) {:error (ex-message e)}))))))
 
-(defn ^:private expire!
-  "Pairing's time is up: over, unless a computer was allowed and finishes."
-  [ctx]
-  (when (contains? #{"open" "asking"} (:status @(:pairing ctx)))
-    (log/info "pairing: expired")
-    (finish! ctx "expired")))
+(defn ^:private begin!
+  "Lets a computer pair, in the session `state`: what to run on it."
+  [ctx state _]
+  (let [address (connect/address state)]
+    (connect/step! ctx (:generation state) {:kind "script" :command (command address) :address address
+                                            :note "It takes an SSH server there, and nothing to install."})))
 
-(defn open!
-  "Lets a computer pair for the next few minutes (again, if it was), grog
-  listening on the network for it (`computers.pairing`): how pairing goes
-  then (`view`). Throws ex-info when grog can't listen there."
-  [ctx]
-  (let [config @(:config ctx)
-        {:keys [host port]} (get-in config [:computers :pairing])]
-    (locking lock
-      (let [listener (when-not (:stop @(:pairing ctx))
-                       (try (server/run-server #(handle ctx %) {:ip host :port port :max-body max-body-bytes
-                                                                :legacy-return-value? false})
-                            (catch java.io.IOException e
-                              (throw (ex-info (format "grog can't listen on %s:%d for a computer: %s"
-                                                      host port (or (ex-message e) (.getSimpleName (class e))))
-                                              {:type ::cant-listen})))))]
-        (when listener
-          (log/info (format "pairing: listening on %s:%d" host (server/server-port listener))))
-        (swap! (:pairing ctx) (fn [state]
-                                (cond-> (assoc state
-                                               :generation (inc (:generation state 0))
-                                               :until (+ (now) window-ms)
-                                               :addresses (addresses config)
-                                               :at (now))
-                                  listener (assoc :stop #(server/server-stop! listener)
-                                                  :port (server/server-port listener))
-                                  (not (contains? #{"asking" "allowed"} (:status state)))
-                                  (assoc :status "open" :session nil :error nil))))))
-    (later! ctx window-ms #(expire! ctx))
-    (publish! ctx)
-    (view @(:pairing ctx))))
-
-(defn close!
-  "Stops letting a computer pair, but one already allowed: how pairing goes
-  then (`view`)."
-  [ctx]
-  (when (contains? #{"open" "asking"} (:status @(:pairing ctx)))
-    (finish! ctx "closed"))
-  (view @(:pairing ctx)))
-
-(defn stop!
-  "Stops listening on the network at once: grog is going away."
-  [ctx]
-  (stop-listener! ctx))
-
-(defn decide!
-  "Allows the computer asking to pair (`allow?`), or not: how pairing goes
-  then (`view`). Throws ex-info when none is asking."
-  [ctx allow?]
-  (let [config @(:config ctx)
-        {:keys [status session]} @(:pairing ctx)
-        {:keys [request host]} session]
-    (when-not (= "asking" status)
-      (throw (ex-info "no computer is asking to pair" {:type ::nobody})))
-    (log/info (format "pairing: %s %s" (:name request) (if allow? "allowed" "denied")))
-    (if allow?
-      (do (computers/add! config {:name (:name request) :host host :port (:ssh-port request) :user (:user request)
-                                  :host-key (:host-key request) :mac (:mac request) :added-at (now)})
-          (swap! (:pairing ctx) assoc :status "allowed" :at (now))
-          (publish! ctx)
-          (later! ctx finish-ms #(when (= "allowed" (:status @(:pairing ctx)))
-                                   (computers/remove! config (:name request))
-                                   (finish! ctx "failed" "the computer didn't finish pairing"))))
-      (finish! ctx "denied"))
-    (view @(:pairing ctx))))
+(def integration
+  "The user's computers, for grog to act on (grog.integrations)."
+  {:id "computer"
+   :title "Computers"
+   :heading "Add a computer"
+   :about "your computers, to act on them"
+   :icon "computer"
+   :ways [{:id "script" :label "Run a command on it"}]
+   :network? true
+   :multiple? true
+   :start! #'begin!
+   :handle #'handle
+   :connections #'computers/connections
+   :disconnect! (fn [ctx id] (computers/disconnect! ctx id))})

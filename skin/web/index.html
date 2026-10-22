@@ -36,37 +36,29 @@
         </div>
         <div class="notice" id="notice" hidden></div>
 
-        <section class="signin" id="signin" hidden>
-          <h2 id="signin-title"></h2>
-          <div class="signin-code">
-            <img class="qr" id="signin-qr" alt="" hidden />
-            <div>
-              <div class="hint">On your phone or computer, open</div>
-              <div class="url" id="signin-url"></div>
-              <div class="hint">and enter the code</div>
-              <div class="code" id="signin-code"></div>
-              <div class="hint" id="signin-expires"></div>
+        <section class="card" id="card" hidden>
+          <h2 id="card-title"></h2>
+          <div class="card-detail" id="card-detail"></div>
+          <div class="card-body">
+            <img class="qr" id="card-qr" alt="" hidden />
+            <div class="card-text">
+              <div class="hint" id="card-hint"></div>
+              <div class="url" id="card-link"></div>
+              <div class="hint" id="card-hint2"></div>
+              <div class="code" id="card-code"></div>
+              <div class="command" id="card-command"></div>
+              <div class="hint" id="card-expires"></div>
             </div>
           </div>
-          <div class="signin-note" id="signin-note"></div>
-          <div class="signin-error" id="signin-error"></div>
-          <div class="signin-help" id="signin-help">
+          <div class="card-note" id="card-note"></div>
+          <div class="card-error" id="card-error"></div>
+          <div class="card-help" id="card-help" hidden>
             <div class="first">First time?</div>
-            <div id="signin-help-text"></div>
-            <div class="url" id="signin-help-url"></div>
+            <div id="card-help-text"></div>
+            <div class="url" id="card-help-url"></div>
           </div>
-        </section>
-
-        <section class="pairing" id="pairing" hidden>
-          <h2 id="pairing-title"></h2>
-          <div class="pairing-detail" id="pairing-detail"></div>
-          <div class="hint" id="pairing-hint"></div>
-          <div class="command" id="pairing-command"></div>
-          <div class="code" id="pairing-code"></div>
-          <div class="pairing-note" id="pairing-note"></div>
-          <div class="pairing-buttons" id="pairing-buttons"></div>
-          <div class="hint" id="pairing-expires"></div>
-          <div class="pairing-error" id="pairing-error"></div>
+          <div class="card-buttons" id="card-buttons"></div>
+          <div class="card-error" id="card-asked"></div>
         </section>
 
         <div class="chat-box">

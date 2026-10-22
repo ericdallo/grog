@@ -1,6 +1,7 @@
 (ns grog.providers.openai-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [grog.connections :as connections]
             [grog.credentials :as credentials]
             [grog.config :as config]
             [grog.providers.openai.oauth :as oauth]
@@ -348,7 +349,13 @@
         (sign-in! cfg 10)
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
                               #"The ChatGPT sign-in is no longer valid \(.*Refresh token revoked\)\. Sign in again: grog login openai"
-                              (openai/stream-reply! cfg request identity identity)))))))
+                              (openai/stream-reply! cfg request identity identity)))
+        (testing "and its connection needs it: grog pays some other way meanwhile"
+          (is (= "signed-out" (:status (connections/by-id (:state-dir cfg) "openai"))))
+          (is (= {:auth "none" :model "gpt-6-luna"}
+                 (select-keys (openai/describe (assoc cfg :api-key-env "GROG_TEST_UNSET_VAR")) [:auth :model])))
+          (with-redefs [http/api-key (constantly "k")]
+            (is (= {:type :api-key :key "k"} (openai/credentials cfg)))))))))
 
 (deftest credentials
   (let [cfg (subscription-cfg "http://127.0.0.1:1")]

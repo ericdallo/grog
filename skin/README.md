@@ -16,11 +16,12 @@ grog's skin: a page showing what grog is up to, for a screen next to it.
   (or leaving it alone a while) brings it back.
 - In its actions, what it costs: how much of the subscription's limits is
   used, or what the API key spent.
-- With nothing to pay with, how to sign in: a code to enter on a phone or
-  computer, with the QR code of the page to enter it at, and what ChatGPT
-  has to allow once per account. The QR codes come with the Nix package
-  (`body/packages/grog-skin.nix`), for the pages it knows; without one, only
-  the address shows.
+- Connecting something (signing in to ChatGPT, adding a computer), a card:
+  the link to grog's page for it, and its QR code (grog makes them, `GET
+  /v1/qr`), what to do now, a code to enter or to compare, Allow and Deny,
+  Cancel, and then how it went. With nothing to pay with, it shows how to
+  sign in by itself: a code to enter on a phone or computer, and what
+  ChatGPT has to allow once per account.
 
 ## Touching it
 
@@ -29,15 +30,17 @@ On a touch screen, or with a mouse:
 - Touching grog's face talks to it, no name needed. While it answers, it
   stops it. With its mic off, it turns it on and listens.
 - The button by the clock opens its actions: the volume, the mic, a new
-  conversation, adding a computer, signing out, updating grog, restarting
-  it or the machine, and turning the machine off. Those that can't be
-  undone take a second tap. They close by themselves after a while. Its
-  version is at the bottom.
+  conversation, its integrations (signing in to ChatGPT or out of it,
+  adding a computer, forgetting one), updating grog, restarting it or the
+  machine, and turning the machine off. Those that can't be undone take a
+  second tap. They close by themselves after a while. Its version is at
+  the bottom.
 - Adding a computer, it shows what to run on it (`curl ... | bash`: nothing
   to install there), then the code of the one asking, to allow it if it's
   the same as on the computer, or not.
 
-They go through the brain's actions (`POST /v1/actions/<name>`).
+They go through the brain's actions (`POST /v1/actions/<name>`), and its
+API for what's connected (`/v1/connect`, `/v1/connections`).
 
 ## Running it
 

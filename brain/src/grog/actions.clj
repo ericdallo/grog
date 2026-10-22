@@ -2,7 +2,7 @@
   "What can be asked of grog, beyond answering: to listen now, without its
   name, or to stop answering (grog-voice, see grog.voice); to turn its mic
   on or off; to change the speaker's volume; to forget its conversations;
-  to let a computer pair with it (grog.pairing); to update itself
+  to connect something to it (grog.integrations); to update itself
   (grog.update); and to go away: restart itself (its voice, then its
   brain), restart the machine, or turn it off. Someone at its skin asks
   through `POST /v1/actions/<name>` (grog.api), and they happen right away.
@@ -12,9 +12,9 @@
             [grog.conversation :as conversation]
             [grog.events :as events]
             [grog.hands :as hands]
+            [grog.integrations :as integrations]
             [grog.log :as log]
             [grog.machine :as machine]
-            [grog.pairing :as pairing]
             [grog.update :as update]
             [grog.voice :as voice]))
 
@@ -37,7 +37,7 @@
    "power-off" {:verb "poweroff" :can "CanPowerOff"}})
 
 ;; What can be asked of grog, on some machines only (see `available`).
-(def known #{"listen" "stop" "mic" "volume" "new-conversation" "pair" "update" "restart" "reboot" "power-off"})
+(def known #{"listen" "stop" "mic" "volume" "new-conversation" "connect" "update" "restart" "reboot" "power-off"})
 
 (defn exit!
   "Ends grog with `code` (tests redefine it)."
@@ -66,10 +66,10 @@
 (defn available
   "What can be asked of grog with `config`: to listen or stop (when
   grog-voice is there to ask), its mic, forgetting its conversations,
-  letting a computer pair, the volume with hands, updating itself with the
+  connecting something, the volume with hands, updating itself with the
   update service and hands, and going away (`going-away`)."
   [config]
-  (into (cond-> ["listen" "stop" "mic" "new-conversation" "pair"]
+  (into (cond-> ["listen" "stop" "mic" "new-conversation" "connect"]
           (hands? config) (conj "volume")
           (update/available? config) (conj "update"))
         (going-away config)))
@@ -166,9 +166,18 @@
   (events/publish! events {:type :forgot})
   {:ok true})
 
+(defn ^:private connect!
+  "Opens a session connecting the `integration` `args` say, `way` (its
+  usual way without): the session (grog.connect)."
+  [ctx {:keys [integration way]}]
+  (when-not (and (string? integration) (or (nil? way) (string? way)))
+    (throw (ex-info "say what to connect: {\"integration\": its id, and maybe \"way\"}" {:type ::bad-args})))
+  (integrations/open! ctx integration way))
+
 (defn perform!
   "Takes action `name`, with `args` (the volume's, see grog.machine; the
-  mic's, {:on}), once `check!` says it can: what to answer."
+  mic's, {:on}; connect's, {:integration :way}), once `check!` says it can:
+  what to answer."
   ([ctx name]
    (perform! ctx name {}))
   ([ctx name args]
@@ -180,7 +189,7 @@
      "mic" (mic! ctx args)
      "volume" (machine/set-volume! ctx args)
      "new-conversation" (forget! ctx)
-     "pair" (pairing/open! ctx)
+     "connect" (connect! ctx args)
      "update" (update/start! @(:config ctx))
      (go! ctx name))))
 

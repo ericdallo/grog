@@ -26,7 +26,7 @@ protocol=2
 grog_url=''
 
 # Where grog listens for a computer to pair, unless said otherwise
-# (computers.pairing.port).
+# (integrations.port).
 pairing_port=8485
 
 # What grog can ask of the computer, as its policy names them, and what each
@@ -722,7 +722,7 @@ http() {
   if ! response=$(curl "${args[@]}" "$url$2" 2>"$work/curl"); then
     said=$(trim "$(<"$work/curl")")
     if [[ $said =~ ^curl:\ \([[:digit:]]+\)\ (.*)$ ]]; then said=${BASH_REMATCH[1]}; fi
-    why="grog doesn't let a computer pair at $url ($said): let one pair on grog first (its menu, or grog computers add)"
+    why="grog doesn't let a computer pair at $url ($said): let one pair on grog first (Add a computer, or grog connect computer)"
     return 1
   fi
   status=${response##*$'\n'}

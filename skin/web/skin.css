@@ -335,37 +335,43 @@ ol {
   color: var(--red);
 }
 
-/* How to sign in (view.js signIn), in place of what was said and done, which
-   there's none of without a login. Its code is amber, like what needs
-   someone; its QR code, dark on white, as phones read them best. */
-.signing-in .chat-box,
-.signing-in .pipeline {
+/* Connecting something to grog (view.js card), in place of what was said and
+   done: the link to its page, with its QR code, dark on white as phones read
+   them best; what to do; a code, amber like what needs someone; Allow and
+   Deny when it's asked, and Cancel. */
+.connecting .chat-box,
+.connecting .pipeline {
   display: none;
 }
 
-.signin {
+.card {
   margin-top: 4.4vmin;
 }
 
-.signin h2 {
+.card h2 {
   margin: 0;
   font: 800 4.2vmin/1.1 var(--text);
   letter-spacing: -0.02em;
 }
 
-.signin-code {
-  display: none;
-  grid-template-columns: auto 1fr;
+.card-detail {
+  margin-top: 0.8vmin;
+  color: var(--muted);
+  font-size: 2.6vmin;
+}
+
+.card-body {
+  display: grid;
   align-items: center;
   gap: 4vmin;
   margin-top: 3vmin;
 }
 
-.signin.waiting .signin-code {
-  display: grid;
+.card.with-qr .card-body {
+  grid-template-columns: auto 1fr;
 }
 
-.signin .qr {
+.card .qr {
   width: 30vmin;
   height: 30vmin;
   padding: 1.2vmin;
@@ -373,46 +379,51 @@ ol {
   background: #ffffff;
 }
 
-.night .signin .qr {
+.night .card .qr {
   opacity: 0.75;
 }
 
-.signin .hint {
+.card .hint {
   color: var(--muted);
   font-size: 2.4vmin;
 }
 
-.signin .url {
+.card .url {
   margin: 0.6vmin 0 2.2vmin;
   font: 500 3.2vmin/1.2 var(--mono);
   overflow-wrap: anywhere;
 }
 
-.signin .code {
+.card .code {
   margin: 0.6vmin 0 1.2vmin;
   color: var(--amber);
   font: 700 8vmin/1 var(--mono);
   letter-spacing: 0.06em;
 }
 
-.signin-note {
-  margin-top: 3vmin;
+.card .command {
+  margin: 1vmin 0 1.2vmin;
+  font: 600 4.4vmin/1.2 var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.card-note {
+  margin-top: 2vmin;
   color: var(--muted);
-  font-size: 3vmin;
+  font-size: 2.6vmin;
 }
 
-.signin.waiting .signin-note,
-.signin-error:empty {
-  display: none;
-}
-
-.signin-error {
-  margin-top: 1vmin;
+.card.failed .card-note,
+.card-error {
   color: var(--red);
+}
+
+.card-error {
+  margin-top: 1vmin;
   font-size: 2.2vmin;
 }
 
-.signin-help {
+.card-help {
   margin-top: 4vmin;
   padding: 2.4vmin 2.8vmin;
   border-left: 0.6vmin solid var(--amber);
@@ -422,7 +433,7 @@ ol {
   line-height: 1.35;
 }
 
-.signin-help .first {
+.card-help .first {
   margin-bottom: 0.8vmin;
   color: var(--amber);
   font: 700 1.8vmin/1 var(--text);
@@ -430,72 +441,18 @@ ol {
   text-transform: uppercase;
 }
 
-.signin-help .url {
+.card-help .url {
   margin: 0.8vmin 0 0;
   font-size: 2.2vmin;
 }
 
-/* Pairing a computer (view.js pairing), in place of what was said and done:
-   what to run on it, then the code to check, amber like what needs someone,
-   with Allow and Deny. */
-.adding-computer .chat-box,
-.adding-computer .pipeline {
-  display: none;
-}
-
-.pairing {
-  margin-top: 4.4vmin;
-}
-
-.pairing h2 {
-  margin: 0;
-  font: 800 4.2vmin/1.1 var(--text);
-  letter-spacing: -0.02em;
-}
-
-.pairing-detail {
-  margin-top: 0.8vmin;
-  color: var(--muted);
-  font-size: 2.6vmin;
-}
-
-.pairing .hint {
-  margin-top: 3vmin;
-  color: var(--muted);
-  font-size: 2.4vmin;
-}
-
-.pairing .command {
-  margin-top: 1vmin;
-  font: 600 4.4vmin/1.2 var(--mono);
-  overflow-wrap: anywhere;
-}
-
-.pairing .code {
-  margin-top: 1vmin;
-  color: var(--amber);
-  font: 700 10vmin/1 var(--mono);
-  letter-spacing: 0.06em;
-}
-
-.pairing-note {
-  margin-top: 2vmin;
-  color: var(--muted);
-  font-size: 2.6vmin;
-}
-
-.pairing.failed .pairing-note,
-.pairing-error {
-  color: var(--red);
-}
-
-.pairing-buttons {
+.card-buttons {
   display: flex;
   gap: 2vmin;
   margin-top: 3.6vmin;
 }
 
-.pairing .choice {
+.card .choice {
   min-width: 22vmin;
   padding: 2.2vmin 4vmin;
   border-radius: 1.4vmin;
@@ -505,23 +462,20 @@ ol {
   text-align: center;
 }
 
-.pairing .choice.primary {
+.card .choice.primary {
   background: var(--amber);
   color: #111621;
 }
 
-.pairing-error {
-  margin-top: 1.6vmin;
-  font-size: 2.2vmin;
-}
-
-.pairing-detail:empty,
-.pairing .hint:empty,
-.pairing .command:empty,
-.pairing .code:empty,
-.pairing-note:empty,
-.pairing-buttons:empty,
-.pairing-error:empty {
+.card-detail:empty,
+.card .hint:empty,
+.card .url:empty,
+.card .code:empty,
+.card .command:empty,
+.card-note:empty,
+.card-error:empty,
+.card-buttons:empty,
+.card-help[hidden] {
   display: none;
 }
 
@@ -817,7 +771,8 @@ ol {
 }
 
 /* The actions (view.js menu), over what was said and done: everyday ones,
-   then those that can't be undone, which take a second tap (armed, red).
+   what's connected, then going away; what can't be undone takes a second
+   tap (armed, red).
    They slide in and fade, and only then. Their closing button sits where
    the one opening them was. */
 .sheet {
@@ -877,6 +832,15 @@ ol {
 
 .items .group:empty {
   display: none;
+}
+
+/* What can be connected to grog, and what is, under a title of their own. */
+.items .group-title {
+  margin: 0 0 -1.6vmin;
+  color: var(--muted);
+  font: 700 1.6vmin/1 var(--text);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .item .row,

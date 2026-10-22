@@ -146,8 +146,9 @@ That turns its SSH server on, and lets alice suspend it and turn it off from
 anywhere, through polkit (`power = false` doesn't).
 
 grog listens for it on port 8485, opened in its firewall
-(`services.grog.computers.openFirewall`), only while it lets one pair: it
-serves what pairs it there.
+(`services.grog.integrations.openFirewall`), only while someone at it
+connects something: it serves what pairs a computer there, and the page a
+phone follows the steps of a sign-in on.
 
 ## Audio
 

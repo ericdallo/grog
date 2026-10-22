@@ -76,6 +76,13 @@
                               (assoc-in [:nrepl :enable] nil)
                               (assoc-in [:nrepl :host] ""))))))
 
+(deftest settings-that-moved
+  (is (= ["computers.pairing: now integrations.host and integrations.port"
+          "integrations.port: expected a port number, got \"8485\""]
+         (config/problems (-> config/defaults
+                              (assoc-in [:computers :pairing] {:host "0.0.0.0" :port 8485})
+                              (assoc-in [:integrations :port] "8485"))))))
+
 (deftest provider-config
   (is (= "gpt-6-luna" (:model (config/provider-config config/defaults))))
   (is (nil? (config/provider-config (assoc config/defaults :provider "nope")))))

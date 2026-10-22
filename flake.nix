@@ -91,7 +91,8 @@
 
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
-          packages = with pkgs; [ babashka clj-kondo nodejs-slim python3 ruff shellcheck ];
+          # qrencode: the brain's tests check its QR codes against it.
+          packages = with pkgs; [ babashka clj-kondo nodejs-slim python3 qrencode ruff shellcheck ];
         };
       });
     };

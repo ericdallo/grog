@@ -37,16 +37,16 @@ export const UPDATE_MS = 30 * 60_000;
 // How long how it went shows, once it's over; failing, longer.
 export const UPDATED_MS = 20_000;
 export const UPDATE_FAILED_MS = 60_000;
-// How long how pairing a computer went shows, once it's over.
-export const PAIRED_MS = 10_000;
-// Where grog listens for a computer to pair, unless set otherwise
-// (computers.pairing.port, brain/src/grog/config.clj), and serves what pairs
-// it.
-export const PAIRING_PORT = 8485;
+// How long how connecting something went shows, once it's over.
+export const OUTCOME_MS = 10_000;
+// Once getting a code to sign in with failed, grog tries again in a minute
+// (brain/src/grog/signin.clj).
+export const RETRY_MS = 60_000;
 
 // Each tool grog has: what it's doing with it (label), what it did (done).
 const TOOLS = {
   computer: { label: "Using a computer", done: "Used a computer", short: "Computer", icon: "computer" },
+  connect: { label: "Opening a connection", done: "Opened a connection", short: "Connect", icon: "key" },
   update: { label: "Looking for an update", done: "Looked for an update", short: "Update", icon: "update" },
   web_search: { label: "Searching the web", done: "Searched the web", short: "Web", icon: "web" },
   volume: { label: "Adjusting the volume", done: "Adjusted the volume", short: "Volume", icon: "volume" },
@@ -235,8 +235,8 @@ export function mode(state, now, offline = false) {
       return { mode: "no-mic", label: "No microphone", detail: "plug one in" };
   }
   if (state.auth === "none") {
-    const detail = state.login?.code ? "sign in from your phone" : "grog login, or an API key";
-    return { mode: "login", label: "Needs a login", detail };
+    const signing = state.connect?.status === "open" && state.connect.integration === state.provider;
+    return { mode: "login", label: "Needs a login", detail: signing ? "sign in from your phone" : "grog login, or an API key" };
   }
   if (voice === "listening" || voice === "error") {
     return { mode: "idle", label: "Listening", detail: name ? `say “${name}”` : "" };
@@ -473,44 +473,71 @@ export function tap(state, now, offline = false) {
 }
 
 /**
+ * What can be connected to grog, and what is (brain/src/grog/integrations.clj),
+ * for the actions sheet: each integration connects (connect:<id>), a single
+ * connection disconnects (disconnect:<id>, a second tap), and what can have
+ * several lists each, with its own.
+ */
+function integrationItems(integrations) {
+  return (integrations ?? []).flatMap((i) => {
+    const icon = i.icon ?? "tool";
+    const [one] = i.connections ?? [];
+    const disconnect = (c, label, detail) => ({
+      id: `disconnect:${c.id}`,
+      kind: "button",
+      label,
+      icon,
+      detail,
+      confirm: "Tap again to disconnect",
+    });
+    if (i.multiple) {
+      return [
+        { id: `connect:${i.id}`, kind: "button", label: i.heading ?? i.title, icon, detail: i.about ?? "" },
+        ...(i.connections ?? []).map((c) => disconnect(c, c.name ?? c.id, c.detail ?? "")),
+      ];
+    }
+    if (one?.status === "connected") return [disconnect(one, i.title, one.name ?? "connected")];
+    const detail = one ? "needs signing in again" : (i.about ?? "");
+    return [{ id: `connect:${i.id}`, kind: "button", label: i.heading ?? i.title, icon, detail }];
+  });
+}
+
+/**
  * What the actions sheet lists, as grog's `state` allows (its actions, and
- * signing out with a subscription), in order: {id, kind, label, icon,
+ * what can be connected to it), in order: {id, kind, group, label, icon,
  * detail, confirm, armed}. kind: volume ({level, muted}, null levels while
- * unknown), toggle ({on}), or button; `confirm`: it can't be undone, and
- * takes a second tap: `armed`, the one waiting for it, asks for it.
+ * unknown), toggle ({on}), or button; group: everyday, integrations, or
+ * power; `confirm`: it can't be undone, and takes a second tap: `armed`,
+ * the one waiting for it, asks for it.
  */
 export function menu(state, armed = null) {
   const can = (action) => (state?.actions ?? []).includes(action);
   const items = [];
+  const everyday = (item) => items.push({ group: "everyday", ...item });
+  const power = (item) => items.push({ group: "power", ...item });
   if (can("volume")) {
     const volume = state.volume ?? {};
-    items.push({ id: "volume", kind: "volume", label: "Volume", level: volume.level ?? null, muted: Boolean(volume.muted) });
+    everyday({ id: "volume", kind: "volume", label: "Volume", level: volume.level ?? null, muted: Boolean(volume.muted) });
   }
-  if (can("mic")) items.push({ id: "mic", kind: "toggle", label: "Microphone", icon: "voice", on: state.mic !== "off" });
+  if (can("mic")) everyday({ id: "mic", kind: "toggle", label: "Microphone", icon: "voice", on: state.mic !== "off" });
   if (can("new-conversation")) {
-    items.push({ id: "new-conversation", kind: "button", label: "New conversation", icon: "answering", detail: "what was said is forgotten" });
+    everyday({ id: "new-conversation", kind: "button", label: "New conversation", icon: "answering", detail: "what was said is forgotten" });
   }
-  if (can("pair")) {
-    items.push({ id: "pair", kind: "button", label: "Add a computer", icon: "computer", detail: "pair one, to act on it" });
-  }
-  if (state?.auth === "subscription") {
-    const again = "Tap again to sign out";
-    items.push({ id: "sign-out", kind: "button", label: "Sign out", icon: "sign-out", detail: account(state), confirm: again });
-  }
+  if (can("connect")) items.push(...integrationItems(state.integrations).map((item) => ({ group: "integrations", ...item })));
   if (can("update")) {
     const label = state.name ? `Update ${state.name}` : "Update";
     const detail = "to the latest version pushed";
-    items.push({ id: "update", kind: "button", label, icon: "update", detail, confirm: "Tap again to update" });
+    power({ id: "update", kind: "button", label, icon: "update", detail, confirm: "Tap again to update" });
   }
   if (can("restart")) {
     const label = state.name ? `Restart ${state.name}` : "Restart";
-    items.push({ id: "restart", kind: "button", label, icon: "restart", confirm: "Tap again to restart" });
+    power({ id: "restart", kind: "button", label, icon: "restart", confirm: "Tap again to restart" });
   }
   if (can("reboot")) {
-    items.push({ id: "reboot", kind: "button", label: "Restart the machine", icon: "reboot", confirm: "Tap again to restart it" });
+    power({ id: "reboot", kind: "button", label: "Restart the machine", icon: "reboot", confirm: "Tap again to restart it" });
   }
   if (can("power-off")) {
-    items.push({
+    power({
       id: "power-off",
       kind: "button",
       label: "Turn the machine off",
@@ -528,11 +555,18 @@ export function menu(state, armed = null) {
 }
 
 /**
- * The request asking grog for `action` (an item of menu(), or what tap()
- * says): {method, path, body}. For the volume, `step` is -1 or 1 (quieter or
- * louder), "mute" (toggles it), or nothing (to tell it).
+ * The request asking grog for `action` (an item of menu(), a button of
+ * card(), or what tap() says): {method, path, body}. For the volume, `step`
+ * is -1 or 1 (quieter or louder), "mute" (toggles it), or nothing (to tell
+ * it).
  */
 export function request(action, state, step = null) {
+  if (action.startsWith("connect:")) {
+    return { method: "POST", path: "/v1/actions/connect", body: { integration: action.slice("connect:".length) } };
+  }
+  if (action.startsWith("disconnect:")) {
+    return { method: "DELETE", path: `/v1/connections/${action.slice("disconnect:".length)}`, body: {} };
+  }
   switch (action) {
     case "volume": {
       const body = step === "mute" ? { mute: !state?.volume?.muted } : step ? { change: step * VOLUME_STEP } : {};
@@ -540,14 +574,12 @@ export function request(action, state, step = null) {
     }
     case "mic":
       return { method: "POST", path: "/v1/actions/mic", body: { on: state?.mic === "off" } };
-    case "sign-out":
-      return { method: "DELETE", path: `/v1/auth/${state?.provider ?? "openai"}`, body: {} };
-    case "pair-allow":
-      return { method: "POST", path: "/v1/pairing/allow", body: {} };
-    case "pair-deny":
-      return { method: "POST", path: "/v1/pairing/deny", body: {} };
-    case "pair-cancel":
-      return { method: "DELETE", path: "/v1/pairing", body: {} };
+    case "connect-allow":
+      return { method: "POST", path: "/v1/connect/allow", body: {} };
+    case "connect-deny":
+      return { method: "POST", path: "/v1/connect/deny", body: {} };
+    case "connect-cancel":
+      return { method: "DELETE", path: "/v1/connect", body: {} };
     default:
       return { method: "POST", path: `/v1/actions/${action}`, body: {} };
   }
@@ -650,69 +682,9 @@ export function shortUrl(url) {
   return String(url ?? "").replace(/^https?:\/\//, "");
 }
 
-/**
- * Where the QR code of `url` is, made with the skin (body/packages/grog-skin.nix,
- * which names them the same way): qr/auth-openai-com-codex-device.svg. There's
- * none for the pages it doesn't know.
- */
-export function qrFile(url) {
-  const slug = shortUrl(url)
-    .replace(/[^A-Za-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .toLowerCase();
-  return slug ? `qr/${slug}.svg` : null;
-}
-
-/**
- * How to sign in, while grog has nothing to pay with, from its last sign-in
- * (brain/src/grog/login.clj), or null. While a code waits to be entered:
- * {title, code, url, shortUrl, qr, expires, help}, `help` being what to do
- * first, and where ({text, url, shortUrl}: on a computer, with no QR code), or
- * null. Otherwise {title, note}, and the `error` when getting a code failed.
- */
-export function signIn(state, now) {
-  if (!state || state.auth !== "none") return null;
-  const login = state.login;
-  const title = login?.label ? `Sign in with ${login.label}` : "Sign in";
-  if (login?.status === "pending" && login.method === "device" && login.code) {
-    const help = login.help?.text ? { text: login.help.text, url: login.help.url, shortUrl: shortUrl(login.help.url) } : null;
-    return {
-      title,
-      code: login.code,
-      url: login.url,
-      shortUrl: shortUrl(login.url),
-      qr: qrFile(login.url),
-      expires: `expires in ${duration((login.expiresAt - now) / 1000)}`,
-      help,
-    };
-  }
-  switch (login?.status) {
-    case "pending":
-      return { title, note: "Waiting for the browser" };
-    case "exchanging":
-    case "done":
-      return { title, note: "Signing in…" };
-    case "expired":
-      return { title, note: "Getting a new code…" };
-    case "error":
-      return { title, note: "Couldn't get a code: trying again in a minute", error: login.error ?? "" };
-    default:
-      return { title, note: "Getting a code…" };
-  }
-}
-
-/** Where a computer reaches grog to pair, host:port, as its pairing `p` says. */
-export function pairAddress(p) {
-  const address = p?.addresses?.[0] ?? "<grog's address>";
-  return `${address.includes(":") ? `[${address}]` : address}:${p?.port ?? PAIRING_PORT}`;
-}
-
-/**
- * What to run on a computer to pair it with grog, as its pairing `p` says:
- * grog serves what pairs it (brain/resources/grog/computer.sh).
- */
-export function pairCommand(p) {
-  return `curl -fsS ${pairAddress(p)} | bash`;
+/** The QR code of `text`, as grog makes it (GET /v1/qr), or null without text. */
+export function qrSrc(text) {
+  return text ? `/v1/qr?text=${encodeURIComponent(text)}` : null;
 }
 
 /** A pairing code as it's shown: 482 913. */
@@ -721,71 +693,144 @@ export function spacedCode(code) {
   return s.length === 6 ? `${s.slice(0, 3)} ${s.slice(3)}` : s;
 }
 
-/**
- * Pairing a computer (brain/src/grog/pairing.clj), while it goes and for a
- * while once it's over, or null: {stage, title, detail, hint, command, code,
- * expires, note, failed, buttons}, `buttons` being what can be asked then
- * ({id, label, primary}, see request()).
- */
-export function pairing(state, now) {
-  const p = state?.pairing;
-  if (!p?.status) return null;
-  const open = (p.until ?? 0) > now;
-  const over = now - (p.at ?? 0) <= PAIRED_MS;
-  const expires = `closes in ${duration(((p.until ?? 0) - now) / 1000)}`;
-  const name = p.name ?? "the computer";
-  const view = (fields) => ({
-    stage: p.status,
+const CANCEL = { id: "connect-cancel", label: "Cancel", primary: false };
+
+/** A card with `fields`, and nothing in the others. */
+function cardOf(fields) {
+  return {
+    stage: "",
     title: "",
     detail: "",
+    qr: null,
     hint: "",
-    command: "",
+    link: "",
+    hint2: "",
     code: "",
-    expires: "",
+    command: "",
     note: "",
+    error: "",
+    expires: "",
+    help: null,
     failed: false,
     buttons: [],
     ...fields,
-  });
-  switch (p.status) {
-    case "open":
-      return open
-        ? view({
-            title: "Add a computer",
-            hint: "In a terminal on it, run",
-            command: pairCommand(p),
-            note: `Or open ${pairAddress(p)} in its browser. It needs an SSH server.`,
-            expires,
-            buttons: [{ id: "pair-cancel", label: "Cancel", primary: false }],
-          })
-        : null;
-    case "asking":
-      return open
-        ? view({
-            title: `${name} wants to pair`,
-            detail: p.user ? `as ${p.user}` : "",
-            hint: "Allow it if it shows the same code",
-            code: spacedCode(p.code),
-            expires,
-            buttons: [
-              { id: "pair-allow", label: "Allow", primary: true },
-              { id: "pair-deny", label: "Deny", primary: false },
-            ],
-          })
-        : null;
-    case "allowed":
-      return view({ title: `Pairing ${name}`, note: "waiting for it to finish" });
-    case "paired":
-      return over ? view({ title: `${name} is paired`, note: state.name ? `ask ${state.name} to act on it` : "" }) : null;
+  };
+}
+
+function helpOf(help) {
+  return help?.text ? { text: help.text, url: help.url ?? "", shortUrl: shortUrl(help.url) } : null;
+}
+
+/** What to do at the step of `c`, a session open (see card()). */
+function openCard(c, now) {
+  const step = c.step ?? {};
+  const base = {
+    stage: step.kind ?? "starting",
+    title: c.heading ?? "",
+    expires: `closes in ${duration(((c.until ?? 0) - now) / 1000)}`,
+    buttons: c.kept ? [] : [CANCEL],
+  };
+  // grog's page for it, on a phone: where it says what to do.
+  const page = c.link ? { qr: qrSrc(c.link), hint: "On your phone or computer, open", link: shortUrl(c.link) } : {};
+  switch (step.kind) {
+    case "device-code":
+      return cardOf({
+        ...base,
+        ...(c.link
+          ? { ...page, hint2: `or go to ${shortUrl(step.url)} and enter the code` }
+          : { qr: qrSrc(step.url), hint: "On your phone or computer, open", link: shortUrl(step.url), hint2: "and enter the code" }),
+        code: step.code ?? "",
+        help: helpOf(step.help),
+      });
+    case "oauth":
+      return cardOf({
+        ...base,
+        ...page,
+        hint2: "and sign in there",
+        note: c.link ? "" : "grog login --browser, on this machine, says where",
+      });
+    case "form":
+      return cardOf({ ...base, ...page, hint2: "and fill it in there" });
+    case "script":
+      return cardOf({
+        ...base,
+        hint: "In a terminal on it, run",
+        command: step.command ?? "",
+        note: step.address ? `Or open ${step.address} in its browser. It needs an SSH server.` : "",
+      });
+    case "code-compare":
+      return cardOf({
+        ...base,
+        title: step.name ? `${step.name} wants to pair` : base.title,
+        detail: step.user ? `as ${step.user}` : "",
+        hint: "Allow it if it shows the same code",
+        code: spacedCode(step.code),
+        buttons: [
+          { id: "connect-allow", label: "Allow", primary: true },
+          { id: "connect-deny", label: "Deny", primary: false },
+        ],
+      });
+    case "wait":
+      return cardOf({ ...base, note: step.note ?? "", buttons: [] });
+    default:
+      return cardOf({ ...base, note: c.kept ? "Getting a code…" : "Getting ready…" });
+  }
+}
+
+/** How the session `c` ended, or null when there's nothing to say. */
+function outcomeCard(c) {
+  const base = { stage: c.status, title: c.heading ?? "" };
+  // What grog keeps up to sign in has its own card (signInCard).
+  if (c.kept && c.status !== "done") return null;
+  switch (c.status) {
+    case "done":
+      return cardOf({ ...base, title: `Connected: ${c.connected ?? c.title ?? ""}` });
     case "denied":
-      return over ? view({ title: "Not paired", note: `${name} wasn't allowed` }) : null;
+      return cardOf({ ...base, note: `${c.step?.name ?? "It"} wasn't allowed` });
     case "expired":
-      return over ? view({ title: "Not paired", note: "no computer asked in time" }) : null;
+      return cardOf({ ...base, note: "time's up" });
     case "failed":
-      return over ? view({ title: "Couldn't pair", note: p.error ?? "", failed: true }) : null;
+      return cardOf({ ...base, note: c.error ?? "", failed: true });
     default:
       return null;
   }
+}
+
+/**
+ * How to sign in while grog has nothing to pay with, between the sign-ins it
+ * keeps up for it (brain/src/grog/signin.clj): getting a code, or after one
+ * failed, trying again.
+ */
+function signInCard(state, now) {
+  const c = state.connect;
+  const integration = (state.integrations ?? []).find((i) => i.id === state.provider);
+  const failed = c?.status === "failed" && c.integration === state.provider && now - (c.at ?? 0) < RETRY_MS;
+  return cardOf({
+    stage: "sign-in",
+    title: integration?.heading ?? "Sign in",
+    note: failed ? "Couldn't get a code: trying again in a minute" : "Getting a code…",
+    error: failed ? (c.error ?? "") : "",
+  });
+}
+
+/**
+ * Connecting something to grog (brain/src/grog/connect.clj), in place of what
+ * was said and done: while a session is open, what to do now; how it ended,
+ * for a while; and how to sign in while grog has nothing to pay with. null
+ * otherwise. {stage, title, detail, qr, hint, link, hint2, code, command,
+ * note, error, expires, help, failed, buttons}: `stage`, its step's kind (or
+ * starting) while it's open, else how it ended, or sign-in; `qr`, where its
+ * QR code is; `link`, grog's page for it, without its scheme; `help`, what
+ * may have to be done first ({text, url, shortUrl}); `buttons`, what can be
+ * asked then ({id, label, primary}, see request()).
+ */
+export function card(state, now) {
+  const c = state?.connect;
+  if (!state) return null;
+  if (c?.status === "open" && (c.until ?? 0) > now) return openCard(c, now);
+  const outcome = c?.status && c.status !== "open" && now - (c.at ?? 0) <= OUTCOME_MS ? outcomeCard(c) : null;
+  if (outcome) return outcome;
+  return state.auth === "none" ? signInCard(state, now) : null;
 }
 
 /** How grog is paid, for the line under its name. */

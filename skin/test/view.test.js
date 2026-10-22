@@ -5,6 +5,7 @@ import {
   account,
   CAPTIONS_MS,
   capitalize,
+  card,
   chat,
   closes,
   DOZING_MS,
@@ -17,19 +18,16 @@ import {
   level,
   menu,
   mode,
-  pairAddress,
-  pairCommand,
-  PAIRED_MS,
-  pairing,
-  PAIRING_PORT,
+  OUTCOME_MS,
   pipeline,
   PLEASED_MS,
-  qrFile,
+  qrSrc,
   reaction,
   request,
+  RETRY_MS,
   seconds,
   shortRevision,
-  signIn,
+  spacedCode,
   STALE_MS,
   stale,
   STILL_MS,
@@ -114,7 +112,7 @@ describe("what grog is doing", () => {
       detail: "grog login, or an API key",
     });
     assert.equal(
-      mode(state({ auth: "none", login: { status: "pending", method: "device", code: "ABCD-12345" } }), NOW).detail,
+      mode(state({ auth: "none", provider: "openai", connect: { status: "open", integration: "openai" } }), NOW).detail,
       "sign in from your phone",
     );
     const hearing = { state: "hearing", since: NOW, seen: NOW, conversation: "voice" };
@@ -568,62 +566,193 @@ describe("words and numbers", () => {
   });
 });
 
-describe("signing in", () => {
-  const help = {
-    text: "The first time, ChatGPT has to allow it.",
-    url: "https://chatgpt.com/#settings/Security",
-  };
-  const waiting = {
-    status: "pending",
-    method: "device",
-    label: "ChatGPT",
+describe("connecting something", () => {
+  const link = "http://192.168.15.10:8485/c/K7Q2M9AB4X";
+  const session = (extra = {}) => ({
+    integration: "openai",
+    title: "ChatGPT",
+    heading: "Sign in with ChatGPT",
+    way: "device",
+    status: "open",
+    kept: false,
+    until: NOW + 9 * 60_000 + 30_000,
+    at: NOW - 1000,
+    link,
+    ...extra,
+  });
+  const deviceCode = {
+    kind: "device-code",
     code: "ABCD-12345",
     url: "https://auth.openai.com/codex/device",
-    expiresAt: NOW + 14 * 60_000 + 30_000,
-    help,
+    expiresAt: NOW + 14 * 60_000,
+    help: { text: "The first time, ChatGPT has to allow it.", url: "https://chatgpt.com/#settings/Security" },
   };
 
-  it("with a code, where to enter it, and what may have to be done first", () => {
-    assert.deepEqual(signIn(state({ auth: "none", login: waiting }), NOW), {
+  it("a code to enter, with the link to grog's page and its QR code", () => {
+    assert.deepEqual(card(state({ connect: session({ step: deviceCode }) }), NOW), {
+      stage: "device-code",
       title: "Sign in with ChatGPT",
+      detail: "",
+      qr: qrSrc(link),
+      hint: "On your phone or computer, open",
+      link: "192.168.15.10:8485/c/K7Q2M9AB4X",
+      hint2: "or go to auth.openai.com/codex/device and enter the code",
       code: "ABCD-12345",
-      url: "https://auth.openai.com/codex/device",
-      shortUrl: "auth.openai.com/codex/device",
-      qr: "qr/auth-openai-com-codex-device.svg",
-      expires: "expires in 14m",
+      command: "",
+      note: "",
+      error: "",
+      expires: "closes in 9m",
       help: {
         text: "The first time, ChatGPT has to allow it.",
         url: "https://chatgpt.com/#settings/Security",
         shortUrl: "chatgpt.com/#settings/Security",
       },
-    });
-    assert.equal(signIn(state({ auth: "none", login: { ...waiting, help: null } }), NOW).help, null);
-  });
-
-  it("says what's going on without a code", () => {
-    const note = (login) => signIn(state({ auth: "none", login }), NOW).note;
-    assert.equal(note(null), "Getting a code…");
-    assert.equal(note({ status: "expired", method: "device", label: "ChatGPT" }), "Getting a new code…");
-    assert.equal(note({ status: "exchanging", method: "device", label: "ChatGPT" }), "Signing in…");
-    assert.equal(note({ status: "pending", method: "browser", label: "ChatGPT" }), "Waiting for the browser");
-    assert.deepEqual(signIn(state({ auth: "none", login: { status: "error", label: "ChatGPT", error: "Offline." } }), NOW), {
-      title: "Sign in with ChatGPT",
-      note: "Couldn't get a code: trying again in a minute",
-      error: "Offline.",
+      failed: false,
+      buttons: [{ id: "connect-cancel", label: "Cancel", primary: false }],
     });
   });
 
-  it("only while grog has nothing to pay with", () => {
-    assert.equal(signIn(state({ login: waiting }), NOW), null);
-    assert.equal(signIn(state({ auth: "subscription", login: waiting }), NOW), null);
-    assert.equal(signIn(null, NOW), null);
-  });
-
-  it("QR codes are named after their page", () => {
+  it("without grog's page, the provider's", () => {
+    const c = card(state({ connect: session({ step: deviceCode, link: undefined }) }), NOW);
     assert.deepEqual(
-      [qrFile("https://auth.openai.com/codex/device"), qrFile("http://Example.com/A_b?c=d#e"), qrFile(""), qrFile(null)],
-      ["qr/auth-openai-com-codex-device.svg", "qr/example-com-a-b-c-d-e.svg", null, null],
+      [c.qr, c.link, c.hint2],
+      [qrSrc("https://auth.openai.com/codex/device"), "auth.openai.com/codex/device", "and enter the code"],
     );
+  });
+
+  it("kept up by grog while it has nothing to pay with: nothing to cancel", () => {
+    assert.deepEqual(card(state({ auth: "none", connect: session({ step: deviceCode, kept: true }) }), NOW).buttons, []);
+  });
+
+  it("signing in in a browser, on grog's page", () => {
+    const step = { kind: "oauth", backTo: "http://localhost:1455/auth/callback" };
+    const c = card(state({ connect: session({ way: "browser", step }) }), NOW);
+    assert.deepEqual([c.stage, c.qr, c.link, c.hint2], ["oauth", qrSrc(link), "192.168.15.10:8485/c/K7Q2M9AB4X", "and sign in there"]);
+  });
+
+  it("adding a computer: what to run on it, then its code, to allow it or not", () => {
+    const computer = (step) =>
+      state({ connect: session({ integration: "computer", title: "Computers", heading: "Add a computer", way: "script", step }) });
+    const script = card(computer({ kind: "script", command: "curl -fsS 192.168.15.10:8485 | bash", address: "192.168.15.10:8485" }), NOW);
+    assert.deepEqual(
+      [script.stage, script.title, script.hint, script.command, script.note, script.qr],
+      [
+        "script",
+        "Add a computer",
+        "In a terminal on it, run",
+        "curl -fsS 192.168.15.10:8485 | bash",
+        "Or open 192.168.15.10:8485 in its browser. It needs an SSH server.",
+        null,
+      ],
+    );
+    const asking = card(computer({ kind: "code-compare", code: "718945", name: "deluxe", user: "greg" }), NOW);
+    assert.deepEqual(
+      [asking.title, asking.detail, asking.hint, asking.code],
+      ["deluxe wants to pair", "as greg", "Allow it if it shows the same code", "718 945"],
+    );
+    assert.deepEqual(
+      asking.buttons.map((b) => [b.id, b.label, b.primary]),
+      [
+        ["connect-allow", "Allow", true],
+        ["connect-deny", "Deny", false],
+      ],
+    );
+    const waiting = card(computer({ kind: "wait", note: "waiting for deluxe to finish" }), NOW);
+    assert.deepEqual([waiting.note, waiting.buttons], ["waiting for deluxe to finish", []]);
+  });
+
+  it("getting ready", () => {
+    assert.equal(card(state({ connect: session() }), NOW).note, "Getting ready…");
+    assert.equal(card(state({ connect: session({ kept: true }) }), NOW).note, "Getting a code…");
+  });
+
+  it("and how it went, for a while", () => {
+    const ended = (status, extra = {}) => card(state({ connect: session({ status, ...extra }) }), NOW);
+    assert.equal(ended("done", { connected: "grog@example.com" }).title, "Connected: grog@example.com");
+    assert.equal(ended("denied", { step: { kind: "code-compare", name: "deluxe" } }).note, "deluxe wasn't allowed");
+    assert.equal(ended("expired").note, "time's up");
+    const failed = ended("failed", { error: "deluxe can't be reached" });
+    assert.deepEqual([failed.title, failed.note, failed.failed], ["Sign in with ChatGPT", "deluxe can't be reached", true]);
+    assert.equal(ended("cancelled"), null, "nothing to say once someone cancelled it");
+    assert.equal(ended("done", { at: NOW - OUTCOME_MS - 1 }), null);
+    assert.equal(card(state({ connect: session({ until: NOW - 1 }) }), NOW), null, "nor once its time is up");
+  });
+
+  it("while grog has nothing to pay with, how to sign in, between sign-ins", () => {
+    const integrations = [{ id: "openai", title: "ChatGPT", heading: "Sign in with ChatGPT" }];
+    const none = (connect) => card(state({ auth: "none", provider: "openai", integrations, connect }), NOW);
+    assert.deepEqual([none(null).stage, none(null).title, none(null).note], ["sign-in", "Sign in with ChatGPT", "Getting a code…"]);
+    const failed = none(session({ status: "failed", kept: true, error: "Offline." }));
+    assert.deepEqual([failed.note, failed.error], ["Couldn't get a code: trying again in a minute", "Offline."]);
+    assert.equal(none(session({ status: "failed", kept: true, at: NOW - RETRY_MS })).note, "Getting a code…");
+    assert.equal(card(state(), NOW), null, "not when it has");
+    assert.equal(card(null, NOW), null);
+  });
+
+  it("QR codes, made by grog", () => {
+    assert.equal(qrSrc(link), "/v1/qr?text=http%3A%2F%2F192.168.15.10%3A8485%2Fc%2FK7Q2M9AB4X");
+    assert.equal(qrSrc(""), null);
+    assert.equal(spacedCode("718945"), "718 945");
+  });
+
+  it("from the actions sheet: what can be connected, and what is", () => {
+    const openai = {
+      id: "openai",
+      title: "ChatGPT",
+      heading: "Sign in with ChatGPT",
+      about: "your ChatGPT subscription pays for the answers",
+      icon: "key",
+      multiple: false,
+      connections: [],
+    };
+    const computers = {
+      id: "computer",
+      title: "Computers",
+      heading: "Add a computer",
+      about: "your computers, to act on them",
+      icon: "computer",
+      multiple: true,
+      connections: [{ id: "computer:deluxe", name: "deluxe", detail: "greg@192.168.15.90", status: "connected" }],
+    };
+    const items = menu(state({ actions: ["new-conversation", "connect", "restart"], integrations: [openai, computers] }));
+    assert.deepEqual(
+      items.map((i) => [i.id, i.group]),
+      [
+        ["new-conversation", "everyday"],
+        ["connect:openai", "integrations"],
+        ["connect:computer", "integrations"],
+        ["disconnect:computer:deluxe", "integrations"],
+        ["restart", "power"],
+      ],
+    );
+    assert.deepEqual(
+      [items[1].label, items[1].detail, items[1].icon, items[1].confirm],
+      ["Sign in with ChatGPT", "your ChatGPT subscription pays for the answers", "key", false],
+    );
+    assert.deepEqual([items[2].label, items[2].icon], ["Add a computer", "computer"]);
+    assert.deepEqual([items[3].label, items[3].detail, items[3].confirm], ["deluxe", "greg@192.168.15.90", true]);
+    const signedIn = { ...openai, connections: [{ id: "openai", name: "grog@example.com", status: "connected" }] };
+    const [signOut] = menu(state({ actions: ["connect"], integrations: [signedIn] }));
+    assert.deepEqual(
+      [signOut.id, signOut.label, signOut.detail, signOut.confirm],
+      ["disconnect:openai", "ChatGPT", "grog@example.com", true],
+    );
+    assert.equal(menu(state({ actions: ["connect"], integrations: [signedIn] }), "disconnect:openai")[0].label, "Tap again to disconnect");
+    const again = { ...openai, connections: [{ id: "openai", name: "grog@example.com", status: "signed-out" }] };
+    assert.deepEqual(
+      menu(state({ actions: ["connect"], integrations: [again] })).map((i) => [i.id, i.detail]),
+      [["connect:openai", "needs signing in again"]],
+    );
+    assert.deepEqual(
+      menu(state({ actions: ["new-conversation"], integrations: [openai] })).map((i) => i.id),
+      ["new-conversation"],
+      "only when grog can connect things",
+    );
+    assert.equal(closes("connect:computer"), true, "the card shows instead");
+  });
+
+  it("opening a connection, as a step of a turn", () => {
+    assert.equal(tool("connect").label, "Opening a connection");
   });
 });
 
@@ -707,14 +836,15 @@ describe("the actions sheet", () => {
   const all = ["listen", "stop", "mic", "new-conversation", "volume", "restart", "reboot", "power-off"];
 
   it("lists what grog can do there", () => {
-    const items = menu(state({ actions: all, auth: "subscription", volume: { level: 40, muted: false } }));
+    const items = menu(state({ actions: all, volume: { level: 40, muted: false } }));
     assert.deepEqual(
       items.map((i) => i.id),
-      ["volume", "mic", "new-conversation", "sign-out", "restart", "reboot", "power-off"],
+      ["volume", "mic", "new-conversation", "restart", "reboot", "power-off"],
     );
     assert.deepEqual(items[0], {
       id: "volume",
       kind: "volume",
+      group: "everyday",
       label: "Volume",
       level: 40,
       muted: false,
@@ -722,10 +852,14 @@ describe("the actions sheet", () => {
       armed: false,
     });
     assert.deepEqual([items[1].kind, items[1].on], ["toggle", true]);
-    assert.equal(items[4].label, "Restart Grog");
+    assert.equal(items[3].label, "Restart Grog");
     assert.deepEqual(
-      items.filter((i) => i.confirm).map((i) => i.id),
-      ["sign-out", "restart", "reboot", "power-off"],
+      items.filter((i) => i.confirm).map((i) => [i.id, i.group]),
+      [
+        ["restart", "power"],
+        ["reboot", "power"],
+        ["power-off", "power"],
+      ],
     );
     assert.deepEqual(
       menu(state({ actions: ["listen", "stop", "mic", "new-conversation"] })).map((i) => i.id),
@@ -762,12 +896,20 @@ describe("what's asked of grog", () => {
     assert.deepEqual(request("volume", s).body, {});
   });
 
-  it("signing out", () => {
-    assert.deepEqual(request("sign-out", state({ provider: "openai" })), {
+  it("connecting something, and disconnecting it", () => {
+    assert.deepEqual(request("connect:openai", state()), {
+      method: "POST",
+      path: "/v1/actions/connect",
+      body: { integration: "openai" },
+    });
+    assert.deepEqual(request("disconnect:computer:deluxe", state()), {
       method: "DELETE",
-      path: "/v1/auth/openai",
+      path: "/v1/connections/computer:deluxe",
       body: {},
     });
+    assert.deepEqual(request("connect-allow", state()), { method: "POST", path: "/v1/connect/allow", body: {} });
+    assert.deepEqual(request("connect-deny", state()), { method: "POST", path: "/v1/connect/deny", body: {} });
+    assert.deepEqual(request("connect-cancel", state()), { method: "DELETE", path: "/v1/connect", body: {} });
   });
 
   it("which close the sheet", () => {
@@ -836,74 +978,8 @@ describe("updating", () => {
   });
 });
 
-describe("pairing a computer", () => {
-  const paired = (status, extra = {}) =>
-    state({
-      pairing: { status, until: NOW + 4 * 60_000, addresses: ["192.168.15.17"], port: PAIRING_PORT, at: NOW - 1000, ...extra },
-    });
-
-  it("says what to run on it, nothing to install, while grog lets one", () => {
-    assert.deepEqual(pairing(paired("open"), NOW), {
-      stage: "open",
-      title: "Add a computer",
-      detail: "",
-      hint: "In a terminal on it, run",
-      command: "curl -fsS 192.168.15.17:8485 | bash",
-      code: "",
-      expires: "closes in 4m",
-      note: "Or open 192.168.15.17:8485 in its browser. It needs an SSH server.",
-      failed: false,
-      buttons: [{ id: "pair-cancel", label: "Cancel", primary: false }],
-    });
-    assert.equal(pairing(paired("open"), NOW + 4 * 60_000), null, "not once it's closed");
-  });
-
-  it("where grog listens, whatever its port and address", () => {
-    assert.equal(pairCommand({ addresses: ["10.0.0.2"], port: 9000 }), "curl -fsS 10.0.0.2:9000 | bash");
-    assert.equal(pairAddress({ addresses: ["fe80::1"], port: PAIRING_PORT }), "[fe80::1]:8485");
-    assert.equal(pairAddress({ addresses: [] }), "<grog's address>:8485");
-  });
-
-  it("shows the code of the computer asking, to allow it or not", () => {
-    const asking = pairing(paired("asking", { name: "deluxe", user: "greg", code: "718945" }), NOW);
-    assert.deepEqual(
-      [asking.title, asking.detail, asking.hint, asking.code],
-      ["deluxe wants to pair", "as greg", "Allow it if it shows the same code", "718 945"],
-    );
-    assert.deepEqual(
-      asking.buttons.map((b) => [b.id, b.label, b.primary]),
-      [
-        ["pair-allow", "Allow", true],
-        ["pair-deny", "Deny", false],
-      ],
-    );
-  });
-
-  it("and how it went, for a moment", () => {
-    const after = (status, extra) => pairing(paired(status, { name: "deluxe", ...extra }), NOW);
-    assert.deepEqual([after("allowed").title, after("allowed").note], ["Pairing deluxe", "waiting for it to finish"]);
-    assert.deepEqual([after("paired").title, after("paired").note], ["deluxe is paired", "ask Grog to act on it"]);
-    assert.equal(after("denied").note, "deluxe wasn't allowed");
-    assert.equal(after("expired").note, "no computer asked in time");
-    const failed = after("failed", { error: "deluxe can't be reached" });
-    assert.deepEqual([failed.title, failed.note, failed.failed], ["Couldn't pair", "deluxe can't be reached", true]);
-    assert.equal(pairing(paired("paired", { name: "deluxe" }), NOW - 1000 + PAIRED_MS + 1), null);
-    assert.equal(after("closed"), null, "nothing to say once someone closed it");
-    assert.equal(pairing(state(), NOW), null);
-  });
-
-  it("from the actions sheet, and what its buttons ask", () => {
-    const items = menu(state({ actions: ["new-conversation", "pair", "restart"] }));
-    assert.deepEqual(items.map((i) => i.id), ["new-conversation", "pair", "restart"]);
-    assert.deepEqual([items[1].label, items[1].icon, items[1].confirm], ["Add a computer", "computer", false]);
-    assert.deepEqual(request("pair", state()), { method: "POST", path: "/v1/actions/pair", body: {} });
-    assert.deepEqual(request("pair-allow", state()), { method: "POST", path: "/v1/pairing/allow", body: {} });
-    assert.deepEqual(request("pair-deny", state()), { method: "POST", path: "/v1/pairing/deny", body: {} });
-    assert.deepEqual(request("pair-cancel", state()), { method: "DELETE", path: "/v1/pairing", body: {} });
-    assert.equal(closes("pair"), true, "the pairing shows instead");
-  });
-
-  it("acting on one, as a step of a turn", () => {
+describe("acting on a computer", () => {
+  it("as a step of a turn", () => {
     assert.deepEqual(tool("computer"), {
       label: "Using a computer",
       done: "Used a computer",

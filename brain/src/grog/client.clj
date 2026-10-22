@@ -6,7 +6,6 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [grog.config :as config]
-            [grog.pairing :as pairing]
             [grog.update :as update]))
 
 (def default-url "http://127.0.0.1:8484")
@@ -49,14 +48,16 @@
       (let [[ok? body] (call :get url "/v1/status")]
         (if ok? (:provider body) (fail body)))))
 
-(defn ^:private signed-in [status]
-  (println (format "Signed in as %s: grog now uses your subscription." (or (:email status) "you")))
-  true)
+(defn spaced
+  "A pairing code as it's shown: 482 913."
+  [code]
+  (let [s (str code)]
+    (if (re-matches #"\d{6}" s) (str (subs s 0 3) " " (subs s 3)) s)))
 
-(defn ^:private print-code
-  "How to sign in with the code of `login` (grog.login/view)."
-  [{:keys [label url code help expires-at]}]
-  (println (str "Sign in with your " label " account: on any phone or computer, open"))
+(defn ^:private say-device-code
+  "How to sign in with the code of the session's step."
+  [{:keys [title link] {:keys [url code help expires-at]} :step}]
+  (println (str "Sign in with your " title " account: on any phone or computer, open"))
   (println)
   (println (str "  " url))
   (println)
@@ -68,81 +69,151 @@
     (println)
     (println (:text help))
     (println (str "  " (:url help))))
+  (when link
+    (println)
+    (println (str "Or open " link " there: grog's page has it all.")))
   (println)
-  (println "Waiting (Ctrl-C to stop)...")
-  (flush))
+  (println "Waiting (Ctrl-C to stop)..."))
 
-(defn ^:private wait-for-code
-  "Waits for the code of the sign-in `login` to be entered, with a new code
-  whenever the last one expires."
-  [url provider login]
-  (print-code login)
-  (loop [code (:code login)]
-    (Thread/sleep 1000)
-    (let [[ok? status] (call :get url (str "/v1/auth/" provider))]
-      (cond
-        (not ok?) (fail status)
-        (= "done" (:login status)) (signed-in status)
-        (= "error" (:login status)) (fail (str "Sign-in failed: " (:error status)))
-        (= "expired" (:login status)) (let [[ok? login] (call :post url (str "/v1/auth/" provider "/login")
-                                                              {:method "device"})]
-                                        (if ok?
-                                          (do (println (str "That code expired: enter this one instead, " (:code login)))
-                                              (flush)
-                                              (recur (:code login)))
-                                          (fail login)))
-        ;; A new code, from another `grog login` or for the skin.
-        (and (:code status) (not= code (:code status))) (do (println (str "Enter this code instead: " (:code status)))
-                                                            (flush)
-                                                            (recur (:code status)))
-        :else (recur code)))))
+(defn ^:private say-oauth
+  "How to sign in in a browser, at the session's step: where, when this is
+  who opened it."
+  [{:keys [title link] {:keys [url back-to]} :step}]
+  (if url
+    (let [port (second (re-find #":(\d+)/" (str back-to)))]
+      (println (str "Sign in with your " title " account at:"))
+      (println)
+      (println (str "  " url))
+      (println)
+      (println (str "The browser then goes to " back-to ", which has to reach"))
+      (println "grog on this machine. From another machine, forward the port first:")
+      (println (format "  ssh -L %s:127.0.0.1:%s <user>@<this machine>" port port))
+      (when link
+        (println (str "or paste the address it ended at on grog's page, " link))))
+    (println (str "Sign in on grog's page: " link)))
+  (println)
+  (println "Waiting for the browser (Ctrl-C to stop)..."))
 
-(defn ^:private wait-for-browser
-  "Waits for the browser to come back from signing in at the link of `login`."
-  [url provider {:keys [label redirect-uri] :as login}]
-  (let [port (second (re-find #":(\d+)/" redirect-uri))]
-    (println (str "Sign in with your " label " account at:"))
-    (println)
-    (println (str "  " (:url login)))
-    (println)
-    (println (str "The browser then goes to " redirect-uri ", which has to reach"))
-    (println "grog on this machine. From another machine, forward the port first:")
-    (println (format "  ssh -L %s:127.0.0.1:%s <user>@<this machine>" port port))
-    (println)
-    (println "Waiting for the browser (Ctrl-C to stop)...")
-    (flush)
-    (loop [waited-ms 0]
-      (Thread/sleep 1000)
-      (let [[ok? status] (call :get url (str "/v1/auth/" provider))]
-        (cond
-          (not ok?) (fail status)
-          (= "done" (:login status)) (signed-in status)
-          (= "error" (:login status)) (fail (str "Sign-in failed: " (:error status)))
-          (> waited-ms (* 11 60 1000)) (fail "Gave up waiting for the browser.")
-          :else (recur (+ waited-ms 1000)))))))
+(defn ^:private say-script
+  "What to run on a computer to pair it, at the session's step."
+  [{{:keys [command address]} :step}]
+  (println "grog lets a computer pair for the next 10 minutes. In a terminal on it, run:")
+  (println)
+  (println (str "  " command))
+  (println)
+  (println (format "or open %s in its browser. It takes an SSH server there, and nothing to install." address))
+  (println "Waiting for it (Ctrl-C to stop)..."))
+
+(defn ^:private ask-to-allow!
+  "Asks here whether to allow the computer asking, at the session's step
+  (someone at grog's screen may answer first)."
+  [url {{:keys [name user code]} :step}]
+  (println (format "%s (%s) asks to pair, with the code %s." name user (spaced code)))
+  (print "Is it the code that computer shows? Allow it? [y/N] ")
+  (flush)
+  (let [yes? (contains? #{"y" "yes"} (str/lower-case (str/trim (or (read-line) ""))))]
+    (call :post url (if yes? "/v1/connect/allow" "/v1/connect/deny"))))
+
+(defn ^:private said-of
+  "What was said of the session's step, for it to be said once."
+  [{{:keys [kind code back-to command]} :step}]
+  [kind (case kind
+          ("device-code" "code-compare") code
+          "oauth" back-to
+          "script" command
+          nil)])
+
+(defn ^:private say!
+  "Says what to do at the session's step, unless it was (`said`): what was
+  said then."
+  [url {:keys [step] :as session} said]
+  (let [what (said-of session)]
+    (if (or (nil? step) (contains? said what))
+      said
+      (do (case (:kind step)
+            "device-code" (if (some #(= "device-code" (first %)) said)
+                            (println (str "That code expired: enter this one instead, " (:code step)))
+                            (say-device-code session))
+            "oauth" (say-oauth session)
+            "script" (say-script session)
+            "code-compare" (ask-to-allow! url session)
+            nil)
+          (flush)
+          (conj said what)))))
+
+;; What `grog connect` says once it's over, by integration: the provider's
+;; sign-in by default.
+(def ^:private outcomes
+  {"computer" {"done" "Paired: %s. Ask grog to act on it."
+               "failed" "Pairing failed: %s"
+               "denied" "It wasn't allowed."
+               "expired" "No computer asked to pair in time."
+               "cancelled" "Pairing was closed."}
+   :sign-in {"done" "Signed in as %s: grog now uses your subscription."
+             "failed" "Sign-in failed: %s"
+             "denied" "It wasn't allowed."
+             "expired" "The sign-in expired."
+             "cancelled" "The sign-in was cancelled."}})
+
+(defn ^:private follow
+  "Says what to do as the `session` just opened goes, until it's over:
+  whether it connected. Signing in with codes goes on with a new one when
+  the session's time is up."
+  [url session]
+  (loop [{:keys [status integration] :as session} session
+         said #{}]
+    (let [said (say! url session said)
+          texts (get outcomes integration (:sign-in outcomes))]
+      (case status
+        "open"
+        (do (Thread/sleep 1000)
+            (let [[ok? now] (call :get url "/v1/connect")]
+              (cond
+                (not ok?) (fail now)
+                (not= integration (:integration now)) (fail "Something else is being connected to grog now.")
+                :else (recur now said))))
+
+        "done"
+        (do (println (format (texts "done") (:connected session)))
+            true)
+
+        "expired"
+        (if (some #(= "device-code" (first %)) said)
+          (let [[ok? again] (call :post url (str "/v1/integrations/" integration "/connect") {:way (:way session)})]
+            (if ok? (recur again said) (fail again)))
+          (fail (texts "expired")))
+
+        "failed"
+        (fail (format (texts "failed") (:error session)))
+
+        (fail (get texts status "It's over."))))))
+
+(defn connect!
+  "Connects integration `id` (`way`: how, nil for its usual way), saying
+  what to do as it goes, until it's over: whether it connected."
+  [url id way]
+  (let [[ok? session] (call :post url (str "/v1/integrations/" id "/connect") (cond-> {} way (assoc :way way)))]
+    (if ok?
+      (follow url session)
+      (fail session))))
 
 (defn login!
-  "Signs in to the subscription of `provider` (the server's when nil): with a
-  code entered on any phone or computer, the provider's way, or with a
-  browser coming back to this machine (`browser?`). Waits until it's done.
-  Returns false when it failed."
+  "Signs in to the subscription of `provider` (the server's when nil), like
+  `grog connect <provider>`: with a code entered on any phone or computer,
+  or in a browser coming back to this machine (`browser?`). Whether it
+  did."
   ([url provider]
    (login! url provider false))
   ([url provider browser?]
-   (let [provider (resolve-provider url provider)
-         [ok? login] (when provider
-                       (call :post url (str "/v1/auth/" provider "/login") (if browser? {:method "browser"} {})))]
-     (cond
-       (not provider) false
-       (not ok?) (fail login)
-       (= "device" (:method login)) (wait-for-code url provider login)
-       :else (wait-for-browser url provider login)))))
+   (if-let [provider (resolve-provider url provider)]
+     (connect! url provider (when browser? "browser"))
+     false)))
 
 (defn logout!
   "Signs out of `provider` (the server's when nil)."
   [url provider]
   (let [provider (resolve-provider url provider)
-        [ok? body] (when provider (call :delete url (str "/v1/auth/" provider)))]
+        [ok? body] (when provider (call :delete url (str "/v1/connections/" provider)))]
     (cond
       (not provider) false
       ok? (do (println (str "Signed out of " provider "."))
@@ -316,77 +387,43 @@
   [ms]
   (str (.toLocalDate (.atZone (java.time.Instant/ofEpochMilli ms) (java.time.ZoneId/systemDefault)))))
 
-(defn computers!
-  "Lists the computers grog acts on, paired with it."
-  [url]
-  (let [[ok? body] (call :get url "/v1/computers")]
-    (cond
-      (not ok?) (fail body)
-      (empty? (:computers body)) (do (println "No computers yet: pair one with `grog computers add`.")
-                                     true)
-      :else (do (doseq [{:keys [name user host added-at]} (:computers body)]
-                  (println (format "%-16s %s@%s, paired %s" name user host (day added-at))))
-                true))))
+(defn connection-line
+  "A connection as `grog integrations` lists it: its id, then what it is
+  (its name, unless its id says it), how it is, and since when."
+  [{:keys [id name detail status added-at]}]
+  (let [said (remove nil? [(when-not (or (= id name) (str/ends-with? (str id) (str ":" name))) name)
+                           detail
+                           (when (= "signed-out" status) "needs signing in again")
+                           (some->> added-at day (str "since "))])]
+    (str/trimr (format "  %-18s %s" id (str/join ", " said)))))
 
-(defn pair-address
-  "Where a computer reaches grog to pair, host:port, as pairing `view`
-  says."
-  [{:keys [addresses port]}]
-  (let [address (or (first addresses) "<grog's address>")]
-    (str (if (str/includes? address ":") (str "[" address "]") address) ":" port)))
-
-(defn add-computer!
-  "Lets a computer pair with grog, saying what to run on it, then asks here
-  whether to allow the one asking (someone at grog's screen may first):
-  whether one was paired."
+(defn integrations!
+  "Lists what grog can connect to, and what's connected."
   [url]
-  (let [[ok? view] (call :post url "/v1/pairing")]
+  (let [[ok? body] (call :get url "/v1/integrations")]
     (if-not ok?
-      (fail view)
-      (do (println "grog lets a computer pair for the next 5 minutes. In a terminal on it, run:")
-          (println)
-          (println (str "  " (pairing/command (pair-address view))))
-          (println)
-          (println (format "or open %s in its browser. It takes an SSH server there, and nothing to install."
-                           (pair-address view)))
-          (println "Waiting for it (Ctrl-C to stop)...")
-          (flush)
-          (loop [asked nil]
-            (Thread/sleep 1000)
-            (let [[ok? body] (call :get url "/v1/computers")
-                  {:keys [status name user code error]} (when ok? (:pairing body))]
-              (cond
-                (not ok?) (fail body)
+      (fail body)
+      (do (doseq [{:keys [id title connections]} (:integrations body)]
+            (println (format "%s (grog connect %s)" title id))
+            (if (seq connections)
+              (run! (comp println connection-line) connections)
+              (println "  nothing connected")))
+          true))))
 
-                (and (= "asking" status) (not= asked code))
-                (do (println (format "%s (%s) asks to pair, with the code %s." name user (pairing/spaced code)))
-                    (print "Is it the code that computer shows? Allow it? [y/N] ")
-                    (flush)
-                    (let [yes? (contains? #{"y" "yes"} (str/lower-case (str/trim (or (read-line) ""))))]
-                      ;; Someone at grog's screen may have answered first.
-                      (call :post url (if yes? "/v1/pairing/allow" "/v1/pairing/deny"))
-                      (recur code)))
-
-                (= "paired" status) (do (println (format "Paired: %s. Ask grog to act on it." name))
-                                        true)
-                (= "denied" status) (fail "It wasn't allowed.")
-                (= "expired" status) (fail "No computer asked to pair in time.")
-                (= "closed" status) (fail "Pairing was closed.")
-                (= "failed" status) (fail (str "Pairing failed: " error))
-                :else (recur asked))))))))
-
-(defn forget-computer!
-  "Forgets computer `name`, which also stops letting grog in, if it can be
-  reached."
-  [url name]
-  (let [[ok? body] (call :delete url (str "/v1/computers/" name))]
+(defn disconnect!
+  "Disconnects connection `id` (`grog integrations` lists them). A computer
+  also stops letting grog in, if it can be reached."
+  [url id]
+  (let [[ok? {:keys [name unpaired] :as body}] (call :delete url (str "/v1/connections/" id))]
     (cond
       (not ok?) (fail body)
-      (:unpaired body) (do (println (format "Forgot %s: it doesn't let grog in anymore." name))
-                           true)
-      :else (do (println (format (str "Forgot %s. It couldn't be reached: on it, take grog's line out of "
-                                      "~/.ssh/authorized_keys.")
-                                 name))
+      unpaired (do (println (format "Forgot %s: it doesn't let grog in anymore." name))
+                   true)
+      (contains? body :unpaired) (do (println (format (str "Forgot %s. It couldn't be reached: on it, take grog's "
+                                                           "line out of ~/.ssh/authorized_keys.")
+                                                      name))
+                                     true)
+      :else (do (println (str "Disconnected " id "."))
                 true))))
 
 (defn models! [url]

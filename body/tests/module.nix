@@ -201,7 +201,11 @@ pkgs.testers.runNixOSTest {
         # What someone does on their phone.
         machine.succeed("curl -sf -X POST http://127.0.0.1:9999/fake/enter-code")
         machine.wait_until_succeeds("grep -q 'Signed in as grog@example.com' /tmp/login.log")
-        machine.succeed("stat -c %a /var/lib/grog/auth.json | grep -qx 600")
+        # Its connection, and its tokens apart, only grog can read.
+        machine.succeed("stat -c %a /var/lib/grog/integrations.json | grep -qx 600")
+        machine.succeed("stat -c %a /var/lib/grog/secrets | grep -qx 700")
+        machine.succeed("stat -c %a /var/lib/grog/secrets/openai.json | grep -qx 600")
+        assert "test-access-token" not in machine.succeed("cat /var/lib/grog/integrations.json")
 
     with subtest("the sign-in survives a restart"):
         # Conversations don't: they live in memory.
@@ -234,7 +238,7 @@ pkgs.testers.runNixOSTest {
         state = match.group(1)
         # What the browser does after signing in.
         machine.succeed(
-            f"curl -sf 'http://127.0.0.1:1455/auth/callback?code=test-code&state={state}' | grep -q 'Signed in to grog'"
+            f"curl -sf 'http://127.0.0.1:1455/auth/callback?code=test-code&state={state}' | grep -q 'Signed in to Test'"
         )
         machine.wait_until_succeeds("grep -q 'Signed in as grog@example.com' /tmp/login-browser.log")
         machine.wait_until_fails("ss -ltnH 'sport = :1455' | grep -q .")
@@ -398,35 +402,41 @@ pkgs.testers.runNixOSTest {
         machine.wait_until_succeeds(recording())
         machine.wait_until_succeeds("grep -q '\"state\":\"awake\"' /tmp/events-asked.log")
 
-    def computers():
-        return json.loads(machine.succeed("curl -sf http://127.0.0.1:8484/v1/computers"))
+    def session():
+        return json.loads(machine.succeed("curl -sf http://127.0.0.1:8484/v1/connect"))
 
     with subtest("a computer pairs with grog, running what it serves: the same code on both, allowed at grog"):
         pc.wait_for_unit("sshd.service")
         pc.fail("command -v grog")
         machine.succeed(
-            "curl -sf -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8484/v1/actions/pair"
+            "curl -sf -X POST -H 'Content-Type: application/json' -d '{\"integration\": \"computer\"}'"
+            " http://127.0.0.1:8484/v1/actions/connect"
         )
         machine.wait_for_open_port(8485)
         assert "curl -fsS machine:8485 | bash" in pc.succeed("curl -fsS -H 'Accept: text/html' machine:8485")
+        # Its page, behind a token only grog's screen and CLI show.
+        token = session()["link"].rsplit("/", 1)[1]
+        page = json.loads(pc.succeed(f"curl -fsS machine:8485/c/{token}/state"))
+        assert page["step"]["kind"] == "script", page
+        pc.fail("curl -fsS machine:8485/c/ABCDEFGHJK/state")
         pc.succeed("(su - bob -c 'curl -fsS machine:8485 | bash' > /tmp/pair.log 2>&1 &)")
         pc.wait_until_succeeds("grep -q 'check the code is' /tmp/pair.log")
         code = re.search(r"\n  (\d{3} \d{3})\n", pc.succeed("cat /tmp/pair.log"))
         assert code, pc.succeed("cat /tmp/pair.log")
-        machine.wait_until_succeeds("curl -sf http://127.0.0.1:8484/v1/computers | grep -q '\"status\":\"asking\"'")
-        pairing = computers()["pairing"]
-        assert (pairing["name"], pairing["user"]) == ("pc", "bob"), pairing
-        assert pairing["code"] == code.group(1).replace(" ", ""), (pairing, code.group(1))
+        machine.wait_until_succeeds("curl -sf http://127.0.0.1:8484/v1/connect | grep -q '\"kind\":\"code-compare\"'")
+        step = session()["step"]
+        assert (step["name"], step["user"]) == ("pc", "bob"), step
+        assert step["code"] == code.group(1).replace(" ", ""), (step, code.group(1))
         machine.succeed(
-            "curl -sf -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8484/v1/pairing/allow"
+            "curl -sf -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8484/v1/connect/allow"
         )
         pc.wait_until_succeeds("grep -q 'Paired: grog can act on this computer now' /tmp/pair.log")
         keys = pc.succeed("cat /home/bob/.ssh/authorized_keys")
         assert re.match(
             r'restrict,from="[\d.]+\.0/24",command="/home/bob/\.local/share/grog/computer\.sh hands" ssh-ed25519 ', keys
         ), keys
-        assert re.search(r"(?m)^pc +bob@", out := grog("computers")), out
-        # Only while letting one pair.
+        assert re.search(r"(?m)^  computer:pc +bob@", out := grog("integrations")), out
+        # Only while connecting something.
         machine.wait_until_fails("ss -ltnH 'sport = :8485' | grep -q .")
 
     with subtest("the model acts on it as it allows: how it's doing, not a command nobody allowed"):
@@ -436,9 +446,9 @@ pkgs.testers.runNixOSTest {
         assert "nobody is there to allow it on pc" in out, out
 
     with subtest("forgotten, the computer stops letting grog in"):
-        assert "it doesn't let grog in anymore" in (out := grog("computers forget pc")), out
+        assert "it doesn't let grog in anymore" in (out := grog("disconnect computer:pc")), out
         pc.fail("grep -q ssh-ed25519 /home/bob/.ssh/authorized_keys")
-        assert "No computers yet" in grog("computers")
+        assert "computer:pc" not in (out := grog("integrations")), out
 
     def alice(command):
         return machine.succeed(f"su - alice -c {shlex.quote(command)}").strip()

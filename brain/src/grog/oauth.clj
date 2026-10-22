@@ -1,6 +1,6 @@
 (ns grog.oauth
-  "OAuth 2.0 helpers for `grog login`: PKCE, form encoding, JWT claims and the
-  local server the browser is redirected to."
+  "OAuth 2.0 helpers for signing in (grog.connect): PKCE, form encoding, JWT
+  claims and the local server the browser is redirected to."
   (:require [cheshire.core :as json]
             [clojure.string :as str]
             [org.httpkit.server :as http])
