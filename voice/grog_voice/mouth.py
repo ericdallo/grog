@@ -66,6 +66,21 @@ class Turn:
         )
 
 
+def gathered(text, chunks, ahead):
+    """`text`, with the text chunks already waiting after it in the queue
+    `chunks`, up to the first item that isn't text (an earcon, or the end),
+    which goes to `ahead`."""
+    while True:
+        try:
+            item = chunks.get_nowait()
+        except queue.Empty:
+            return text
+        if not isinstance(item, str):
+            ahead.append(item)
+            return text
+        text = f"{text} {item}"
+
+
 def where(e):
     """The type of an exception and where it happened, without its message
     (which could quote what was said)."""
@@ -84,6 +99,10 @@ class Mouth:
 
     def __init__(self, *, tts, player, ask, tell=lambda state: None, captions=lambda: False):
         self.tts, self.player, self.ask, self.tell, self.captions = tts, player, ask, tell, captions
+        # Its speech plays as it's made (Pocket TTS): it's given whole
+        # sentences (see chunks.py), together when several are waiting, as
+        # it reads a whole text better than its sentences one by one.
+        self.streams = getattr(tts, "streams", False)
         self.chiming = None  # the thread playing its sounds while it listens
         self.stopping = threading.Event()  # the answer under way is to stop
         self._conn = None  # to grog, while it answers
@@ -121,7 +140,7 @@ class Mouth:
                 self._hang_up()
 
         def produce():
-            chunker = Chunker()
+            chunker = Chunker(streams=self.streams)
             answer = self.ask(command, said, on_connect=connected)
             try:
                 for kind, value in answer:
@@ -240,8 +259,9 @@ class Mouth:
 
         playing = threading.Thread(target=play, daemon=True, name="player")
         playing.start()
+        ahead = []  # taken from the queue while gathering text, still to go
         try:
-            while (item := chunks.get()) is not None:
+            while (item := ahead.pop(0) if ahead else chunks.get()) is not None:
                 if over():
                     continue
                 if isinstance(item, tuple):
@@ -251,6 +271,8 @@ class Mouth:
                         turn.mark("ack")
                     audio.put(pcm)
                     continue
+                if self.streams:
+                    item = gathered(item, chunks, ahead)
                 for pcm in self.tts(item):
                     if over():
                         break

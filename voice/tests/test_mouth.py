@@ -13,6 +13,7 @@ from fakes import (
     FakeConnection,
     FakeTts,
     Players,
+    StreamingTts,
     answering,
     hanging,
     played,
@@ -90,6 +91,35 @@ class AnswerTest(unittest.TestCase):
         self.assertNotIn("quinze", str(turn) + repr(turn))
         self.assertEqual(["answering", "speaking"], m.told)
         self.assertEqual(([HEARD], [None]), (m.ask.asked, m.ask.said))
+
+    def test_text_to_speech_that_streams_gets_whole_sentences_and_those_waiting_together(self):
+        started, done = threading.Event(), threading.Event()
+
+        def ask(text, said=None, on_connect=None):
+            try:
+                yield ("text", "Amanhã faz sol, com vento à tarde. ")
+                # The rest comes while the first sentence is being said.
+                started.wait(2)
+                yield ("text", "Leve um casaco. ")
+                yield ("text", "Até mais! ")
+            finally:
+                done.set()
+
+        m = Mouth(tts=StreamingTts(started, done), player=Players(), ask=ask)
+        m.answer(heard(), HEARD)
+        self.assertEqual(["Amanhã faz sol, com vento à tarde.", "Leve um casaco. Até mais!"], m.tts.texts)
+        self.assertEqual([ACK] + [t.encode() for t in m.tts.texts], played(m.player))
+
+    def test_text_to_speech_that_streams_gets_a_short_first_sentence_with_the_next(self):
+        m = Mouth(
+            tts=StreamingTts(threading.Event(), threading.Event()),
+            player=Players(),
+            ask=answering("Claro! ", "Coloquei um alarme. "),
+        )
+        m.tts.go.set()
+        m.answer(heard(), HEARD)
+        self.assertEqual(["Claro! Coloquei um alarme."], m.tts.texts)
+        self.assertEqual([ACK] + [t.encode() for t in m.tts.texts], played(m.player))
 
     def test_got_it_already_played_as_it_ended(self):
         now = time.monotonic()

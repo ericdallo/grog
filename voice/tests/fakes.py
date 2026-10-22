@@ -111,6 +111,23 @@ class FakeTts:
         yield text.encode()
 
 
+class StreamingTts(FakeTts):
+    """A FakeTts whose speech plays as it's made, like Pocket TTS. Its first
+    text sets `started`, then waits for `go`."""
+
+    streams = True
+
+    def __init__(self, started, go):
+        super().__init__()
+        self.started, self.go = started, go
+
+    def __call__(self, text):
+        if not self.texts:
+            self.started.set()
+            self.go.wait(2)
+        yield from super().__call__(text)
+
+
 class Players:
     """Makes FakePlayers, keeping them. `failing`: their writes fail.
     `one_closed` once one of them was."""

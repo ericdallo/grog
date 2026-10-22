@@ -3,8 +3,8 @@ import unittest
 from grog_voice.chunks import Chunker
 
 
-def chunks(*pieces):
-    chunker = Chunker()
+def chunks(*pieces, streams=False):
+    chunker = Chunker(streams=streams)
     out = [c for piece in pieces for c in chunker.add(piece)]
     return out + chunker.flush()
 
@@ -34,6 +34,23 @@ class ChunkerTest(unittest.TestCase):
                 "Foi o penta, com dois gols do Ronaldo."
             ),
         )
+
+    def test_whole_sentences_for_text_to_speech_that_streams(self):
+        text = "O Brasil ganhou a Copa de 2002, vencendo a Alemanha por dois a zero. Foi o penta. "
+        self.assertEqual(
+            ["O Brasil ganhou a Copa de 2002, vencendo a Alemanha por dois a zero.", "Foi o penta."],
+            chunks(text, streams=True),
+        )
+
+    def test_a_short_first_sentence_goes_with_the_next_for_text_to_speech_that_streams(self):
+        self.assertEqual(
+            ["Claro! Coloquei um alarme para as sete.", "Mais alguma coisa?"],
+            chunks("Claro! Coloquei um alarme para as sete. Mais alguma coisa?", streams=True),
+        )
+        chunker = Chunker(streams=True)
+        self.assertEqual([], chunker.add("Pronto. "), "it waits for the next")
+        self.assertEqual(["Pronto."], chunker.flush(), "unless there's none")
+        self.assertEqual(["Um momento."], chunks("Um momento.", streams=True))
 
     def test_but_not_too_soon(self):
         self.assertEqual(["Sim, claro que sim.", "Pode deixar."], chunks("Sim, claro que sim. Pode deixar."))

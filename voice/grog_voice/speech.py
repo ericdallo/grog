@@ -3,6 +3,7 @@ Pocket TTS, Supertonic or Piper. Their libraries load lazily, so the rest
 runs (and is tested) without them."""
 
 import os
+import zlib
 
 from . import pocket, supertonic
 from .audio import peak_dbfs, stt_gain_db
@@ -100,6 +101,9 @@ class Pocket:
     mimi_decoder.onnx), tokenizer.model and pocket.json (how to run them);
     `voice`, a voice's file (see pocket.voice_file)."""
 
+    # Its speech plays as it's made (see mouth.Mouth).
+    streams = True
+
     def __init__(self, model, voice, threads):
         import json
 
@@ -139,7 +143,8 @@ class Pocket:
         tokens = np.array([self.tokenizer.encode(text)], dtype=np.int64)
         no_tokens, no_noise = np.zeros((1, 0), dtype=np.int64), np.zeros((1, 32), dtype=np.float32)
         # The text first, into the voice's cache, then a latent at a time from
-        # "speech starts" (NaN): the same text sounds the same.
+        # "speech starts" (NaN), with noise seeded by the text: the same text
+        # sounds the same, and sentences don't all start alike.
         cache = self.flow(
             {
                 "tokens": tokens,
@@ -149,7 +154,7 @@ class Pocket:
             }
         )["cache_out"]
         latent = np.full((1, 1, 32), np.nan, dtype=np.float32)
-        rng, std = np.random.default_rng(0), rules["temperature"] ** 0.5
+        rng, std = np.random.default_rng(zlib.crc32(text.encode())), rules["temperature"] ** 0.5
         after = rules["frames_after_eos"] if rules["frames_after_eos"] is not None else guess + 2
         ending = pocket.Ending(rules["min_frames_before_eos"], after)
         state = np.zeros(rules["mimi_state"], dtype=np.float32)
