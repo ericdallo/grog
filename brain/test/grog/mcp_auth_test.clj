@@ -144,6 +144,39 @@
       (fn [s]
         (is (= ::mcp-auth/bad-resource (ex-type #(mcp-auth/discover! (:url s) nil))))))))
 
+(deftest a-resource-above-the-server
+  (let [routes (fn [prm-path]
+                 (fn [base]
+                   {prm-path (json-response {:resource base :authorization_servers [base]})
+                    "/.well-known/oauth-authorization-server" (json-response (as-metadata base base))}))]
+    (testing "its origin, at the root well-known address (Home Assistant's): the resource is the origin"
+      (with-server (routes "/.well-known/oauth-protected-resource")
+        (fn [s]
+          (is (= (:url s) (:resource (mcp-auth/discover! (str (:url s) "/api/mcp/assist") nil)))))))
+    (testing "its origin, where the challenge said"
+      (with-server (routes "/meta")
+        (fn [s]
+          (is (= (:url s) (:resource (mcp-auth/discover! (str (:url s) "/api/mcp")
+                                                         {:resource-metadata (str (:url s) "/meta")})))))))
+    (testing "a path above it, at the root"
+      (with-server (fn [base]
+                     {"/.well-known/oauth-protected-resource" (json-response {:resource (str base "/api/")
+                                                                              :authorization_servers [base]})
+                      "/.well-known/oauth-authorization-server" (json-response (as-metadata base base))})
+        (fn [s]
+          (is (= (str (:url s) "/api") (:resource (mcp-auth/discover! (str (:url s) "/api/mcp") nil)))))))
+    (testing "but not at the server's own well-known address, which describes only it"
+      (with-server (routes "/.well-known/oauth-protected-resource/api/mcp")
+        (fn [s]
+          (is (= ::mcp-auth/bad-resource (ex-type #(mcp-auth/discover! (str (:url s) "/api/mcp") nil)))))))
+    (testing "nor another path beside it"
+      (with-server (fn [base]
+                     {"/.well-known/oauth-protected-resource" (json-response {:resource (str base "/other")
+                                                                              :authorization_servers [base]})
+                      "/.well-known/oauth-authorization-server" (json-response (as-metadata base base))})
+        (fn [s]
+          (is (= ::mcp-auth/bad-resource (ex-type #(mcp-auth/discover! (str (:url s) "/api/mcp") nil)))))))))
+
 (deftest iss-required
   (is (mcp-auth/iss-required? {:metadata {"authorization_response_iss_parameter_supported" true}}))
   (is (not (mcp-auth/iss-required? {:metadata {}}))))
@@ -224,7 +257,11 @@
       (let [url (mcp-auth/authorize-url (assoc d :scope nil :metadata {"authorization_endpoint" "https://auth.example.com/authorize?tenant=1"})
                                         {:client-id "c"} {:challenge "x" :state "s" :redirect-uri redirect})]
         (is (str/starts-with? url "https://auth.example.com/authorize?tenant=1&"))
-        (is (not (contains? (query url) :scope)))))))
+        (is (not (contains? (query url) :scope)))))
+    (testing "no resource (Home Assistant's own sign-in)"
+      (is (not (contains? (query (mcp-auth/authorize-url (assoc d :resource nil) {:client-id "c"}
+                                                         {:challenge "x" :state "s" :redirect-uri redirect}))
+                          :resource))))))
 
 (defn ^:private token-server
   "A token endpoint answering `responses` in turn."
@@ -307,6 +344,13 @@
       (try
         (let [auth (mcp-auth/refresh! (auth-at (:url s)))]
           (is (= ["at-2" "rt-1" nil] [(:access-token auth) (:refresh-token auth) (:expires-at auth)])))
+        (finally ((:stop! s))))))
+  (testing "without a resource, none is sent"
+    (let [s (token-server [(json-response {:access_token "at-2" :expires_in 1800})])]
+      (try
+        (mcp-auth/refresh! (assoc (auth-at (:url s)) :resource nil))
+        (is (= {:grant_type "refresh_token" :refresh_token "rt-1" :client_id "c1"}
+               (oauth/form-decode (:body (first @(:requests s))))))
         (finally ((:stop! s))))))
   (testing "refused"
     (doseq [status [400 401]]

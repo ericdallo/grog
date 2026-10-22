@@ -154,10 +154,22 @@
 (defn ^:private touch! [ctx id client]
   (swap! (:servers ctx) update :clients #(cond-> % (= client (get-in % [id :client])) (assoc-in [id :used] (now)))))
 
+(defn ^:private launch-of
+  "What starts the server of `entry` for a connection with `secrets`: the
+  remote it reached when it connected (`:url`, with its `:headers`),
+  else as its values fill it in (grog.catalog/launch)."
+  [config entry secrets]
+  (if-let [url (:url secrets)]
+    {:kind :remote
+     :url url
+     :headers (into {} (for [[k v] (:headers secrets)] [(name k) v]))}
+    (catalog/launch config entry (:values secrets))))
+
 (declare refresh-tools!)
 
 (defn ^:private start!
-  "Starts the server of connection `id`: its client."
+  "Starts the server of connection `id`: its client. One connected through
+  its entry's ways goes to the address that answered then."
   [ctx id]
   (let [config @(:config ctx)
         dir (config/state-dir config)
@@ -171,7 +183,7 @@
     ;; Refreshing the token first: grog.mcp tells failing headers apart from
     ;; nothing else.
     ((bearer ctx id))
-    (let [launch (catalog/launch config entry (:values (connections/secrets dir id)))
+    (let [launch (launch-of config entry (connections/secrets dir id))
           client (try
                    (connect! config launch {:headers (bearer ctx id)
                                             :on-elicit #(elicit/ask! ctx title %)

@@ -56,6 +56,7 @@ const TOOLS = {
   settings: { label: "Changing its settings", done: "Changed its settings", short: "Settings", icon: "settings" },
   microphone: { label: "Switching its mic", done: "Switched its mic", short: "Mic", icon: "no-mic" },
   power: { label: "Getting ready to restart", done: "Got ready to restart", short: "Power", icon: "power" },
+  lights: { label: "Seeing to the lights", done: "Saw to the lights", short: "Lights", icon: "bulb" },
 };
 
 // What grog says going away (POST /v1/actions/<action>) is about.

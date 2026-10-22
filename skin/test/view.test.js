@@ -48,6 +48,7 @@ import {
   VOLUME_STEP,
   wordChanges,
 } from "../web/view.js";
+import { ICONS } from "../web/icons.js";
 
 const NOW = 1_000_000;
 
@@ -526,6 +527,16 @@ describe("words and numbers", () => {
     assert.equal(tool("volume").label, "Adjusting the volume");
     assert.deepEqual(tool("new_thing"), { label: "New thing", done: "New thing", short: "New thing", icon: "tool" });
     assert.deepEqual([capitalize("plus"), capitalize(""), capitalize(null)], ["Plus", "", ""]);
+  });
+
+  it("lights, grog's own, with a bulb", () => {
+    assert.deepEqual(tool("lights"), {
+      label: "Seeing to the lights",
+      done: "Saw to the lights",
+      short: "Lights",
+      icon: "bulb",
+    });
+    assert.ok(ICONS.bulb);
   });
 
   it("an MCP server's tools, in words, with their server when there's room", () => {

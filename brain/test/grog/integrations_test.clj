@@ -24,7 +24,8 @@
                :multiple false :connections []}
               {:id "computer" :title "Computers" :heading "Add a computer" :about "your computers, to act on them"
                :icon "computer" :ways [{:id "script" :label "Run a command on it"}] :multiple true :connections []}]
-             (integrations/summary config))))
+             (take 2 (integrations/summary config))))
+      (is (= ["home-assistant"] (map :id (drop 2 (integrations/summary config)))) "then the MCP servers shipped"))
     (testing "then what is, never its secrets"
       (credentials/save! (config/state-dir config) "openai" {:access-token "secret" :email "grog@example.com"})
       (computers/add! config {:name "deluxe" :host "192.168.15.90" :port 22 :user "greg"
@@ -45,7 +46,7 @@
         {:keys [run parameters changes?] :as tool} (integrations/tool @(:config ctx))]
     (try
       (is (= "connect" (:name tool)))
-      (is (= ["openai" "computer"] (get-in parameters [:properties :integration :enum])))
+      (is (= ["openai" "computer" "home-assistant"] (get-in parameters [:properties :integration :enum])))
       (is (str/includes? (:description tool) "computer (your computers, to act on them)"))
       (is (changes? {}) "not in a turn that searched the web: it opens grog to the network")
       (is (= (str "Add a computer: a window is open for 10 minutes, and your screen shows its link and QR code. Tell "

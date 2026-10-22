@@ -2,8 +2,10 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [grog.actions :as actions]
+            [grog.capabilities :as capabilities]
             [grog.computers :as computers]
             [grog.config :as config]
+            [grog.mcp-tools :as mcp-tools]
             [grog.tools :as tools]))
 
 (def ^:private echo
@@ -37,6 +39,13 @@
                (names (assoc-in hands [:update :status] "/run/grog-update/status.json"))))
         (is (= ["settings" "memory" "microphone" "connect"]
                (names (assoc-in config/defaults [:update :status] "/run/grog-update/status.json"))))))))
+
+(deftest offers-capabilities-before-mcp-tools
+  (with-redefs [actions/service? (constantly false)
+                capabilities/tools (constantly [{:name "lights"}])
+                mcp-tools/tools (constantly [{:name "ha__GetLiveContext"}])]
+    (is (= ["settings" "memory" "microphone" "lights" "ha__GetLiveContext" "connect"]
+           (mapv :name (tools/available config/defaults))))))
 
 (deftest runs-tools-for-the-model
   (let [searched? (atom false)

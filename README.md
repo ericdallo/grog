@@ -53,6 +53,7 @@ grog status    # model, account, and what it has spent
 grog login     # sign in with a ChatGPT subscription: a code, on any phone or computer
 grog update    # to the latest grog pushed (also by asking it, or on its screen)
 grog connect computer  # pair one of your computers, for grog to act on it
+grog connect home-assistant  # your Home Assistant's lights and the rest
 grog integrations add npm:some-mcp@1.2.3  # an MCP server, then grog connect some-mcp
 ```
 

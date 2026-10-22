@@ -152,7 +152,9 @@ pkgs.testers.runNixOSTest {
         assert out == "(true,)", out
 
     with subtest("grog's skin shows what grog-voice does, and a turn as it comes, with captions"):
-        # The VM has no GPU: the skin is drawn on the CPU.
+        # The VM has no GPU: the skin is drawn on the CPU. Once it faded in
+        # (see below).
+        machine.sleep(3)
         machine.wait_for_text("Listening", timeout=120)
         machine.succeed("su - grog -c 'grog ask --new hi'")
         # Once the skin drew it, faded in: OCR of a frame mid-fade can take

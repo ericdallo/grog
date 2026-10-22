@@ -96,12 +96,13 @@ phases land.
     Servers that don't know it get the handshake of 2025-11-25 (down to
     2025-03-26), with elicitation as requests of their own; a stdio server
     not answering `server/discover` in 5 s is taken for one of those.
-  - No catalog entries ship yet: Home Assistant is phase 3. grog's own
-    tools stay Clojure tools, not servers inside it, and there are no
-    capability tools (`music`, `lights`) yet.
-  - grog's `_meta` fields are `id`, `prefix`, `icon`, `about`, `show`,
-    `policy`, `cloud` and `added`: `connect` steps and `capabilities` aren't
-    read yet. What connecting asks comes from `server.json`: a package's
+  - No catalog entries shipped in phase 2: Home Assistant came with phase
+    3. grog's own tools stay Clojure tools, not servers inside it, and
+    capability tools came with phase 3 (`lights`; no `music` yet).
+  - grog's `_meta` fields were `id`, `prefix`, `icon`, `about`, `show`,
+    `policy`, `cloud` and `added`: `connect` and `capabilities` came with
+    phase 3. Without `connect`, what connecting asks comes from
+    `server.json`: a package's
     environment variables and arguments' variables, a remote's headers and
     the variables in its address, in a form (`isSecret` warned about).
     Everything of grog's `_meta` in an entry the user added is dropped, and
@@ -134,10 +135,81 @@ phases land.
     later. On NixOS, uv uses nixpkgs' Python (`UV_PYTHON`, downloads off).
   - `client.json` names only the relay's callback, no loopback address:
     signing in to MCP servers always goes through the relay page (or the
-    address pasted on grog's page).
+    address pasted on grog's page). Home Assistant, in phase 3, doesn't:
+    its own sign-in comes straight back to grog's page.
   - A 403 asking for more scopes (`insufficient_scope`) isn't handled yet:
     the call fails (`grog.mcp-auth/step-up-scope` is there, unused).
-- Next: phase 3 (see "Phases"), Home Assistant.
+- Phase 3 is built (October 2026): Home Assistant, and `lights`.
+  - `resources/grog/integrations/home-assistant.json`, the first entry
+    grog ships: its remotes (`{url}/api/mcp/assist`, then `{url}/api/mcp`),
+    its ways (signing in, or a long-lived token), its name (`location_name`
+    of `/api/config`), what to say on a 404 (no MCP server set up there) or
+    a 403 (admins only), `lights` mapped to its tools, and its policy.
+  - `grog.catalog` reads `connect` (`ways`), `name`, `errors` and
+    `capabilities` in shipped entries, and fills in `{variables}`
+    (`template`, `remote-urls`).
+  - `grog.mcp-connect` runs an entry's ways: the steps `discover`, `form`
+    (fields of format `uri` taken as http or https addresses) and `oauth`
+    (client `lan`), then the way's headers; it reaches the first remote
+    that answers and keeps it in the connection's secrets (`:way`, `:url`,
+    `:headers`, the auth and the revocation endpoint), which
+    `grog.servers` starts from.
+  - `grog.mdns`: DNS-SD over mDNS (RFC 6763, 6762): `avahi-browse`, else a
+    one-shot query of its own; what's found becomes an address from its
+    TXT (`internal_url`, `base_url`) or its first IPv4 address and port.
+  - `grog.mcp-auth`: resource metadata may name a resource above the
+    server's own when it came from the root well-known address or the
+    challenge's (RFC 9728), and nothing empty goes in the authorization or
+    token requests (no `resource` without one).
+  - `grog.capabilities`: `lights` (`on`, `off`, `set`, `state`), offered by
+    `grog.tools` when something connected can do it.
+  - `grog.mcp-tools`: `matches?` and `find-tool`, for tool names that
+    change by version.
+  - The module puts avahi on grog's path; the skin labels `lights` ("Seeing
+    to the lights", a bulb).
+  - A fake Home Assistant (`start-ha!` in `test_helpers.clj`), as its
+    source has it, for the unit and VM tests.
+- Where phase 3 differs from what's below:
+  - `connect` is a list of ways, each `{id label steps headers}` (a bare
+    list of steps is one way), the first the usual one; the page offers the
+    others. Each step adds to the variables the next ones, the headers
+    (`Bearer {token}`) and the remotes' addresses use. `oauth` comes last.
+  - Two remotes: `/api/mcp/assist` first (newer Home Assistants), then
+    `/api/mcp`, tried on a 404. grog only checks for them once signed in:
+    a 404 from both says how to add the integration, as the entry's
+    `errors` say, and a 403 that only admins may (`/api/mcp`'s setting).
+  - Discovery asks `avahi-browse` first: on grognix the firewall would drop
+    unicast replies to grog's own port. Without avahi, or when it finds
+    nothing, grog sends a legacy unicast query (RFC 6762 §6.7) from an
+    ephemeral port. Each takes 2 s at most. There's no list to pick from:
+    the first found fills in the form's address, the others named in it.
+  - Home Assistant's tool names now carry prefixes (`intent__HassTurnOn`),
+    which change by version: a name in `show`, `policy` and
+    `capabilities` also matches a server's ending in `__` and that name.
+  - Home Assistant's sign-in: PKCE (S256), grog's address on the network
+    as the client id (`http://<address>/`, port 8485 included), coming
+    back to `/c/callback` there, no resource named. The tokens refresh
+    (Home Assistant gives no new refresh token), and disconnecting revokes
+    them at `/auth/revoke`. A pasted long-lived token is kept as a header,
+    and stays valid after disconnecting.
+  - Capabilities only come from shipped entries: `{action {tool args}}`,
+    a `"{param}"` in the arguments being the call's (left out when it has
+    none). `lights` goes through the first connected entry, in catalog
+    order, mapping it whose cached tools include its `on` and `off`;
+    `state` reads `GetLiveContext`.
+  - `lights` is grog's own: it never asks, though it doesn't run after a
+    web search, but for `state`. Home Assistant's own `HassTurnOn` and
+    `HassTurnOff` act on any domain, locks included, so the entry doesn't
+    allow them: they ask first by default, unless Home Assistant marks them
+    non-destructive (its annotations count, as the entry is shipped).
+    `GetLiveContext`, `HassLightSet` and `HassClimateSetTemperature` are
+    allowed.
+  - The entry has no `show`: the model sees the first 40 of Home
+    Assistant's tools, next to `lights`.
+  - No switches or climate capabilities yet.
+  - It was tested against a fake Home Assistant (unit and VM tests), not
+    a real one yet.
+- Next: phase 4 (see "Phases"), music.
 
 ## What it should feel like
 
@@ -645,11 +717,20 @@ just the brain too.
   terms.
 - Browsers and the relay page: Chrome's Local Network Access on top-level
   navigation to a private address, and what Firefox and Safari do.
-- Home Assistant: `/api/mcp` taking tokens from its OAuth (not only
-  long-lived ones), and its rules for an `http` client id on the network.
+- Home Assistant, from its source (phase 3): `/api/mcp` takes any of its
+  access tokens, those of its OAuth included, not only long-lived ones; and
+  an `http` client id on the private network is accepted, the redirect on
+  its host and port. Still to check on a real one: the whole sign-in, its
+  tool names and annotations (whether `HassTurnOn` and `HassTurnOff` ask
+  first), what `GetLiveContext` makes of the arguments `lights` sends it,
+  `/api/mcp`'s admin-only setting, and the TXT discovery reads
+  (`internal_url`, `location_name`).
 - Tuya: Brazilian brands' apps, and an MCP server on the sharing SDK.
 - Music on grognix: transcription's CPU, false wakes.
-- mDNS from grog's sandbox: multicast from Babashka, or avahi.
+- mDNS from grog's sandbox (phase 3): avahi, through grognix's daemon, as
+  the firewall drops unicast replies to grog's own queries; a legacy
+  unicast query from Babashka as the fallback. Still to see on a real
+  network, and with machines that answer only on IPv6.
 
 ## References
 

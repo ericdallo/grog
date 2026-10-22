@@ -22,35 +22,63 @@
                 [{:type "positional" :value "serve"} {:type "named" :name "--port" :value "8080"}])
       (assoc-in [:_meta catalog/meta-key] {:policy {:delete "allow"} :cloud false})))
 
+(deftest shipped-with-grog
+  (let [[home & more] (catalog/shipped)]
+    (testing "Home Assistant, trusted"
+      (is (= ["home-assistant"] (map catalog/id-of (cons home more))))
+      (is (catalog/trusted? home)))
+    (testing "its ways, each a list of steps"
+      (is (= [["sign-in" "Sign in to Home Assistant" ["discover" "form" "oauth"] nil]
+              ["token" "Paste a long-lived token instead" ["discover" "form"] {:Authorization "Bearer {token}"}]]
+             (map (juxt :id :label #(map :step (:steps %)) :headers) (catalog/ways home)))))
+    (testing "its remotes, filled in"
+      (is (= ["http://ha.local:8123/api/mcp/assist" "http://ha.local:8123/api/mcp"]
+             (catalog/remote-urls home {"url" "http://ha.local:8123"}))))))
+
+(deftest ways
+  (let [steps [{:step "form" :fields [{:id "url" :label "Its address"}]}]
+        entry #(assoc-in {:name "x/y"} [:_meta catalog/meta-key] %)]
+    (testing "a bare list of steps: one way"
+      (is (= [{:id "connect" :label "Connect" :steps steps}] (catalog/ways (entry {:connect steps})))))
+    (testing "ways without ids or labels get some"
+      (is (= [{:id "way-1" :label "Connect" :steps steps}] (catalog/ways (entry {:connect [{:steps steps}]})))))
+    (testing "none said, or the user added it: none"
+      (is (nil? (catalog/ways (entry {}))))
+      (is (nil? (catalog/ways (entry {:connect steps :added true})))))
+    (testing "templates"
+      (is (= "Bearer t, " (catalog/template "Bearer {token}, {nope}" {"token" "t"})))
+      (is (= "a$1\\b" (catalog/template "{x}" {"x" "a$1\\b"}))))))
+
 (deftest adding-and-removing
-  (let [config (config)]
-    (testing "none at first"
-      (is (= [] (catalog/entries config))))
-    (testing "added: its short id, then another"
-      (is (= "fake-weather" (catalog/add! config weather)))
-      (is (= "fake-weather-2" (catalog/add! config weather)))
-      (is (= ["fake-weather" "fake-weather-2"] (map catalog/id-of (catalog/entries config)))))
-    (testing "kept in the state directory, without what it said of grog's fields"
-      (let [kept (json/parse-string (slurp (str (fs/path (:state-dir config) "catalog" "fake-weather.json"))) true)]
-        (is (= #{:id :added :addedAt} (set (keys (get-in kept [:_meta catalog/meta-key])))))
-        (is (true? (get-in kept [:_meta catalog/meta-key :added])))
-        (is (= "fixed" (get-in kept [:packages 0 :environmentVariables 2 :value]))))
-      (is (catalog/added? (catalog/entry config "fake-weather")))
-      (is (not (catalog/trusted? (catalog/entry config "fake-weather")))))
-    (testing "what grog can't run isn't added"
-      (is (thrown? clojure.lang.ExceptionInfo (catalog/add! config {:name "x/y" :packages [{:registryType "oci"}]}))))
-    (testing "removed"
-      (is (= {:id "fake-weather-2" :removed true} (catalog/remove! config "fake-weather-2")))
-      (is (nil? (catalog/entry config "fake-weather-2")))
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no integration called" (catalog/remove! config "nope"))))
-    (testing "those shipped with grog come first, are trusted, and stay"
-      (with-redefs [catalog/shipped (constantly [(assoc-in weather [:_meta catalog/meta-key :id] "weather")])]
-        (is (= ["weather" "fake-weather"] (map catalog/id-of (catalog/entries config))))
-        (is (catalog/trusted? (catalog/entry config "weather")))
-        (is (= "weather-2" (catalog/id-of (catalog/entry config (catalog/add! config (assoc weather :name "x/weather"))))))
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"comes with grog" (catalog/remove! config "weather")))))
-    (testing "never the id of grog's own integrations"
-      (is (= "computer-2" (catalog/add! config (assoc weather :name "x/computer")))))))
+  (with-redefs [catalog/shipped (constantly [])]
+    (let [config (config)]
+      (testing "none at first"
+        (is (= [] (catalog/entries config))))
+      (testing "added: its short id, then another"
+        (is (= "fake-weather" (catalog/add! config weather)))
+        (is (= "fake-weather-2" (catalog/add! config weather)))
+        (is (= ["fake-weather" "fake-weather-2"] (map catalog/id-of (catalog/entries config)))))
+      (testing "kept in the state directory, without what it said of grog's fields"
+        (let [kept (json/parse-string (slurp (str (fs/path (:state-dir config) "catalog" "fake-weather.json"))) true)]
+          (is (= #{:id :added :addedAt} (set (keys (get-in kept [:_meta catalog/meta-key])))))
+          (is (true? (get-in kept [:_meta catalog/meta-key :added])))
+          (is (= "fixed" (get-in kept [:packages 0 :environmentVariables 2 :value]))))
+        (is (catalog/added? (catalog/entry config "fake-weather")))
+        (is (not (catalog/trusted? (catalog/entry config "fake-weather")))))
+      (testing "what grog can't run isn't added"
+        (is (thrown? clojure.lang.ExceptionInfo (catalog/add! config {:name "x/y" :packages [{:registryType "oci"}]}))))
+      (testing "removed"
+        (is (= {:id "fake-weather-2" :removed true} (catalog/remove! config "fake-weather-2")))
+        (is (nil? (catalog/entry config "fake-weather-2")))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no integration called" (catalog/remove! config "nope"))))
+      (testing "those shipped with grog come first, are trusted, and stay"
+        (with-redefs [catalog/shipped (constantly [(assoc-in weather [:_meta catalog/meta-key :id] "weather")])]
+          (is (= ["weather" "fake-weather"] (map catalog/id-of (catalog/entries config))))
+          (is (catalog/trusted? (catalog/entry config "weather")))
+          (is (= "weather-2" (catalog/id-of (catalog/entry config (catalog/add! config (assoc weather :name "x/weather"))))))
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"comes with grog" (catalog/remove! config "weather")))))
+      (testing "never the id of grog's own integrations"
+        (is (= "computer-2" (catalog/add! config (assoc weather :name "x/computer"))))))))
 
 (deftest what-a-package-needs
   (let [config (assoc-in (config) [:integrations :runner] "/run/grog-mcp/runner.sock")

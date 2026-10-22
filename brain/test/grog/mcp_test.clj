@@ -465,6 +465,34 @@
       (fn [url]
         (is (= ::mcp/failed (:type (thrown-type #(mcp/connect! (mcp/http-transport {:url url}) {})))))))))
 
+(deftest http-home-assistant
+  (let [ha (h/start-ha!)
+        transport (fn [path token]
+                    (mcp/http-transport {:url (str (:url ha) path)
+                                         :headers (constantly {"Authorization" (str "Bearer " token)})}))]
+    (try
+      (testing "200 and -32601 for server/discover: the handshake of 2025"
+        (let [client (mcp/connect! (transport "/api/mcp/assist" "llat-1") {})]
+          (is (= "2025-06-18" (:version (mcp/info client))))
+          (is (= {:name "home-assistant" :version "2026.10.0"} (:server-info (mcp/info client))))
+          (is (= (map :name h/ha-tools) (map :name (mcp/tools client))))
+          (is (str/includes? (mcp/text-of (mcp/call-tool! client "intent__HassTurnOn" {:name "Kitchen"})) "success"))
+          (is (= [{:uri "/api/mcp/assist" :token "llat-1" :name "intent__HassTurnOn" :arguments {:name "Kitchen"}}]
+                 @(:calls ha)))
+          (is (= ["server/discover" "initialize" "notifications/initialized" "tools/list" "tools/call"]
+                 (keep #(some-> (:body %) (json/parse-string true) :method) @(:requests ha))))
+          (mcp/close! client)))
+      (testing "a bad token"
+        (is (= ::mcp/unauthorized (:type (thrown-type #(mcp/connect! (transport "/api/mcp/assist" "nope") {}))))))
+      (testing "no MCP server there: its status said"
+        (swap! (:switches ha) conj :no-mcp)
+        (is (= [::mcp/failed 404] ((juxt :type :status) (thrown-type #(mcp/connect! (transport "/api/mcp/assist" "llat-1") {}))))))
+      (testing "only for admins"
+        (reset! (:switches ha) #{:forbidden})
+        (is (= [::mcp/failed 403] ((juxt :type :status) (thrown-type #(mcp/connect! (transport "/api/mcp" "llat-1") {}))))))
+      (finally
+        ((:stop! ha))))))
+
 (deftest http-invalid-header-annotations
   (let [tool (fn [name properties] {:name name :inputSchema {:type "object" :properties properties}})
         listed [(tool "good" {:a {:type "string" :x-mcp-header "A"}

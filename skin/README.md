@@ -28,7 +28,8 @@ grog's skin: a page showing what grog is up to, for a screen next to it.
   and QR code), or a page a server wants opened (its QR code, then Done).
   Only when nothing else is on the card.
 - An MCP server's tools (`<server>__<tool>`) show as the tool in words,
-  with the server when it fits: "Create issue · github".
+  with the server when it fits: "Create issue · github". `lights`, grog's
+  own tool for them, shows as "Seeing to the lights", with a bulb.
 
 ## Touching it
 

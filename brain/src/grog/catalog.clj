@@ -12,6 +12,12 @@
     policy   {tool \"allow\"|\"ask\"|\"deny\"}, over the defaults
     cloud    whether what grog sends it leaves home
     added    the user added it, at addedAt (epoch ms)
+    connect  how it connects: its ways (`ways`), each a list of steps
+             (grog.mcp-connect)
+    name     what to call what got connected: {url field}, the field of
+             the JSON at url (with the connection's token)
+    errors   {status message}: what to say when it answers that status
+    capabilities  what grog's capability tools (lights...) call of it
 
   Those shipped with grog are in resources/grog/integrations/*.json, their
   versions pinned, and trusted: their annotations and _meta count. Those the
@@ -72,6 +78,36 @@
   "What `entry` is called on the screen."
   [entry]
   (or (not-empty (:title entry)) (registry/id-of entry)))
+
+(defn ways
+  "How `entry` connects, as its _meta's connect says (only when it's
+  trusted): [{:id :label :steps :headers}], the usual way first, or nil
+  when it doesn't say (then its server.json says what it needs: `inputs`).
+  A bare list of steps is one way, \"connect\"."
+  [entry]
+  (let [connect (when (trusted? entry) (:connect (grog-meta entry)))]
+    (cond
+      (not (and (sequential? connect) (seq connect))) nil
+      (every? :step connect) [{:id "connect" :label "Connect" :steps (vec connect)}]
+      :else (vec (keep-indexed (fn [i way]
+                                 (when (map? way)
+                                   (assoc way
+                                          :id (or (:id way) (str "way-" (inc i)))
+                                          :label (or (:label way) "Connect")
+                                          :steps (vec (:steps way)))))
+                               connect)))))
+
+(defn template
+  "`s` with its {variables} as `vars` ({name value}, names as text) say,
+  \"\" for those they don't."
+  [s vars]
+  (str/replace (str s) #"\{([A-Za-z0-9_.-]+)\}"
+               (fn [[_ v]] (str (get vars v "")))))
+
+(defn remote-urls
+  "The addresses of `entry`'s remotes, in order, filled in from `vars`."
+  [entry vars]
+  (mapv #(template (:url %) vars) (:remotes entry)))
 
 (defn ^:private read-entry
   "The entry in file `f`, or nil when it can't be read (logged, without
@@ -266,8 +302,7 @@
   [s values variables]
   (str/replace (str s) #"\{([A-Za-z0-9_.-]+)\}"
                (fn [[_ v]]
-                 (str/re-quote-replacement
-                  (str (or (value-of values "var" v) (get-in variables [(keyword v) :default]) ""))))))
+                 (str (or (value-of values "var" v) (get-in variables [(keyword v) :default]) "")))))
 
 (defn ^:private resolved
   "Key-value inputs `kvs` as `values` fill them: {name value}, without

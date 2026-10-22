@@ -60,6 +60,21 @@
     (is (str/starts-with? a "ha__a_b_")))
   (is (= "my_server" (mcp-tools/prefix (assoc-in home [:_meta catalog/meta-key] {:id "my.server"})))))
 
+(deftest matching-names
+  (testing "the same, or ending in __<name>"
+    (is (mcp-tools/matches? "HassTurnOn" "HassTurnOn"))
+    (is (mcp-tools/matches? "HassTurnOn" "intent__HassTurnOn"))
+    (is (mcp-tools/matches? "HassTurnOn" "device-control__intent__HassTurnOn")))
+  (testing "not a part of a name"
+    (is (not (mcp-tools/matches? "HassTurnOn" "XHassTurnOn")))
+    (is (not (mcp-tools/matches? "HassTurnOn" "intent_HassTurnOn")))
+    (is (not (mcp-tools/matches? "HassTurnOn" "HassTurnOnAll")))
+    (is (not (mcp-tools/matches? "" "intent__"))))
+  (let [ts [{:name "a__HassTurnOn"} {:name "HassTurnOn"} {:name "HassTurnOff"}]]
+    (is (= {:name "HassTurnOn"} (mcp-tools/find-tool ts "HassTurnOn")) "the same name first")
+    (is (= {:name "a__HassTurnOn"} (mcp-tools/find-tool [(first ts) (last ts)] "HassTurnOn")))
+    (is (nil? (mcp-tools/find-tool ts "HassLightSet")))))
+
 (deftest guards
   (testing "trusted: as annotated, MCP's defaults otherwise"
     (is (= {:read-only true :changes false :open-world false :destructive false}
@@ -122,6 +137,18 @@
         (testing "not while signed out"
           (connections/set-status! (config/state-dir config) id "signed-out")
           (is (= [] (mcp-tools/tools config))))))))
+
+(deftest names-that-change-by-version
+  (let [entry (assoc-in home [:_meta catalog/meta-key :show] ["HassTurnOff" "Unlock"])]
+    (with-redefs [catalog/shipped (constantly [entry])]
+      (let [ctx (context)
+            config @(:config ctx)
+            id (connected! ctx entry (mapv #(update % :name (partial str "intent__")) home-tools) true)]
+        (testing "the entry's show and policy match prefixed names"
+          (is (= ["ha__intent__HassTurnOff" "ha__intent__Unlock"] (map :name (mcp-tools/tools config))))
+          (is (= [["intent__HassTurnOff" "allow" true] ["intent__GetLiveContext" "allow" false]
+                  ["intent__Unlock" "deny" true] ["intent__read.mail" "allow" false]]
+                 (map (juxt :name :mode :shown) (mcp-tools/tool-settings config id)))))))))
 
 (deftest a-server-the-user-added
   (let [ctx (context)

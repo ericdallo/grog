@@ -30,6 +30,7 @@ grog update                # to the latest grog pushed, saying how it goes
 grog integrations          # what it can connect to, and what's connected
 grog connect openai        # sign in to the ChatGPT subscription (--browser: in a browser); so does grog login
 grog connect computer      # pair one of your computers
+grog connect home-assistant  # your Home Assistant: its lights and the rest
 grog disconnect ID         # computer:NAME forgets one; openai signs out, like grog logout
 grog integrations add WHAT # an MCP server: its name in the MCP Registry, npm:pkg@1.2.3, pypi:pkg==1.2.3 or https://...
 grog integrations search TEXT  # servers of the MCP Registry (it can be slow)
@@ -140,7 +141,7 @@ grog sees (`update` in `/v1/events`).
 What grog connects to, its integrations ([`integrations.clj`](src/grog/integrations.clj)),
 all connect the same way ([`connect.clj`](src/grog/connect.clj)): the
 ChatGPT subscription (`openai`), your computers (`computer`), and
-[MCP servers](#mcp-servers).
+[MCP servers](#mcp-servers), [Home Assistant](#home-assistant) among them.
 Someone at grog opens a window for one, on its screen (Integrations, in its
 actions), by asking it ("connect my computer"), or with `grog connect ID`.
 For 10 minutes, grog listens on the network (`integrations.host`, `.port`),
@@ -207,7 +208,8 @@ grog can use the tools of [MCP](https://modelcontextprotocol.io) servers,
 each one an integration, connected [like the rest](#connecting-things).
 Its catalog ([`catalog.clj`](src/grog/catalog.clj)) has them as the
 official MCP Registry's `server.json`: those that come with grog, in
-`resources/grog/integrations/` (none yet), and those you add, in the state
+`resources/grog/integrations/` ([Home Assistant](#home-assistant), for
+now), and those you add, in the state
 directory (`catalog/`):
 
 ```sh
@@ -273,6 +275,65 @@ A server may ask for something in the middle of a call
 ([`elicit.clj`](src/grog/elicit.clj)): a form, filled in on grog's page
 (its link and QR code on the card), or a page to open (its QR code on the
 card, then Done). Nobody answering in 3 minutes cancels it.
+
+### Home Assistant
+
+The first integration that comes with grog
+([`home-assistant.json`](resources/grog/integrations/home-assistant.json)).
+Home Assistant needs its "Model Context Protocol Server" integration
+(Settings, Devices & services, Add integration), and grog only sees the
+entities exposed to Assist there. grog uses `/api/mcp/assist`, or
+`/api/mcp` on older ones, which may only let Home Assistant's admins in:
+then sign in as one, or update it.
+
+To connect it, ask grog ("connect Home Assistant"), tap it in Integrations
+on its screen, or run `grog connect home-assistant`. grog looks for it on
+the network ([`mdns.clj`](src/grog/mdns.clj): avahi's daemon, with
+`avahi-browse`, else a query of its own), and its page asks for its
+address, filled in with what it found. Then whoever connects signs in on
+Home Assistant's own page, which comes straight back to grog's page: grog
+is a client there by its address on the network
+(`http://192.168.15.10:8485/`), so there's no relay page and nothing to
+register. The page's other way is pasting a long-lived token (in Home
+Assistant, your profile, Security), which crosses the network as it is.
+The connection takes the name Home Assistant has for the home. Its tokens
+refresh on their own, and disconnecting revokes them (a pasted token stays:
+delete it in Home Assistant).
+
+### Lights
+
+The model has one tool for lights, `lights`
+([`capabilities.clj`](src/grog/capabilities.clj)), whatever is behind it:
+it turns them on or off, sets their brightness, color or color temperature,
+and tells how they are. It goes through the first connected integration
+that comes with grog and maps lights (Home Assistant, for now). It's grog's
+own, so it never asks first, though like any tool that changes things it
+doesn't run after a web search.
+
+Next to it are Home Assistant's own tools, `ha__...`, for the rest of the
+home, under the rules [above](#what-the-model-sees): those that change
+things and that Home Assistant doesn't mark as non-destructive ask first,
+but for those its entry allows (`GetLiveContext`, `HassLightSet`, setting
+the temperature).
+
+### What grog reads in its own entries
+
+The `_meta` of the entries that come with grog (`io.github.ericdallo.grog`)
+says more than `server.json` does:
+
+- `id`, `prefix`, `icon`, `about` (a line for the screen), `cloud`.
+- `connect`: its ways, each a list of steps (`discover`, what answers on
+  the network; `form`; `oauth`, at an authorization server on the
+  network) and the `headers` they make (`Bearer {token}`), the
+  `{variables}` in them and in its remotes' addresses filled in by the
+  steps. Its remotes are tried in order, the next on a 404.
+- `name`: where to read what the connection is called.
+- `errors`: what to say when it answers a status (404: no MCP server yet).
+- `capabilities`: what `lights` calls of it, and with what.
+- `policy` and `show`: its tools' default modes, and which the model sees.
+
+A tool named there also matches a server's ending in `__` and that name
+(`intent__HassTurnOn`), as Home Assistant's change by version.
 
 ## The prompt
 
@@ -422,7 +483,8 @@ it in text the script reads, a line of `key=value` each
   What tools are given and answer is never logged.
 - The relay page sees OAuth codes, never tokens: a code is useless without
   the verifier grog keeps (PKCE). The state it reads has grog's address on
-  your network, which isn't secret.
+  your network, which isn't secret. Signing in to Home Assistant doesn't go
+  through it: its page sends the browser straight back to grog.
 - Any local user can watch `/v1/events`, which has what's said, and what
   tools were used with (commands, searches), with `skin.captions`; and
   while something connects, the link to its page, with its token.

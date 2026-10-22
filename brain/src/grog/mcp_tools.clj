@@ -18,7 +18,8 @@
   Each tool's policy: \"allow\", \"ask\" (grog.asks) or \"deny\", by default
   \"ask\" for destructive ones and \"allow\" for the rest, over which the
   shipped entry's _meta policy goes. Shown by default: those the shipped
-  entry's _meta show names, else the first `shown-max`. The user's choices
+  entry's _meta show names, else the first `shown-max`. The entry's names
+  match the server's as `matches?` says. The user's choices
   win, kept in <state-dir>/tools.json: {\"<connection>\" {\"<tool>\"
   {\"mode\" \"ask\", \"show\" true}}}, tool names as the servers have them."
   (:require [babashka.fs :as fs]
@@ -84,6 +85,36 @@
         counts (frequencies plain)]
     (mapv (fn [n tool] (if (> (counts n) 1) (hashed prefix tool) n)) plain tools)))
 
+(defn matches?
+  "Whether a server's tool called `tool-name` is the one a catalog entry
+  calls `catalog-name`: the same, or ending in __<catalog-name>, as some
+  servers' names change by version (Home Assistant's HassTurnOn,
+  intent__HassTurnOn, device-control__intent__HassTurnOn)."
+  [catalog-name tool-name]
+  (let [c (str catalog-name)
+        t (str tool-name)]
+    (and (not (str/blank? c))
+         (or (= c t) (str/ends-with? t (str "__" c))))))
+
+(defn find-tool
+  "The first of `tools` (as servers send them) that is `catalog-name`
+  (`matches?`), the same name first, or nil."
+  [tools catalog-name]
+  (or (some #(when (= (str catalog-name) (:name %)) %) tools)
+      (some #(when (matches? catalog-name (:name %)) %) tools)))
+
+(defn ^:private key-name
+  "A key of a parsed entry as it was written."
+  [k]
+  (if (keyword? k) (subs (str k) 1) (str k)))
+
+(defn ^:private policy-of
+  "What the entry's _meta `policy` says of the server's tool `tool-name`:
+  its own name's, else the first that `matches?` it, or nil."
+  [policy tool-name]
+  (or (get policy (keyword tool-name))
+      (some (fn [[k v]] (when (matches? (key-name k) tool-name) v)) policy)))
+
 (defn guards
   "What `tool`'s annotations mean, trusted (`trusted?`) or not: {:read-only
   :changes :open-world :destructive}."
@@ -124,13 +155,13 @@
   [config id entry tools]
   (let [trusted? (catalog/trusted? entry)
         {:keys [policy show]} (when trusted? (catalog/grog-meta entry))
-        shown-names (when (sequential? show) (set (map str show)))
+        shown-names (when (sequential? show) (map str show))
         mine (get (choices config) id {})]
     (vec (map-indexed
           (fn [i {:keys [name description] :as tool}]
             (let [{:keys [read-only destructive open-world]} (guards trusted? tool)
-                  default-mode (or (modes (get policy (keyword name))) (if destructive "ask" "allow"))
-                  default-shown (if shown-names (contains? shown-names name) (< i shown-max))
+                  default-mode (or (modes (policy-of policy name)) (if destructive "ask" "allow"))
+                  default-shown (if shown-names (boolean (some #(matches? % name) shown-names)) (< i shown-max))
                   {:strs [mode show]} (get mine name)]
               {:name name
                :title (tool-title tool)

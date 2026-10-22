@@ -334,7 +334,7 @@
   (let [srv (start-server "http://127.0.0.1:1" (h/temp-dir) (h/free-port))
         base (str "http://127.0.0.1:" (:port srv))]
     (try
-      (is (= [400 {:error "There's no integration called \"nope\" (there's openai, computer)."}]
+      (is (= [400 {:error "There's no integration called \"nope\" (there's openai, computer, home-assistant)."}]
              (api :post (str base "/v1/integrations/nope/connect"))))
       (is (= [400 {:error "There's no connection called \"nope\" (grog integrations lists them)."}]
              (api :delete (str base "/v1/connections/nope"))))

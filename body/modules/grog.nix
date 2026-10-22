@@ -386,8 +386,11 @@ in
         wantedBy = [ "multi-user.target" ];
         wants = [ "network-online.target" ];
         after = [ "network-online.target" ];
-        # ssh and ssh-keygen, for the computers it acts on (grog.computers).
-        path = [ pkgs.openssh ];
+        # ssh and ssh-keygen, for the computers it acts on (grog.computers);
+        # avahi-browse, to find devices on the network through the avahi
+        # daemon, which grognix runs: grog's firewall doesn't let replies to
+        # its own queries in (grog.mdns).
+        path = [ pkgs.openssh pkgs.avahi ];
         environment = lib.mkIf (cfg.revision != null) { GROG_REVISION = cfg.revision; };
 
         serviceConfig = {

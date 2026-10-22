@@ -9,7 +9,10 @@
 # serves, which the model then acts on, as it allows; MCP servers the user
 # adds (fake-mcp.py): one from npm, run apart by grog's runner, and one over
 # HTTP, whose tools the model uses, asking first for those that could
-# destroy something; and updating grog, from a flake of someone else's.
+# destroy something; Home Assistant (fake-ha.py), shipped with grog, found
+# on the network through avahi, signed in to on its own page or with a
+# token, whose lights the model turns off; and updating grog, from a flake
+# of someone else's.
 # Run: nix build .#checks.x86_64-linux.module -L
 { pkgs, module }:
 
@@ -145,6 +148,38 @@ pkgs.testers.runNixOSTest {
       };
     };
 
+    # Home Assistant (fake-ha.py), on this machine, which avahi says is on
+    # the network, as Home Assistant's zeroconf does.
+    systemd.services.fake-ha = {
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        ExecStart = "${pkgs.python3}/bin/python3 ${./fake-ha.py} 8123 /var/lib/fake-ha";
+        StateDirectory = "fake-ha";
+      };
+    };
+    services.avahi = {
+      enable = true;
+      publish = {
+        enable = true;
+        addresses = true;
+      };
+      extraServiceFiles.home-assistant = ''
+        <?xml version="1.0" standalone="no"?>
+        <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+        <service-group>
+          <name>Casa</name>
+          <service>
+            <type>_home-assistant._tcp</type>
+            <port>8123</port>
+            <txt-record>location_name=Casa</txt-record>
+            <txt-record>internal_url=http://127.0.0.1:8123</txt-record>
+            <txt-record>uuid=0123456789abcdef0123456789abcdef</txt-record>
+            <txt-record>version=2026.10.0</txt-record>
+          </service>
+        </service-group>
+      '';
+    };
+
     # Updates, from alice's flake (systemFlake), like a machine whose system
     # is in someone's own repository.
     services.grog.update = {
@@ -180,6 +215,7 @@ pkgs.testers.runNixOSTest {
     import json
     import re
     import shlex
+    from urllib.parse import parse_qs, urlsplit
 
     machine.wait_for_unit("multi-user.target")
     machine.wait_for_unit("fake-llm.service")
@@ -567,6 +603,98 @@ pkgs.testers.runNixOSTest {
         assert "fake-mcp" not in listed and "8700" not in listed, listed
         out = ask('use tool fake-mcp__lamp_on {"room": "kitchen"}', new=True)
         assert out.startswith("No tool fake-mcp__lamp_on, only "), out
+
+    def connect_page(what="state", body=None):
+        """The page of the session going on (`what`, its token from grog's link): its
+        state, or what it answers `body`, sent as `what`."""
+        token = session()["link"].rsplit("/", 1)[1]
+        url = f"http://127.0.0.1:8485/c/{token}/{what}"
+        if body is None:
+            return json.loads(machine.succeed(f"curl -sf {url}"))
+        sent = shlex.quote(json.dumps(body))
+        return json.loads(machine.succeed(f"curl -sf -X POST -H 'Content-Type: application/json' -d {sent} {url}"))
+
+    def connect_ha(way):
+        machine.succeed(
+            "curl -sf -X POST -H 'Content-Type: application/json'"
+            f" -d '{{\"way\": \"{way}\"}}' http://127.0.0.1:8484/v1/integrations/home-assistant/connect"
+        )
+        machine.wait_until_succeeds("curl -sf http://127.0.0.1:8484/v1/connect | grep -q '\"kind\":\"form\"'")
+        return {f["id"]: f for f in connect_page()["step"]["fields"]}
+
+    def ha_ran(call):
+        """Whether Home Assistant ran `call` (its tool and arguments, as it notes them)."""
+        return f"grep -qxF {shlex.quote(call)} /var/lib/fake-ha/calls.log"
+
+    def ha_heading():
+        """What `grog integrations` says under Home Assistant."""
+        listed = grog("integrations")
+        found = re.search(r"(?m)^Home Assistant \(grog connect home-assistant\)\n((?:  .*\n?)*)", listed)
+        assert found, listed
+        return found.group(1)
+
+    with subtest("Home Assistant ships with grog, and grog finds it on the network"):
+        machine.wait_for_unit("fake-ha.service")
+        machine.wait_for_open_port(8123)
+        machine.wait_until_succeeds(
+            "avahi-browse --resolve --parsable --terminate _home-assistant._tcp | grep -q location_name=Casa"
+        )
+        assert (under := ha_heading()).strip() == "nothing connected", under
+        fields = connect_ha("sign-in")
+        assert list(fields) == ["url"], fields
+        assert fields["url"]["default"] == "http://127.0.0.1:8123", fields
+        assert "Casa at http://127.0.0.1:8123" in fields["url"]["description"], fields
+
+    with subtest("signed in on Home Assistant's own page, its tools reach the model"):
+        connect_page("form", {"url": "http://127.0.0.1:8123/"})
+        machine.wait_until_succeeds("curl -sf http://127.0.0.1:8484/v1/connect | grep -q '\"kind\":\"oauth\"'")
+        signin = connect_page()["step"]["url"]
+        assert signin.startswith("http://127.0.0.1:8123/auth/authorize?"), signin
+        query = parse_qs(urlsplit(signin).query)
+        at = session()["link"].split("/c/")[0]
+        assert query["client_id"] == [at + "/"], (query, at)
+        assert query["redirect_uri"] == [at + "/c/callback"], (query, at)
+        # The browser: Home Assistant's login page sends it back to grog.
+        back = machine.succeed(f"curl -s -o /dev/null -w '%{{redirect_url}}' {shlex.quote(signin)}")
+        assert back.startswith(at + "/c/callback?code="), back
+        assert "Signed in to Test" in machine.succeed(f"curl -sf {shlex.quote(back)}")
+        assert (s := session())["status"] == "done" and s["connected"] == "Casa", s
+        assert re.match(r"  home-assistant +Casa, 4 tools(, since |$)", under := ha_heading()), under
+        tools = grog("tools home-assistant")
+        assert re.search(r"(?m)^ *homeassistant__GetLiveContext +allow \(default\) +shown +Get live context$", tools), tools
+        assert re.search(r"(?m)^ *intent__HassTurnOn +ask \(default\) +shown +Turn on$", tools), tools
+        assert re.search(r"(?m)^ *light__HassLightSet +allow \(default\) +shown +Set a light$", tools), tools
+        assert "test-ha-refresh-token" not in machine.succeed("cat /var/lib/grog/integrations.json")
+        offered = ask("use tool nothing-here {}", new=True).split()
+        assert "lights" in offered, offered
+
+    with subtest("the lights, by voice, through Home Assistant"):
+        out = ask('use tool lights {"action": "off", "area": "Sala"}', new=True)
+        assert out.startswith("Feito: ") and "Turned off the lights" in out, out
+        machine.succeed(ha_ran('intent__HassTurnOff {"area": "Sala", "domain": ["light"]}'))
+        out = ask('use tool lights {"action": "set", "area": "Sala", "brightness": 40}', new=True)
+        assert out.startswith("Feito: ") and "Brightness set" in out, out
+        machine.succeed(ha_ran('light__HassLightSet {"area": "Sala", "brightness": 40}'))
+
+    with subtest("disconnected, Home Assistant forgets grog's token"):
+        assert "Disconnected home-assistant." in (out := grog("disconnect home-assistant")), out
+        machine.succeed("grep -qx test-ha-refresh-token /var/lib/fake-ha/revoked.log")
+        assert (under := ha_heading()).strip() == "nothing connected", under
+        out = ask('use tool lights {"action": "off"}', new=True)
+        assert out.startswith("No tool lights, only "), out
+
+    with subtest("or with a long-lived token, pasted on its page"):
+        fields = connect_ha("token")
+        assert list(fields) == ["url", "token"] and fields["token"]["secret"], fields
+        connect_page("form", {"url": fields["url"]["default"], "token": "test-long-lived-token"})
+        machine.wait_until_succeeds("curl -sf http://127.0.0.1:8484/v1/connect | grep -q '\"status\":\"done\"'")
+        assert re.match(r"  home-assistant +Casa, 4 tools(, since |$)", under := ha_heading()), under
+        out = ask('use tool lights {"action": "on", "name": "Teto"}', new=True)
+        assert out.startswith("Feito: ") and "Turned on the lights" in out, out
+        machine.succeed(ha_ran('intent__HassTurnOn {"domain": ["light"], "name": "Teto"}'))
+        assert "Disconnected home-assistant." in (out := grog("disconnect home-assistant")), out
+        # Nothing to revoke: the token is the user's, in Home Assistant.
+        assert machine.succeed("cat /var/lib/fake-ha/revoked.log").split() == ["test-ha-refresh-token"]
 
     def alice(command):
         return machine.succeed(f"su - alice -c {shlex.quote(command)}").strip()

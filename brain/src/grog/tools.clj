@@ -23,6 +23,7 @@
   (:require [cheshire.core :as json]
             [clojure.string :as str]
             [grog.actions :as actions]
+            [grog.capabilities :as capabilities]
             [grog.computers :as computers]
             [grog.integrations :as integrations]
             [grog.log :as log]
@@ -37,7 +38,8 @@
   "The tools for a turn: grog's own (its settings, memory and microphone),
   the machine's when it has hands, `power` when it can restart itself or
   the machine, `update` when it can update itself, `computer` with
-  computers paired with it, those of the MCP servers connected to it
+  computers paired with it, its capability tools for what's connected
+  (grog.capabilities: `lights`), those of the MCP servers connected to it
   (grog.mcp-tools), and `connect`, to connect something."
   [config]
   (let [power (actions/tool config)
@@ -48,6 +50,7 @@
       power (conj power)
       updating (conj updating)
       computing (conj computing)
+      true (into (capabilities/tools config))
       true (into (mcp-tools/tools config))
       true (conj (integrations/tool config)))))
 

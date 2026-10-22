@@ -282,3 +282,148 @@
                       {:status 404}))))]
     (deliver base (:url server))
     (assoc server :base (:url server) :url (str (:url server) "/mcp") :requests requests)))
+
+(def ha-tools
+  "Tools as Home Assistant's Assist API names them at /api/mcp/assist."
+  [{:name "intent__HassTurnOn" :title "Turn on" :description "Turns on/opens/presses a device or entity."
+    :inputSchema {:type "object" :properties {:name {:type "string"} :area {:type "string"}
+                                              :domain {:type "array" :items {:type "string"}}}}
+    :annotations {:title "Turn on" :readOnlyHint false :destructiveHint false :idempotentHint false
+                  :openWorldHint false}}
+   {:name "intent__HassTurnOff" :title "Turn off" :description "Turns off/closes a device or entity."
+    :inputSchema {:type "object" :properties {:name {:type "string"} :area {:type "string"}
+                                              :domain {:type "array" :items {:type "string"}}}}
+    :annotations {:title "Turn off" :readOnlyHint false :destructiveHint false :idempotentHint true
+                  :openWorldHint false}}
+   {:name "light__HassLightSet" :title "Set a light" :description "Sets the brightness or color of a light."
+    :inputSchema {:type "object" :properties {:name {:type "string"} :brightness {:type "integer"}}}
+    :annotations {:title "Set a light" :readOnlyHint false :destructiveHint false :idempotentHint true
+                  :openWorldHint false}}
+   {:name "homeassistant__GetLiveContext" :title "Get live context"
+    :description "Provides real-time information about the CURRENT state of devices."
+    :inputSchema {:type "object" :properties {}}
+    :annotations {:title "Get live context" :readOnlyHint true :openWorldHint false}}])
+
+(defn ^:private ha-mcp
+  "What Home Assistant's MCP server answers `req`, the Streamable HTTP of
+  2025 it speaks: stateless, JSON only, -32601 (and 200) for what it
+  doesn't know, 202 for notifications."
+  [req tools calls token]
+  (let [msg (try (json/parse-string (:body req) true) (catch Exception _ nil))
+        ok #(json-response {:jsonrpc "2.0" :id (:id msg) :result %})]
+    (cond
+      (not (str/includes? (str (get-in req [:headers "accept"])) "application/json")) {:status 400 :body "Accept"}
+      (not (contains? msg :id)) {:status 202}
+      :else
+      (case (:method msg)
+        "initialize" (ok {:protocolVersion "2025-06-18"
+                          :capabilities {:tools {:listChanged false}}
+                          :serverInfo {:name "home-assistant" :version "2026.10.0"}})
+        "ping" (ok {})
+        "tools/list" (ok {:tools tools})
+        "tools/call" (do (swap! calls conj {:uri (:uri req) :token token
+                                            :name (get-in msg [:params :name])
+                                            :arguments (get-in msg [:params :arguments])})
+                         (ok {:content [{:type "text" :text (json/generate-string {:success true :result "done"})}]
+                              :isError false}))
+        (json-response {:jsonrpc "2.0" :id (:id msg) :error {:code -32601 :message "Method not found"}})))))
+
+(defn start-ha!
+  "Starts a fake Home Assistant, as its source has it: its sign-in
+  (/auth/authorize answering 302 to the redirect_uri with a code, its
+  client id any address whose host and port are the redirect's;
+  /auth/token taking that code with its PKCE verifier, and refresh tokens,
+  giving no new one; /auth/revoke), /api/config (location_name \"Home\"),
+  and its MCP server at /api/mcp/assist (prefixed tools) and /api/mcp (as
+  older ones: unprefixed). Every /api/* wants a token it gave or the
+  long-lived \"llat-1\". `switches` (an atom of a set) changes it: :no-assist
+  (an older one: /api/mcp/assist is 404), :no-mcp (no MCP server set up:
+  both 404), :forbidden (/api/mcp only for admins: 403). With :expires-in
+  its tokens' life in seconds. Returns {:url :requests :calls :revoked
+  :switches :stop!}: requests {:method :uri :query :headers :body} (body as
+  text), calls {:uri :token :name :arguments}, revoked tokens."
+  [& [{:keys [expires-in] :or {expires-in 1800}}]]
+  (let [requests (atom [])
+        calls (atom [])
+        revoked (atom [])
+        switches (atom #{})
+        codes (atom {})
+        access (atom #{"llat-1"})
+        refresh (atom {})
+        issued (atom 0)
+        coded (atom 0)
+        unauthorized (fn [base]
+                       {:status 401
+                        :headers {"WWW-Authenticate" (str "Bearer resource_metadata=\"" base
+                                                          "/.well-known/oauth-protected-resource\"")}
+                        :body "401: Unauthorized"})
+        bad (fn [error] {:status 400 :headers {"Content-Type" "application/json"}
+                         :body (json/generate-string {:error error})})
+        base (promise)
+        server (start-handler!
+                (fn [req]
+                  (let [body (some-> (:body req) slurp)
+                        req (assoc req :body body)
+                        token (some-> (get-in req [:headers "authorization"]) (str/replace #"^Bearer " ""))
+                        mcp #(ha-mcp req % calls token)]
+                    (swap! requests conj {:method (:request-method req) :uri (:uri req) :query (:query-string req)
+                                          :headers (:headers req) :body body})
+                    (cond
+                      (= "/auth/authorize" (:uri req))
+                      (let [{:keys [response_type client_id redirect_uri state code_challenge code_challenge_method]}
+                            (oauth/form-decode (:query-string req))
+                            authority #(let [u (java.net.URI. (str %))] [(.getScheme u) (.getHost u) (.getPort u)])]
+                        (if (and (= "code" response_type) (= "S256" code_challenge_method)
+                                 (= (authority client_id) (authority redirect_uri)))
+                          (let [code (str "code-" (swap! coded inc))]
+                            (swap! codes assoc code {:client-id client_id :challenge code_challenge})
+                            {:status 302 :headers {"Location" (str redirect_uri "?" (oauth/form-encode {"code" code "state" state}))}})
+                          {:status 400 :body "Invalid redirect URI"}))
+
+                      (= "/auth/token" (:uri req))
+                      (let [{:keys [grant_type code client_id code_verifier refresh_token]} (oauth/form-decode body)
+                            issue! (fn [refresh?]
+                                     (let [n (swap! issued inc)]
+                                       (swap! access conj (str "at-" n))
+                                       (when refresh? (swap! refresh assoc (str "rt-" n) client_id))
+                                       (json-response (cond-> {:access_token (str "at-" n) :token_type "Bearer"
+                                                               :expires_in expires-in}
+                                                        refresh? (assoc :refresh_token (str "rt-" n))))))]
+                        (case grant_type
+                          "authorization_code"
+                          (let [[before] (swap-vals! codes dissoc code)
+                                {:keys [client-id challenge]} (get before code)]
+                            (if (and client-id (= client-id client_id) code_verifier (= challenge (oauth/challenge code_verifier)))
+                              (issue! true)
+                              (bad "invalid_request")))
+                          "refresh_token"
+                          (if (and refresh_token (= client_id (get @refresh refresh_token)))
+                            (issue! false)
+                            (bad "invalid_grant"))
+                          (bad "unsupported_grant_type")))
+
+                      (= "/auth/revoke" (:uri req))
+                      (do (swap! revoked conj (:token (oauth/form-decode body)))
+                          (swap! refresh dissoc (:token (oauth/form-decode body)))
+                          {:status 200 :body ""})
+
+                      (not (str/starts-with? (:uri req) "/api/")) {:status 404 :body "404: Not Found"}
+                      (not (contains? @access token)) (unauthorized @base)
+
+                      (= "/api/config" (:uri req))
+                      (json-response {:location_name "Home" :version "2026.10.0" :internal_url nil})
+
+                      (#{"/api/mcp/assist" "/api/mcp"} (:uri req))
+                      (cond
+                        (contains? @switches :no-mcp)
+                        {:status 404 :headers {"Content-Type" "text/plain"} :body "Model Context Protocol server is not configured"}
+                        (and (= "/api/mcp/assist" (:uri req)) (contains? @switches :no-assist))
+                        {:status 404 :headers {"Content-Type" "text/plain"} :body "404: Not Found"}
+                        (and (= "/api/mcp" (:uri req)) (contains? @switches :forbidden))
+                        {:status 403 :headers {"Content-Type" "application/json"} :body "{\"message\":\"Unauthorized\"}"}
+                        (= "/api/mcp/assist" (:uri req)) (mcp ha-tools)
+                        :else (mcp (mapv #(update % :name (fn [n] (last (str/split n #"__")))) ha-tools)))
+
+                      :else {:status 404 :body "404: Not Found"}))))]
+    (deliver base (:url server))
+    (assoc server :requests requests :calls calls :revoked revoked :switches switches)))

@@ -149,7 +149,17 @@ grog listens for it on port 8485, opened in its firewall
 (`services.grog.integrations.openFirewall`), only while someone at it
 connects something: it serves what pairs a computer there, and the page a
 phone follows the steps of a sign-in on, or fills in what an MCP server
-needs.
+needs. Signing in to Home Assistant comes straight back there too, from its
+own page.
+
+## Home Assistant
+
+grog finds a [Home Assistant](../brain/README.md#home-assistant) on the
+network with `avahi-browse`, on its service's path: through grognix's avahi
+daemon, as the firewall wouldn't let the replies to grog's own queries in.
+Without avahi, it asks itself, and the firewall may drop the answers. Its
+sign-in comes back to grog's port 8485 on the network
+(`services.grog.integrations.openFirewall`).
 
 ## MCP servers
 

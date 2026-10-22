@@ -91,20 +91,25 @@
        (str base "/.well-known/openid-configuration" path)
        (str base path "/.well-known/openid-configuration")])))
 
-(defn ^:private first-json [urls]
-  (some get-json urls))
+(defn ^:private first-json
+  "The first JSON object at `urls`, and where it was: [url body], or nil."
+  [urls]
+  (some #(when-let [body (get-json %)] [% body]) urls))
 
 (defn ^:private resource-allowed?
   "Whether the resource the server's metadata names covers `resource`, the
-  server's own: the same origin, its path the same or above."
-  [named resource]
+  server's own: the same origin, and its path the same or, when `above?`
+  (metadata at the root well-known address, or where the challenge said),
+  above it."
+  [named resource above?]
   (try
     (let [named-uri (URI. (str named))
           uri (URI. resource)
           named-path (trimmed-path named-uri)
           path (trimmed-path uri)]
       (and (= (origin named-uri) (origin uri))
-           (or (= named-path path) (str/starts-with? path (str named-path "/")))))
+           (or (= named-path path)
+               (and above? (str/starts-with? path (str named-path "/"))))))
     (catch Exception _ false)))
 
 (defn ^:private scopes [s]
@@ -128,7 +133,7 @@
   "The metadata of the authorization server `issuer`, checked: its issuer
   is the one asked, and it takes S256 PKCE."
   [issuer]
-  (let [metadata (or (first-json (authorization-metadata-urls issuer))
+  (let [metadata (or (second (first-json (authorization-metadata-urls issuer)))
                      (throw (ex-info (str "No authorization server metadata at " issuer) {:type ::no-metadata})))]
     (when-not (= issuer (get metadata "issuer"))
       (throw (ex-info (str "The authorization server at " issuer " says it's another one") {:type ::bad-issuer})))
@@ -140,18 +145,23 @@
   "Finds how to sign in to the MCP server at `server-url`, from what its
   401 said (`challenge`: {:resource-metadata :scope :error}, or nil):
   {:resource :issuer :metadata :resource-metadata :scope}, the metadata as
-  the servers wrote them (string keys). Throws ex-info ::no-metadata,
-  ::bad-issuer, ::bad-resource, ::no-pkce or ::unreachable."
+  the servers wrote them (string keys). The resource the metadata names may
+  be above the server's own (its origin, say: Home Assistant's) when it came
+  from the root well-known address or the challenge's, which may describe a
+  whole site (RFC 9728). Throws ex-info ::no-metadata, ::bad-issuer,
+  ::bad-resource, ::no-pkce or ::unreachable."
   [server-url challenge]
   (let [resource (canonical-resource server-url)
-        resource-metadata (or (first-json (if-let [url (:resource-metadata challenge)]
-                                            [url]
-                                            (resource-metadata-urls server-url)))
-                              (throw (ex-info (str "No protected resource metadata for " resource)
-                                              {:type ::no-metadata})))
+        urls (if-let [url (:resource-metadata challenge)]
+               [url]
+               (resource-metadata-urls server-url))
+        [found resource-metadata] (or (first-json urls)
+                                      (throw (ex-info (str "No protected resource metadata for " resource)
+                                                      {:type ::no-metadata})))
+        above? (or (some? (:resource-metadata challenge)) (= found (last urls)))
         named (get resource-metadata "resource")
         issuer (first (filter string? (get resource-metadata "authorization_servers")))]
-    (when (and named (not (resource-allowed? named resource)))
+    (when (and named (not (resource-allowed? named resource above?)))
       (throw (ex-info (str "The server's metadata is for another server: " named) {:type ::bad-resource})))
     (when-not issuer
       (throw (ex-info (str "The metadata of " resource " names no authorization server") {:type ::no-metadata})))
@@ -241,7 +251,8 @@
 (defn authorize-url
   "Where the browser signs in: the authorization endpoint with the code
   flow's parameters, PKCE (`challenge`, S256), `state`, `redirect-uri`, the
-  resource, and the scope (`scope`, else the one discovered)."
+  resource when there's one, and the scope (`scope`, else the one
+  discovered)."
   [{:keys [metadata resource] :as discovery} {:keys [client-id]} {:keys [challenge state redirect-uri scope]}]
   (let [endpoint (get metadata "authorization_endpoint")
         scope (or scope (:scope discovery))]
@@ -251,8 +262,8 @@
                                      ["redirect_uri" redirect-uri]
                                      ["state" state]
                                      ["code_challenge" challenge]
-                                     ["code_challenge_method" "S256"]
-                                     ["resource" resource]]
+                                     ["code_challenge_method" "S256"]]
+                              resource (conj ["resource" resource])
                               (not (str/blank? scope)) (conj ["scope" scope]))))))
 
 (defn ^:private basic [client-id client-secret]
@@ -260,11 +271,11 @@
     (str "Basic " (.encodeToString (Base64/getEncoder) (.getBytes (str (enc client-id) ":" (enc client-secret)) "UTF-8")))))
 
 (defn ^:private token-request
-  "The token endpoint's request for `params`, the client authenticating as
-  it registered."
+  "The token endpoint's request for `params` (those nil left out), the
+  client authenticating as it registered."
   [{:keys [client-id client-secret auth-method]} params]
   (let [secret? (not (str/blank? client-secret))
-        params (cond-> (assoc params "client_id" client-id)
+        params (cond-> (into {"client_id" client-id} (remove (comp nil? val)) params)
                  (and secret? (= "client_secret_post" auth-method)) (assoc "client_secret" client-secret))]
     {:headers (cond-> {"content-type" "application/x-www-form-urlencoded" "accept" "application/json"}
                 (and secret? (= "client_secret_basic" auth-method)) (assoc "authorization" (basic client-id client-secret)))
