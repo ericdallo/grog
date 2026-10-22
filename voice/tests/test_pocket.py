@@ -128,6 +128,30 @@ class SteadiestTest(unittest.TestCase):
         self.assertFalse(pocket.checked("Amanhã deve fazer vinte e oito graus em São Paulo."))
 
 
+class PauseTest(unittest.TestCase):
+    def test_sentence_ends(self):
+        self.assertTrue(pocket.ends_sentence("Claro, já aumentei."))
+        self.assertTrue(pocket.ends_sentence("Quer mais alguma coisa?"))
+        self.assertTrue(pocket.ends_sentence('Ele disse "oi!" '))
+        self.assertFalse(pocket.ends_sentence("Se for sair depois das cinco,"))
+        self.assertFalse(pocket.ends_sentence(""))
+
+    def test_up_to_a_pause_after_a_sentence(self):
+        speech = [-20.0] * 50
+        self.assertAlmostEqual(0.4, pocket.pause("Pronto.", speech, 0.01), msg="no quiet at its end")
+        self.assertAlmostEqual(0.3, pocket.pause("Pronto.", speech + [-60.0] * 10, 0.01))
+        self.assertAlmostEqual(
+            0.4, pocket.pause("Pronto.", speech + [-60.0] * 10 + [-20.0], 0.01), msg="its end"
+        )
+        self.assertEqual(0.0, pocket.pause("Pronto.", speech + [-60.0] * 50, 0.01), "already long enough")
+        self.assertAlmostEqual(0.3, pocket.pause("Pronto.", speech + [-56.0] * 10, 0.01), msg="35 dB under")
+        self.assertAlmostEqual(0.4, pocket.pause("Pronto.", speech + [-50.0] * 10, 0.01), msg="not quiet")
+
+    def test_no_pause_mid_sentence(self):
+        self.assertEqual(0.0, pocket.pause("Se for sair depois das cinco,", [-20.0] * 50, 0.01))
+        self.assertEqual(0.0, pocket.pause("Pronto.", [], 0.01))
+
+
 class NumbersTest(unittest.TestCase):
     def test_cardinals(self):
         for n, said in [

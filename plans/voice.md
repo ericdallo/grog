@@ -664,6 +664,21 @@ every frame came in time, even after a minute idle. Pocket TTS itself:
   0.026, "De boa!" 0.029 to 0.002). Their first sound comes 0.6 s after
   their text (the median, in the lab), 1.8 s at most (three tries).
 
+## Pauses between sentences
+
+The user found grog hardly paused between sentences. Pocket TTS pauses
+~0.33 s between sentences it reads together (0.26 to 0.43 s in the
+carioca voice), but grog-voice says the first sentence alone, to start
+sooner, and the next piece came right after it: 0.1 s, or no pause at all.
+So a piece that ends a sentence is followed by silence, up to 0.4 s of
+quiet at its end (`pocket.pause`): 0.40 to 0.46 s there now, in either
+voice. The mouth plays it only before more speech, and only what's left
+of it by then (`mouth.Pauses`): not at the end of an answer, where it
+would keep the mic deaf longer (a quick "Sim" to a question), nor after a
+wait for grog's tools. Inside a piece, the carioca voice still sometimes
+runs sentences together (0.1 s), as he does himself (his pauses: 0.1 to
+0.4 s).
+
 ## Where to go from here
 
 ### Ears

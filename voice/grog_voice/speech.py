@@ -6,7 +6,7 @@ import os
 import zlib
 
 from . import pocket, supertonic
-from .audio import peak_dbfs, stt_gain_db
+from .audio import Silence, peak_dbfs, stt_gain_db
 
 # Supertonic's speech is brought up to peak there (-1 dBFS), by at most that
 # much (+12 dB), like Piper's.
@@ -99,7 +99,8 @@ class Pocket:
     24-layer model takes 0.5 s per second of speech, its first sound in 0.1
     s (the 6-layer one: 0.17 s, and 0.03 s). A short piece (8 words or
     fewer) starts once its first 800 ms are made, as they're made again when
-    they come out murmured (see pocket.steadiest). `model` has the graphs
+    they come out murmured (see pocket.steadiest); one that ends a sentence
+    is followed by a pause (see pocket.pause). `model` has the graphs
     (flow_lm.onnx, mimi_decoder.onnx), tokenizer.model and pocket.json (how
     to run them); `voice`, a voice's file (see pocket.voice_file)."""
 
@@ -137,7 +138,24 @@ class Pocket:
         for part in pocket.pieces(text, self._tokens, self.rules["max_tokens"]):
             said, guess = pocket.prepare(part, self.rules)
             if said:
-                yield from self._synthesize(said, guess)
+                # Whether it ends a sentence is in its own text: the model's
+                # always ends with one.
+                yield from self._paused(part, self._synthesize(said, guess))
+
+    def _paused(self, text, frames):
+        """`frames`, saying `text`, then the pause a sentence's end calls for
+        (see pocket.pause), from their levels in 10 ms windows: Silence,
+        which an answer plays only before more speech (see mouth.Pauses)."""
+        import numpy as np
+
+        window, levels = self.sample_rate // 100, []
+        for pcm in frames:
+            x = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
+            n = len(x) // window
+            levels += (10 * np.log10((x[: n * window].reshape(n, window) ** 2).mean(axis=1) + 1e-9)).tolist()
+            yield pcm
+        if samples := int(pocket.pause(text, levels, window / self.sample_rate) * self.sample_rate):
+            yield Silence(2 * samples)
 
     def _tokens(self, text):
         return len(self.tokenizer.encode(text))

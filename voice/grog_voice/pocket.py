@@ -1,7 +1,8 @@
-"""What Pocket TTS reads, when it's done speaking, and which of its tries at
-a short text it says (see speech.Pocket): plain Python, like pocket_tts's
-own text handling (kyutai-labs/pocket-tts, MIT), plus Portuguese numbers
-spelled out, as the model reads digits badly."""
+"""What Pocket TTS reads, when it's done speaking, which of its tries at a
+short text it says, and its pauses after sentences (see speech.Pocket):
+plain Python, like pocket_tts's own text handling (kyutai-labs/pocket-tts,
+MIT), plus Portuguese numbers spelled out, as the model reads digits
+badly."""
 
 import itertools
 import math
@@ -146,6 +147,38 @@ def steadiest(attempts, noisiness, check=CHECK_FRAMES, limit=NOISY):
         if best is None or score < best[0]:
             best = (score, head, attempt)
     return itertools.chain(best[1], best[2]) if best else iter(())
+
+
+# Sentences said in separate pieces (the first one alone, to start sooner,
+# or a long text's parts) followed each other with hardly a pause, where
+# Pocket TTS pauses ~0.33 s between sentences it reads together: a piece
+# that ends a sentence is followed by silence, up to SENTENCE_PAUSE seconds
+# of quiet (QUIET_UNDER dB or more under its loudest) at its end, played
+# only before more speech (see mouth.Pauses).
+SENTENCE_PAUSE = 0.4
+QUIET_UNDER = 35
+
+
+def ends_sentence(text):
+    """Whether `text` ends with a sentence mark (closing quotes aside)."""
+    core = text.rstrip(_CLOSERS + " ")
+    return bool(core) and core[-1] in _TERMINAL
+
+
+def pause(text, levels, window):
+    """The seconds of silence to add after a piece that says `text`, its
+    sound's levels given (in dB, one per `window` seconds): what's missing
+    from SENTENCE_PAUSE of quiet at its end when it ends a sentence, none
+    otherwise."""
+    if not levels or not ends_sentence(text):
+        return 0.0
+    quiet = max(levels) - QUIET_UNDER
+    trailing = 0
+    for level in reversed(levels):
+        if level >= quiet:
+            break
+        trailing += 1
+    return max(0.0, SENTENCE_PAUSE - trailing * window)
 
 
 _UNITS = (

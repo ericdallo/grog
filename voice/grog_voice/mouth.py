@@ -11,7 +11,7 @@ import traceback
 from dataclasses import dataclass, field
 
 from . import sounds
-from .audio import sounded
+from .audio import Silence, sounded
 from .chunks import Chunker
 from .grog import GrogError
 
@@ -79,6 +79,33 @@ def gathered(text, chunks, ahead):
             ahead.append(item)
             return text
         text = f"{text} {item}"
+
+
+class Pauses:
+    """Plays the pauses that text to speech puts after sentences (Silence)
+    only before more sound, and only what's left of them by then, its sound
+    playing as it comes: an answer doesn't end with one, so the mic opens as
+    soon as it's over, and one doesn't add to a wait for more (grog using a
+    tool, say). `rate` is the sound's sample rate; `clock` tells the time, in
+    seconds."""
+
+    def __init__(self, rate, clock=time.monotonic):
+        self.rate, self.clock = rate, clock
+        self.over = clock()  # when the sound played so far is over
+        self.held = 0  # samples of a pause, until more sound comes
+
+    def __call__(self, pcm):
+        """What to play for `pcm`, now: nothing for a pause, held; otherwise
+        what's left of the pause held, if anything, then `pcm`."""
+        if isinstance(pcm, Silence):
+            self.held += len(pcm) // 2
+            return []
+        now = self.clock()
+        left = int(self.held - max(0.0, now - self.over) * self.rate)
+        self.held = 0
+        sound = [bytes(2 * left), pcm] if left > 0 else [pcm]
+        self.over = max(self.over, now) + sum(map(len, sound)) / 2 / self.rate
+        return sound
 
 
 def where(e):
@@ -230,9 +257,10 @@ class Mouth:
 
     def _speak(self, chunks, turn):
         """Plays the queue's earcons ((name, pcm)) and synthesizes its text
-        chunks as they come (None ends them), while a thread plays them. Once
-        that failed, or it's to stop, it only waits for the end."""
-        audio, failed = queue.Queue(), threading.Event()
+        chunks as they come (None ends them), while a thread plays them, with
+        the pauses after their sentences in between (see Pauses). Once that
+        failed, or it's to stop, it only waits for the end."""
+        audio, failed, pauses = queue.Queue(), threading.Event(), Pauses(self.sample_rate)
 
         def over():
             return failed.is_set() or self.stopping.is_set()
@@ -269,17 +297,19 @@ class Mouth:
                     turn.sounds.append(name)
                     if name == "ack":
                         turn.mark("ack")
-                    audio.put(pcm)
+                    for sound in pauses(pcm):
+                        audio.put(sound)
                     continue
                 if self.streams:
                     item = gathered(item, chunks, ahead)
                 for pcm in self.tts(item):
                     if over():
                         break
-                    if "first_audio" not in turn.marks:
-                        turn.mark("first_audio")
-                        self.tell("speaking")
-                    audio.put(pcm)
+                    for sound in pauses(pcm):
+                        if "first_audio" not in turn.marks:
+                            turn.mark("first_audio")
+                            self.tell("speaking")
+                        audio.put(sound)
         finally:
             audio.put(None)
             playing.join()

@@ -219,6 +219,11 @@ class NullPlayer:
         pass
 
 
+class Silence(bytes):
+    """16-bit audio of silence that's a pause in speech, after a sentence: an
+    answer plays it only before more sound (see mouth.Pauses)."""
+
+
 def peak_dbfs(pcm):
     """The peak level of 16-bit audio, in dBFS."""
     samples = array.array("h", pcm)
