@@ -99,7 +99,7 @@ class Pocket:
     24-layer model takes 0.5 s per second of speech, its first sound in 0.1
     s (the 6-layer one: 0.17 s, and 0.03 s). A short piece (8 words or
     fewer) starts once its first 800 ms are made, as they're made again when
-    they come out breathy (see pocket.steadiest). `model` has the graphs
+    they come out murmured (see pocket.steadiest). `model` has the graphs
     (flow_lm.onnx, mimi_decoder.onnx), tokenizer.model and pocket.json (how
     to run them); `voice`, a voice's file (see pocket.voice_file)."""
 
@@ -115,6 +115,10 @@ class Pocket:
 
         with open(f"{model}/pocket.json", encoding="utf-8") as f:
             self.rules = json.load(f)
+        # pocket_tts pads short texts with spaces for its English model, not
+        # its Portuguese one, which says them better padded: fewer murmurs
+        # (plans/voice.md, "Breathy short answers").
+        self.rules["pad_with_spaces_for_short_inputs"] = True
         self.sample_rate = self.rules["sample_rate"]
         self.tokenizer = sentencepiece.SentencePieceProcessor(model_file=f"{model}/tokenizer.model")
         with np.load(voice) as v:
@@ -140,22 +144,28 @@ class Pocket:
 
     def _synthesize(self, text, guess):
         """The frames of `text`: a short one's made ahead, and again with
-        other noise while it comes out breathy (see pocket.steadiest)."""
+        other noise while it comes out murmured (see pocket.steadiest)."""
         if not pocket.checked(text):
             return self._frames(text, guess, 0)
         attempts = (self._frames(text, guess, attempt) for attempt in range(pocket.ATTEMPTS))
         return pocket.steadiest(attempts, self._noisiness)
 
     def _noisiness(self, frames):
-        """How much like noise `frames` (16-bit mono audio) sound: the median
-        spectral flatness (0 for a tone, 1 for white noise) of their loudest
-        32 ms windows (within 25 dB), 100 to 4000 Hz. Speech is ~0.01."""
+        """How much like noise `frames` (16-bit mono audio, 80 ms each) sound:
+        the median spectral flatness (0 for a tone, 1 for white noise) of
+        their loudest 32 ms windows (within 25 dB), 100 to 4000 Hz; speech is
+        ~0.01. 1 when even their loudest frame is a murmur (see
+        pocket.QUIET)."""
         import numpy as np
 
         x = np.frombuffer(b"".join(frames), dtype=np.int16).astype(np.float32) / 32768
         size, hop = int(0.032 * self.sample_rate), int(0.01 * self.sample_rate)
         if len(x) < size:
             return 0.0
+        step = self.rules["frame_samples"]
+        whole = x[: len(x) // step * step].reshape(-1, step)
+        if len(whole) and 10 * np.log10(np.mean(whole**2, axis=1).max() + 1e-12) < pocket.QUIET:
+            return 1.0
         windows = np.lib.stride_tricks.sliding_window_view(x, size)[::hop] * np.hanning(size)
         power = np.abs(np.fft.rfft(windows, axis=1)) ** 2
         freqs = np.fft.rfftfreq(size, 1 / self.sample_rate)

@@ -649,6 +649,20 @@ every frame came in time, even after a minute idle. Pocket TTS itself:
 - Its cost: a short answer starts 0.46 to 0.49 s after its text on the
   station rather than 0.1 (0.4 s more each time it's made again); longer
   pieces stream as before.
+- Not enough: the user then heard "De boa!" as several voices at once
+  (0.025 over its first 800 ms, under that limit), long answers well. What
+  goes wrong is a murmur, like voices behind: over a whole rendering, at -37
+  to -47 dBFS where the voice speaks at ~-15, or after a word.
+- pocket_tts pads short texts (under 5 words) with 8 spaces before them for
+  its English model, not its Portuguese one. Padded, of 5 tries at each of
+  16 short answers, 61% come out well (0.02 at most, their loudest 80 ms
+  frame at -32 dBFS or more) against 50%, and every answer has a good one
+  (3 had none). Temperature 0.5: 66%; the 6-layer model, no better.
+- So grog-voice pads them too, takes a try as murmured past 0.015, or
+  quieter than -32 dBFS at its loudest, and keeps the least murmured of 3.
+  Over 27 short answers, renderings past 0.015: 9 to 3 (the worst 0.076 to
+  0.026, "De boa!" 0.029 to 0.002). Their first sound comes 0.6 s after
+  their text (the median, in the lab), 1.8 s at most (three tries).
 
 ## Where to go from here
 

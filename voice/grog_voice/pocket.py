@@ -110,22 +110,25 @@ class Ending:
         return self.at is not None and frame >= self.at + self.frames_after
 
 
-# Pocket TTS says some short texts breathy, like a hoarse whisper, whatever
-# the voice (4 to 6 of 20 short answers; lower temperatures, more), where
-# other noise says them well. So a piece of CHECK_WORDS words or fewer is
-# made CHECK_FRAMES frames ahead (800 ms, most of it) before it plays, up to
-# ATTEMPTS times while those sound like noise, NOISY being where breathy
-# begins (speech is ~0.01). Measured in plans/voice.md ("Breathy short
-# answers").
+# Pocket TTS says some short texts as if several voices murmured at once, or
+# only murmurs them, quietly, whatever the voice (4 to 6 of 20 short
+# answers; lower temperatures, more), where other noise says them well. So
+# a piece of CHECK_WORDS words or fewer is made CHECK_FRAMES frames ahead
+# (800 ms, most of it) before it plays, up to ATTEMPTS times while those
+# sound like noise: past NOISY (speech is ~0.01; what was heard as several
+# voices, 0.025), or quieter than QUIET dBFS at their loudest (a voice
+# speaks at ~-18, murmurs at -40). Measured in plans/voice.md ("Breathy
+# short answers").
 CHECK_WORDS = 8
 CHECK_FRAMES = 10
 ATTEMPTS = 3
-NOISY = 0.03
+NOISY = 0.015
+QUIET = -32.0
 
 
 def checked(text):
     """Whether a piece is checked before it plays (see steadiest): a short
-    one, where Pocket TTS goes breathy."""
+    one, where Pocket TTS murmurs."""
     return len(text.split()) <= CHECK_WORDS
 
 
