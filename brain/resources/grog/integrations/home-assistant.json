@@ -1,0 +1,62 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ericdallo.grog/home-assistant",
+  "title": "Home Assistant",
+  "description": "The lights and the rest of the home, through Home Assistant's MCP server",
+  "version": "1.0.0",
+  "websiteUrl": "https://www.home-assistant.io/integrations/mcp_server/",
+  "remotes": [
+    {"type": "streamable-http", "url": "{url}/api/mcp/assist"},
+    {"type": "streamable-http", "url": "{url}/api/mcp"}
+  ],
+  "_meta": {
+    "io.github.ericdallo.grog": {
+      "id": "home-assistant",
+      "prefix": "ha",
+      "icon": "home",
+      "about": "the lights and the rest of the home",
+      "cloud": false,
+      "connect": [
+        {
+          "id": "sign-in",
+          "label": "Sign in to Home Assistant",
+          "steps": [
+            {"step": "discover", "service": "_home-assistant._tcp", "field": "url"},
+            {"step": "form", "fields": [
+              {"id": "url", "label": "Its address", "example": "http://homeassistant.local:8123", "format": "uri"}
+            ]},
+            {"step": "oauth", "authorize": "{url}/auth/authorize", "token": "{url}/auth/token",
+             "revoke": "{url}/auth/revoke", "client": "lan"}
+          ]
+        },
+        {
+          "id": "token",
+          "label": "Paste a long-lived token instead",
+          "steps": [
+            {"step": "discover", "service": "_home-assistant._tcp", "field": "url"},
+            {"step": "form", "fields": [
+              {"id": "url", "label": "Its address", "example": "http://homeassistant.local:8123", "format": "uri"},
+              {"id": "token", "label": "A long-lived access token (in Home Assistant: your profile, Security)",
+               "secret": true}
+            ]}
+          ],
+          "headers": {"Authorization": "Bearer {token}"}
+        }
+      ],
+      "name": {"url": "{url}/api/config", "field": "location_name"},
+      "errors": {
+        "404": "Home Assistant has no MCP server yet: add the Model Context Protocol Server integration there (Settings, Devices & services, Add integration), then connect again.",
+        "403": "Home Assistant only lets its admins do that: sign in as an admin, or update Home Assistant."
+      },
+      "capabilities": {
+        "lights": {
+          "on": {"tool": "HassTurnOn", "args": {"name": "{name}", "area": "{area}", "domain": ["light"]}},
+          "off": {"tool": "HassTurnOff", "args": {"name": "{name}", "area": "{area}", "domain": ["light"]}},
+          "set": {"tool": "HassLightSet", "args": {"name": "{name}", "area": "{area}", "brightness": "{brightness}", "color": "{color}", "temperature": "{temperature}"}},
+          "state": {"tool": "GetLiveContext", "args": {"name": "{name}", "area": "{area}", "domain": "light"}}
+        }
+      },
+      "policy": {"GetLiveContext": "allow", "HassLightSet": "allow", "HassClimateSetTemperature": "allow"}
+    }
+  }
+}
