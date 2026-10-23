@@ -234,11 +234,13 @@ phases land.
   - `grog.youtube-music`, an integration of grog's own, offered with a
     player: anonymous search and play; connecting the user's Google account
     (a `device-code` step at Google, RFC 8628) adds their library. Two
-    ways: grog's own Google client, shipped by the project in
-    `resources/grog/google-client.json` (a "TVs and Limited Input devices"
-    client, whose secret Google doesn't treat as confidential; the way is
-    only offered when it's there, and it isn't yet), or a client the user
-    made, entered in a form first. The tokens refresh in grog, which hands
+    ways: the Google client grog was given in its service's environment
+    (`GROG_GOOGLE_CLIENT_ID`, `GROG_GOOGLE_CLIENT_SECRET`: a "TVs and
+    Limited Input devices" client; not shipped in the repository, as
+    GitHub's and Google's scanners take its secret for a leak, though
+    Google doesn't treat it as confidential; the way is only offered when
+    it's there), or a client the user made, entered in a form first.
+    Shipping one to every grog, so that nobody has to make one, stays open. The tokens refresh in grog, which hands
     them to grog-music with each request; disconnecting revokes them.
   - The API (`POST /v1/music`), the CLI (`grog music`), the skin (`music`'s
     label and a note icon), and the settings (`music.socket`,

@@ -5,11 +5,12 @@
   too. Connecting signs in with Google by a code (a device-code step, RFC
   8628), entered at Google's page on any phone or computer, two ways:
 
-    google      with grog's own client, shipped by the project in
-                resources/grog/google-client.json ({\"clientId\",
-                \"clientSecret\"}: an installed-app client of type \"TVs and
-                Limited Input devices\", whose secret Google doesn't treat
-                as confidential); only offered when it's there
+    google      with the client grog was given, in its service's
+                environment like the API keys (GROG_GOOGLE_CLIENT_ID and
+                GROG_GOOGLE_CLIENT_SECRET; /etc/grog/secrets.env on NixOS):
+                one of type \"TVs and Limited Input devices\", made once for
+                every grog of a home, never in the repository (scanners
+                take its secret for a leak); only offered when it's there
     own-client  with a client the user made, entered in a form first
 
   The connection, `id`, is named by the account's email. Its secrets: the
@@ -20,7 +21,6 @@
   Disconnecting revokes them, if Google can be reached, and forgets them."
   (:require [babashka.http-client :as http]
             [cheshire.core :as json]
-            [clojure.java.io :as io]
             [grog.config :as config]
             [grog.connect :as connect]
             [grog.connections :as connections]
@@ -59,18 +59,13 @@
   (System/currentTimeMillis))
 
 (defn shipped-client
-  "grog's own Google client, {:client-id :client-secret}, or nil when the
-  project doesn't ship one (or it can't be read, logged without what's in
-  it). Tests redefine it."
+  "The Google client grog was given in its environment, {:client-id
+  :client-secret}, or nil without one. Tests redefine it."
   []
-  (when-let [url (io/resource "grog/google-client.json")]
-    (try
-      (let [{:keys [client-id client-secret]} (config/parse (slurp url))]
-        (when (and (config/non-blank-string? client-id) (config/non-blank-string? client-secret))
-          {:client-id client-id :client-secret client-secret}))
-      (catch Exception e
-        (log/info "youtube-music: ignoring google-client.json:" (.getSimpleName (class e)))
-        nil))))
+  (let [client-id (System/getenv "GROG_GOOGLE_CLIENT_ID")
+        client-secret (System/getenv "GROG_GOOGLE_CLIENT_SECRET")]
+    (when (and (config/non-blank-string? client-id) (config/non-blank-string? client-secret))
+      {:client-id client-id :client-secret client-secret})))
 
 (defn ^:private post!
   "A form POST to Google: [status body], the body as Google names it."

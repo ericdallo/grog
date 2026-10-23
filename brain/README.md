@@ -379,11 +379,11 @@ songs ([`youtube_music.clj`](src/grog/youtube_music.clj)): ask grog
 `grog connect youtube-music`. The card shows a code, to enter at Google's
 page (`google.com/device`) on a phone or computer.
 
-That takes a Google client of type "TVs and Limited Input devices": grog's
-own, when the project ships one
-([`google-client.json`](#for-the-maintainer-grogs-google-client)), or one
-you made, which grog's page asks for first: make it the
-[same way](#for-the-maintainer-grogs-google-client), in a project of yours.
+That takes a Google client of type "TVs and Limited Input devices": the
+one grog was given in its environment
+([for every grog of a home](#a-google-client-for-grog)), or one you made,
+which grog's page asks for first: make it the
+[same way](#a-google-client-for-grog).
 While its consent screen is in testing, only its test users can sign in,
 and the sign-in lasts 7 days.
 
@@ -405,10 +405,10 @@ and pauses the music (`POST /v1/actions/stop` does too).
 grog-voice still hears the music, and doesn't take it out: over loud music,
 grog may hear its name less.
 
-### For the maintainer: grog's Google client
+### A Google client for grog
 
-grog's own client lets anyone connect YouTube Music without making one. To
-make it:
+Given to grog, a client lets whoever connects YouTube Music do it with just
+a code. To make it, once:
 
 1. Create a project in the [Google Cloud console](https://console.cloud.google.com),
    and enable the YouTube Data API v3 in it.
@@ -418,9 +418,11 @@ make it:
    days. Until Google verifies the app, its sign-in shows a warning, and
    it's capped at 100 users.
 3. Create an OAuth client ID of type "TVs and Limited Input devices".
-4. Commit its ID and secret as `brain/resources/grog/google-client.json`:
-   `{"clientId": "...", "clientSecret": "..."}`. Google doesn't treat this
-   kind of client's secret as confidential.
+4. Give grog its ID and secret in its service's environment, like an API
+   key: `GROG_GOOGLE_CLIENT_ID` and `GROG_GOOGLE_CLIENT_SECRET`, in
+   `/etc/grog/secrets.env` on NixOS, then restart grog. Never in the
+   repository: though Google doesn't treat this kind of client's secret as
+   confidential, scanners take it for a leak, and Google may revoke it.
 
 The Data API's daily quota is the project's, shared by every grog using its
 client.

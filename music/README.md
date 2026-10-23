@@ -42,8 +42,8 @@ All of them answer with the status. YouTube Music's commands:
 `auth` is the user's Google sign-in, kept fresh by grog and never written
 to disk here: `{"accessToken", "refreshToken", "expiresAt"` (epoch
 milliseconds), `"clientId", "clientSecret", "scope", "tokenType"}`, from a
-Google client of type "TVs and Limited Input devices" (grog's own, or the
-user's) whose project has the YouTube Data API v3 enabled. Searching and
+Google client of type "TVs and Limited Input devices" (the one grog was
+given, or the user's) whose project has the YouTube Data API v3 enabled. Searching and
 playing need none: they're anonymous. YouTube Music refuses such tokens
 for now (HTTP 400, sigma67/ytmusicapi#813): it's tried first, and once it
 refuses, not again for 6 hours. Meanwhile the user's playlists, a

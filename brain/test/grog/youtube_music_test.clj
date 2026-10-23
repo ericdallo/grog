@@ -90,8 +90,11 @@
   (testing "without it, only the user's own"
     (with-redefs [youtube-music/shipped-client (constantly nil)]
       (is (= ["own-client"] (mapv :id (:ways (youtube-music/integration)))))))
-  (testing "the project doesn't ship one yet"
-    (is (nil? (youtube-music/shipped-client))))
+  (testing "it comes from grog's environment, never from the repository"
+    (is (= (when (and (System/getenv "GROG_GOOGLE_CLIENT_ID") (System/getenv "GROG_GOOGLE_CLIENT_SECRET"))
+             {:client-id (System/getenv "GROG_GOOGLE_CLIENT_ID")
+              :client-secret (System/getenv "GROG_GOOGLE_CLIENT_SECRET")})
+           (youtube-music/shipped-client))))
   (testing "offered with a player to play it"
     (is (some #{"youtube-music"} (map :id (integrations/all @(:config (context))))))
     (let [ctx (context nil)]
