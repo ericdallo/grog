@@ -29,10 +29,11 @@ check:
 	  ".#checks.$$system.grog-music" ".#checks.$$system.grog-skin" ".#checks.$$system.install"
 
 # The VM tests, one at a time (each takes 4 to 7 GB of RAM; `nix flake check`
-# runs everything at once): the NixOS module, grognix, and grognix's disk.
+# runs everything at once): the NixOS module, its Wi-Fi, grognix, and
+# grognix's disk.
 check-vm:
 	system=$$($(NIX) eval --impure --raw --expr builtins.currentSystem) && \
-	for check in module grognix disk; do $(NIX) build --no-link -L ".#checks.$$system.$$check" || exit 1; done
+	for check in module wifi grognix disk; do $(NIX) build --no-link -L ".#checks.$$system.$$check" || exit 1; done
 
 # A made-up grognix's system closure (body/grognix/example.nix).
 build:

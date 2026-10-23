@@ -11,6 +11,7 @@ import { ICONS } from "./icons.js";
 import {
   account,
   activeTurn,
+  canJoin,
   card,
   chat,
   closes,
@@ -19,19 +20,25 @@ import {
   face,
   FOLLOW_MS,
   isNight,
+  joinRequest,
+  keyboard,
   menu,
   mode,
   musicSheet,
+  needsPassword,
   nowPlaying,
+  physicalKey,
   pipeline,
   request,
   speakersSheet,
   stale,
   tap,
   timeFormats,
+  typed,
   updateNotice,
   usage,
   version,
+  wifiSheet,
   wordChanges,
 } from "./view.js";
 
@@ -71,6 +78,7 @@ const els = Object.fromEntries(
     .concat(["player-controls", "player-volume", "music-down", "music-up"])
     .concat(["music-sheet", "close-music", "music-note", "music-items", "music-error"])
     .concat(["speakers-sheet", "close-speakers", "speakers-note", "speakers-items", "speakers-error"])
+    .concat(["wifi-sheet", "close-wifi", "wifi-note", "wifi-items", "wifi-error"])
     .map((id) => [id, $(id)]),
 );
 // grog's face, in its block.
@@ -112,6 +120,16 @@ let libraryAsks = 0;
 let speakersOpen = false;
 let speakers = null;
 let speakersAsks = 0;
+// The Wi-Fi sheet: whether it shows, what grog last answered for it (null
+// while it's on its way), how many times it was asked, the last answer
+// winning, the password being typed for a network (view.js typed()),
+// which only ever goes to grog, when joining, and the network it joins
+// without one (saved, or open), if any.
+let wifiOpen = false;
+let wifi = null;
+let wifiAsks = 0;
+let form = null;
+let joining = null;
 
 const now = () => Date.now() + skew;
 
@@ -555,6 +573,78 @@ function drawSpeakers() {
   });
 }
 
+/** The password being typed for a network: its field, and the keyboard typing it. */
+function passwordPanel(f) {
+  const panel = el("div", "password");
+  const top = el("div", "password-top");
+  const cancel = el("button", "text-button", "Cancel");
+  cancel.type = "button";
+  cancel.dataset.wifi = "cancel";
+  cancel.disabled = f.busy;
+  top.append(el("span", "password-title", f.title), cancel);
+  const field = el("div", `field${f.field ? "" : " empty"}`, f.field || "Password");
+  // Where what's typed goes: after it, or before the word saying what to type.
+  if (f.field) field.append(el("span", "caret"));
+  else field.prepend(el("span", "caret"));
+  const show = iconButton("round", f.shown ? "eye-off" : "eye", f.shown ? "Hide it" : "Show it", { wifi: "show" });
+  show.disabled = f.busy;
+  const line = el("div", "field-line");
+  line.append(field, show);
+  const note = el("div", `password-note${f.error ? " failed" : ""}`, f.busy ? "Joining…" : f.error || f.hint);
+  const keys = el("div", "keyboard");
+  f.keys.forEach((row, r) => {
+    const div = el("div", "keys");
+    row.forEach((key, c) => {
+      const button = el("button", `key ${key.kind}${key.on ? " on" : ""}`);
+      button.type = "button";
+      Object.assign(button.dataset, { row: String(r), col: String(c) });
+      if (key.icon) {
+        button.innerHTML = icon(key.icon);
+        button.setAttribute("aria-label", key.label);
+      } else {
+        button.textContent = key.label;
+      }
+      // Nothing typed while it joins.
+      button.disabled = f.busy || (key.kind === "done" && !f.join);
+      div.append(button);
+    });
+    keys.append(div);
+  });
+  panel.append(top, line, note, keys);
+  return panel;
+}
+
+/** Its networks, or the password being typed for one (view.js wifiSheet), when it shows. */
+function drawWifi() {
+  if (wifiOpen && offline && !form?.busy) shutWifi();
+  els["wifi-sheet"].classList.toggle("open", wifiOpen);
+  if (els["wifi-sheet"].inert === wifiOpen) els["wifi-sheet"].inert = !wifiOpen;
+  once("wifi", wifiSheet(wifi, form, joining), (v) => {
+    setText(els["wifi-note"], v.message);
+    if (v.error) showWifiError(v.error);
+    if (v.form) {
+      els["wifi-items"].replaceChildren(passwordPanel(v.form));
+      // The end of what's typed shows, however long it is.
+      const field = els["wifi-items"].querySelector(".field");
+      field.scrollLeft = field.scrollWidth;
+      return;
+    }
+    const ul = el("ul", "group");
+    ul.append(...v.items.map((item) => actionItem({ ...item, kind: "button" })));
+    const buttons = el("div", "sheet-buttons");
+    buttons.append(
+      ...v.buttons.map((b) => {
+        const button = el("button", "text-button", b.label);
+        button.type = "button";
+        button.dataset.action = b.id;
+        button.disabled = b.disabled;
+        return button;
+      }),
+    );
+    els["wifi-items"].replaceChildren(ul, buttons);
+  });
+}
+
 function draw() {
   const t = now();
   drawMode(t);
@@ -568,6 +658,7 @@ function draw() {
   drawSheet();
   drawMusic();
   drawSpeakers();
+  drawWifi();
   tick();
 }
 
@@ -616,6 +707,7 @@ function touched() {
 function openSheet() {
   shutMusic();
   shutSpeakers();
+  shutWifi();
   sheetOpen = true;
   armed = null;
   touched();
@@ -682,6 +774,7 @@ function touchedMusic() {
 async function openMusic() {
   shut();
   shutSpeakers();
+  shutWifi();
   musicOpen = true;
   library = null;
   touchedMusic();
@@ -742,6 +835,7 @@ async function askSpeakers(action) {
 function openSpeakers() {
   shut();
   shutMusic();
+  shutWifi();
   speakersOpen = true;
   speakers = null;
   touchedSpeakers();
@@ -767,6 +861,128 @@ async function chooseSpeaker(button) {
   button.classList.remove("busy");
 }
 
+function showWifiError(message) {
+  setText(els["wifi-error"], message);
+  later("wifi-error", SHEET_ERROR_MS, () => setText(els["wifi-error"], ""));
+}
+
+/** The Wi-Fi sheet stays open while touched, and while it joins a network. */
+function touchedWifi() {
+  later("wifi", form?.busy || joining !== null ? null : SHEET_MS, closeWifi);
+}
+
+/**
+ * Asks grog of its Wi-Fi (`req`, see view.js request and joinRequest):
+ * which networks there are, the sheet shows them, or why grog couldn't
+ * say; null when it failed, `failed` saying why.
+ */
+async function askWifi(req, failed) {
+  const asked = ++wifiAsks;
+  let why = "";
+  let answer = null;
+  try {
+    const resp = await fetch(req.path, {
+      method: req.method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body),
+    });
+    answer = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      why = answer.error ?? `grog answered ${resp.status}`;
+      answer = null;
+    }
+  } catch (e) {
+    why = e.message;
+  }
+  if (asked !== wifiAsks || !wifiOpen) return null;
+  if (answer) wifi = answer;
+  else (failed ?? ((m) => (wifi?.networks ? showWifiError(m) : (wifi = { error: m }))))(why);
+  return answer;
+}
+
+/** Which networks there are, asked as it opens. */
+async function openWifi() {
+  shut();
+  shutMusic();
+  shutSpeakers();
+  wifiOpen = true;
+  wifi = null;
+  form = null;
+  touchedWifi();
+  draw();
+  await askWifi(request("wifi", state));
+  draw();
+}
+
+function shutWifi() {
+  wifiOpen = false;
+  form = null;
+  joining = null;
+  later("wifi", null);
+}
+
+function closeWifi() {
+  shutWifi();
+  draw();
+}
+
+/**
+ * A network tapped: joined (saved, or open), the sheet staying while it
+ * joins, or its password asked first; or looking again, or Wi-Fi turned on.
+ */
+async function chooseWifi(button) {
+  if (joining !== null) return;
+  const action = button.dataset.action;
+  const network = (wifi?.networks ?? []).find((n) => `wifi-join:${n.ssid}` === action);
+  if (network && needsPassword(network)) {
+    form = { ssid: network.ssid, text: "", page: "letters", shift: false, shown: false };
+    touchedWifi();
+    draw();
+    return;
+  }
+  button.classList.add("busy");
+  if (network) joining = network.ssid;
+  touchedWifi();
+  draw();
+  const failedToJoin = (message) => {
+    // A saved password that no longer works: type it again.
+    if (network.security === "password") form = { ssid: network.ssid, text: "", error: message };
+    else showWifiError(message);
+  };
+  await askWifi(request(action, state), network ? failedToJoin : null);
+  if (network && joining === network.ssid) joining = null;
+  button.classList.remove("busy");
+  touchedWifi();
+  draw();
+}
+
+/** Tries the password typed: once joined, the networks again; if not, why, with what was typed kept. */
+async function join() {
+  if (!canJoin(form)) return;
+  const { ssid, text } = form;
+  form = { ...form, busy: true, error: "" };
+  touchedWifi();
+  draw();
+  const answer = await askWifi(joinRequest(ssid, text), (message) => {
+    if (form) form = { ...form, busy: false, error: message };
+  });
+  if (answer) form = null;
+  touchedWifi();
+  draw();
+}
+
+/** What a key of the on-screen keyboard (or a physical one: `key`) does. */
+function press(key) {
+  if (!form || form.busy || !key) return;
+  touchedWifi();
+  if (key.kind === "done") {
+    join();
+    return;
+  }
+  form = typed(form, key);
+  draw();
+}
+
 async function choose(button) {
   const action = button.dataset.action;
   const step = button.dataset.step ?? null;
@@ -776,6 +992,10 @@ async function choose(button) {
   }
   if (action === "speakers") {
     openSpeakers();
+    return;
+  }
+  if (action === "wifi") {
+    openWifi();
     return;
   }
   touched();
@@ -896,10 +1116,45 @@ els["speakers-items"].addEventListener("click", (e) => {
   const button = e.target.closest("button[data-action]");
   if (button && !button.disabled) chooseSpeaker(button);
 });
+// The Wi-Fi: its networks, and the password typed for one.
+els["close-wifi"].innerHTML = icon("close");
+els["close-wifi"].addEventListener("click", closeWifi);
+els["wifi-sheet"].addEventListener("scroll", () => wifiOpen && touchedWifi(), { passive: true });
+els["wifi-items"].addEventListener("click", (e) => {
+  const key = e.target.closest("button[data-row]");
+  if (key && form) {
+    press(keyboard(form.page, form.shift)[Number(key.dataset.row)]?.[Number(key.dataset.col)]);
+    return;
+  }
+  const what = e.target.closest("button[data-wifi]")?.dataset.wifi;
+  if (what && form && !form.busy) {
+    touchedWifi();
+    form = what === "show" ? { ...form, shown: !form.shown } : null;
+    draw();
+    return;
+  }
+  const button = e.target.closest("button[data-action]");
+  if (button && !button.disabled) chooseWifi(button);
+});
 document.addEventListener("keydown", (e) => {
+  // Typing the password on a keyboard of its own, the Wi-Fi sheet's is there too.
+  if (wifiOpen && form && !form.busy && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    const key = physicalKey(e.key);
+    if (key) {
+      e.preventDefault();
+      press(key);
+      return;
+    }
+    if (e.key === "Escape") {
+      form = null;
+      draw();
+      return;
+    }
+  }
   if (e.key === "Escape" && sheetOpen) closeSheet();
   if (e.key === "Escape" && musicOpen) closeMusic();
   if (e.key === "Escape" && speakersOpen) closeSpeakers();
+  if (e.key === "Escape" && wifiOpen) closeWifi();
 });
 els["card-qr"].addEventListener("load", () => {
   els["card-qr"].hidden = false;

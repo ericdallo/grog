@@ -1104,6 +1104,171 @@ ol {
   opacity: 0.6;
 }
 
+/* A button of words, under a list (looking again for networks). */
+.text-button {
+  padding: 1.8vmin 3.6vmin;
+  border-radius: 1.4vmin;
+  background: var(--card);
+  font-size: 2.6vmin;
+  font-weight: 600;
+}
+
+/* What it asked of grog on its way, or nothing to ask now (joining). */
+.text-button.busy,
+.text-button:disabled {
+  opacity: 0.5;
+}
+
+.sheet-buttons {
+  display: flex;
+  gap: 2vmin;
+}
+
+.sheet-buttons:empty {
+  display: none;
+}
+
+/* The password typed for a network, and the keyboard typing it: keys big
+   enough for a finger, a screen with no keyboard of its own. */
+.password {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6vmin;
+}
+
+.password-top {
+  display: flex;
+  align-items: center;
+  gap: 2vmin;
+}
+
+.password-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 2.8vmin;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field-line {
+  display: flex;
+  align-items: center;
+  gap: 1.6vmin;
+}
+
+.field {
+  flex: 1;
+  min-width: 0;
+  min-height: 7vmin;
+  box-sizing: border-box;
+  padding: 1.6vmin 2.4vmin;
+  overflow: hidden;
+  border: 0.3vmin solid var(--accent);
+  border-radius: 1.4vmin;
+  font: 400 3vmin/1.2 var(--mono);
+  white-space: nowrap;
+}
+
+.field.empty {
+  color: var(--muted);
+  font-family: var(--text);
+}
+
+/* Where what's typed goes: still, as nothing blinks. */
+.field .caret {
+  display: inline-block;
+  width: 0.4vmin;
+  height: 3.2vmin;
+  margin-left: 0.3vmin;
+  background: var(--accent);
+  vertical-align: middle;
+}
+
+.field.empty .caret {
+  margin: 0 0.6vmin 0 -0.3vmin;
+}
+
+.password-note {
+  min-height: 2.6vmin;
+  color: var(--muted);
+  font-size: 2.2vmin;
+}
+
+.password-note.failed {
+  color: var(--red);
+}
+
+.keyboard {
+  display: flex;
+  flex-direction: column;
+  gap: 1vmin;
+}
+
+.keys {
+  display: flex;
+  gap: 1vmin;
+  justify-content: center;
+}
+
+.key {
+  display: grid;
+  flex: 1 1 0;
+  place-items: center;
+  max-width: 9vmin;
+  height: 11vmin;
+  border-radius: 1.2vmin;
+  background: var(--card);
+  font: 500 3.6vmin/1 var(--text);
+}
+
+/* Pressed, it sinks a little: the finger on it hides what it types. */
+.key:active {
+  transform: scale(0.92);
+}
+
+.key svg {
+  width: 4vmin;
+  height: 4vmin;
+}
+
+.key.shift,
+.key.back,
+.key.letters,
+.key.digits,
+.key.symbols {
+  flex-grow: 1.5;
+  max-width: 14vmin;
+  font-size: 2.6vmin;
+}
+
+.key.space {
+  flex-grow: 5;
+  max-width: none;
+  font-size: 2.6vmin;
+}
+
+.key.done {
+  flex-grow: 2;
+  max-width: 18vmin;
+  background: var(--accent);
+  color: var(--on);
+  font-size: 2.8vmin;
+  font-weight: 700;
+}
+
+.key.on {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.key:disabled,
+.password button:disabled {
+  opacity: 0.4;
+  transform: none;
+}
+
 /* Why the music sheet lists what it lists (loading, nothing to connect). */
 .sheet-note {
   margin-top: 3vmin;

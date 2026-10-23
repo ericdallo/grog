@@ -110,11 +110,25 @@ socket (`hands.socket`). With them, the model can:
   cut it off.
 - restart the machine, or turn it off, once its answer was said.
 
+And whoever's at its skin can see and change its Wi-Fi ([below](#wi-fi)).
+
 On NixOS, that user gets sudo without a password, and polkit lets it do
 anything (`services.grog.hands.sudo`): grog can do anything on the machine.
 Commands time out after 30 s, and the logs only say how they went, never
 what they ran or printed. On NixOS, what the shell changes is gone at the
 next deploy.
+
+### Wi-Fi
+
+At its skin (Wi-Fi, in its actions), the hands also tell, through
+NetworkManager, whether Wi-Fi is on, the networks the machine sees and
+which it's on, and join one, with its password typed on the skin's
+keyboard when it needs one ([`wifi.clj`](src/grog/wifi.clj),
+[`wifi.sh`](resources/grog/wifi.sh)). It joins on the Wi-Fi device seeing
+the network best, and NetworkManager keeps it, for any Wi-Fi device (a
+USB adapter plugged in elsewhere too); one that didn't work isn't kept.
+Networks wanting more than a password (802.1X) can't be joined there. The
+password only goes to nmcli: never in a log, nor in an answer.
 
 ## Restarting
 
@@ -560,7 +574,7 @@ JSON keys are lowerCamelCase.
 | `POST /v1/voice/speakers` `{"id", "speakers"}` or `{"id", "error"}` | grog-voice saying which [speakers](#speakers) there are, as asked: `[{"name", "label", "kind", "default"}]`, `kind` being `bluetooth`, `usb`, `hdmi`, `headphones` or `speaker` |
 | `POST /v1/music` `{"action", "query", "kind", "shuffle", "level", "change", "id"}` | Does it through what plays [music](#music), as the `music` tool takes them: `{"provider", "text"}`, `text` saying what it did. `id`, with its `kind` (`song`, `album`, `playlist` or `my-playlist`), plays exactly that, like one from the library. A 400 without a known `action`, with a bad `id`, or saying why it can't |
 | `GET /v1/music/library?kind=playlists` | The user's playlists (or `kind=liked`, their liked songs) through what plays [music](#music), with their account: `{"items": [{"kind", "id", "title", "artist", "count"}]}`. A 409 without it (`{"error", "connect": "youtube-music"}`), or without a player; a 502 when YouTube doesn't answer |
-| `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice; `stop` also pauses the music), `mic` `{"on"}`, `speakers` (`{}` tells which there are, `{"music": name}` plays the music on one, `{"voice": name}` grog's voice, `null` back with the music: `{"speakers", "voice"}`, see [Speakers](#speakers)), `volume` (of the speaker grog speaks on: `{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `new-conversation` (forgets them all), `connect` `{"integration", "way"}` (opens a session, like `POST /v1/integrations/<id>/connect`), `update` (starts [updating](#updating), unless it is: `{"started"}`), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
+| `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice; `stop` also pauses the music), `mic` `{"on"}`, `speakers` (`{}` tells which there are, `{"music": name}` plays the music on one, `{"voice": name}` grog's voice, `null` back with the music: `{"speakers", "voice"}`, see [Speakers](#speakers)), `volume` (of the speaker grog speaks on: `{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `wifi` (with hands: `{}` tells it, `{"rescan": true}` after looking again, `{"on": true}` after turning it on, `{"connect": a network's name, "password"}` after joining it: `{"radio": "on" or "off", "devices": [{"device", "state", "connection"}], "networks": [{"ssid", "signal", "security", "device", "active", "saved"}], "joined"}`, `security` being `open`, `password` or `enterprise`, see [Wi-Fi](#wi-fi)), `new-conversation` (forgets them all), `connect` `{"integration", "way"}` (opens a session, like `POST /v1/integrations/<id>/connect`), `update` (starts [updating](#updating), unless it is: `{"started"}`), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
 | `GET /` | The skin, with `skin.dir` |
 | `GET /health` | `ok` |
 

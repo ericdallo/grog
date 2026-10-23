@@ -570,6 +570,8 @@ export function menu(state, armed = null) {
     const detail = picked ? `${voiceOf(state)} on ${picked}` : "where the music and the voice play";
     everyday({ id: "speakers", kind: "button", label: "Speakers", icon: "speaker", detail });
   }
+  // The networks it sees, and joining one (wifiSheet()).
+  if (can("wifi")) everyday({ id: "wifi", kind: "button", label: "Wi-Fi", icon: "wifi", detail: "the network it's on, and joining another" });
   if (can("new-conversation")) {
     everyday({ id: "new-conversation", kind: "button", label: "New conversation", icon: "answering", detail: "what was said is forgotten" });
   }
@@ -629,6 +631,9 @@ export function request(action, state, step = null) {
   if (action.startsWith("speaker-voice:")) {
     return { method: "POST", path: "/v1/actions/speakers", body: { voice: action.slice("speaker-voice:".length) || null } };
   }
+  if (action.startsWith("wifi-join:")) return joinRequest(action.slice("wifi-join:".length));
+  if (action === "wifi-rescan") return { method: "POST", path: "/v1/actions/wifi", body: { rescan: true } };
+  if (action === "wifi-on") return { method: "POST", path: "/v1/actions/wifi", body: { on: true } };
   if (MUSIC[action]) return { method: "POST", path: "/v1/music", body: MUSIC[action] };
   switch (action) {
     case "volume": {
@@ -807,6 +812,160 @@ export function speakersSheet(answer, state = null) {
       { title: voiceOf(state), items: voice },
     ],
     message: speakers.length ? "" : "No speakers found",
+  };
+}
+
+/** How many bars a network's signal (0 to 100) shows: its icon is wifi-1 to wifi-4. */
+export function bars(signal) {
+  if (!Number.isFinite(signal)) return 1;
+  return signal >= 75 ? 4 : signal >= 50 ? 3 : signal >= 25 ? 2 : 1;
+}
+
+/** What joining network `ssid` asks of grog, with its `password` once typed. */
+export function joinRequest(ssid, password = null) {
+  const body = password === null ? { connect: ssid } : { connect: ssid, password };
+  return { method: "POST", path: "/v1/actions/wifi", body };
+}
+
+/** Whether joining `network` (of grog's answer) takes its password first: a protected one, not saved. */
+export function needsPassword(network) {
+  return network?.security === "password" && !network.saved;
+}
+
+// What a network's row says, by what it asks to join it.
+const SECURITY = { open: "Open", password: "Password", enterprise: "Wants more than a password" };
+
+// A WPA password takes 8 characters at least, 63 at most (or 64 hex digits).
+export const PASSWORD_MIN = 8;
+export const PASSWORD_MAX = 64;
+
+// The on-screen keyboard's pages, each rows of keys: characters (a string
+// is a row of them), and shift, back, space, done (joining) and the other
+// pages. Between them, every printable ASCII character.
+const PAGES = {
+  letters: ["qwertyuiop", "asdfghjkl", ["shift", ..."zxcvbnm", "back"], ["digits", "space", "done"]],
+  digits: ["1234567890", '-/:;()$&@"', ["symbols", ...".,?!'", "back"], ["letters", "space", "done"]],
+  symbols: ["[]{}#%^*+=", "_\\|~<>`", ["digits", ...".,?!'", "back"], ["letters", "space", "done"]],
+};
+const SPECIAL = {
+  shift: { icon: "shift", label: "Shift" },
+  back: { icon: "backspace", label: "Delete" },
+  space: { label: "space" },
+  done: { label: "Join" },
+  digits: { label: "123" },
+  symbols: { label: "#+=" },
+  letters: { label: "abc" },
+};
+
+/**
+ * The keyboard's rows on `page` (letters, digits or symbols), its letters
+ * capitals with `shift`: [[{key, kind, label, icon, on}]], kind being char
+ * (`key` what it types), or a special key's name (shift, back, space, done,
+ * or the page it goes to).
+ */
+export function keyboard(page = "letters", shift = false) {
+  return (PAGES[page] ?? PAGES.letters).map((row) =>
+    [...row].map((key) => {
+      if (key.length > 1) return { key, kind: key, icon: null, on: key === "shift" && shift, ...SPECIAL[key] };
+      const ch = shift ? key.toUpperCase() : key;
+      return { key: ch, kind: "char", label: ch, icon: null, on: false };
+    }),
+  );
+}
+
+/**
+ * The password being typed, once `key` (of keyboard(), or a physical
+ * keyboard's, see physicalKey()) was: {ssid, text, page, shift, shown,
+ * busy, error}. Shift lasts a letter; a page changes; done changes nothing
+ * here (joining is the skin's). What's typed stops at PASSWORD_MAX.
+ */
+export function typed(form, key) {
+  const f = { text: "", page: "letters", shift: false, shown: false, ...form, error: "" };
+  const room = [...f.text].length < PASSWORD_MAX;
+  switch (key?.kind) {
+    case "char":
+      return room ? { ...f, text: f.text + key.key, shift: false } : f;
+    case "space":
+      return room ? { ...f, text: `${f.text} ` } : f;
+    case "back":
+      return { ...f, text: [...f.text].slice(0, -1).join("") };
+    case "shift":
+      return { ...f, shift: !f.shift };
+    case "letters":
+    case "digits":
+    case "symbols":
+      return { ...f, page: key.kind, shift: false };
+    default:
+      return f;
+  }
+}
+
+/** A key of keyboard() for what a physical keyboard's `key` (KeyboardEvent.key) types, or null. */
+export function physicalKey(key) {
+  if (key === "Backspace") return { key, kind: "back" };
+  if (key === "Enter") return { key, kind: "done" };
+  if (key === " ") return { key, kind: "space" };
+  return typeof key === "string" && /^[\x21-\x7e]$/.test(key) ? { key, kind: "char" } : null;
+}
+
+/** Whether the password typed in `form` can be tried: long enough, and nothing on its way. */
+export function canJoin(form) {
+  return [...(form?.text ?? "")].length >= PASSWORD_MIN && !form?.busy;
+}
+
+/** What the password form shows: its title, the field (dots unless shown), the keyboard. */
+function passwordForm(form) {
+  const text = form.text ?? "";
+  const length = [...text].length;
+  return {
+    ssid: form.ssid,
+    title: `Password for ${form.ssid}`,
+    field: form.shown ? text : "•".repeat(length),
+    hint: length && length < PASSWORD_MIN ? `At least ${PASSWORD_MIN} characters` : "",
+    shown: Boolean(form.shown),
+    busy: Boolean(form.busy),
+    error: capitalize(form.error ?? ""),
+    join: canJoin(form),
+    keys: keyboard(form.page, form.shift),
+  };
+}
+
+/**
+ * The Wi-Fi sheet, out of what grog answered `POST /v1/actions/wifi`
+ * (`answer`: {radio, devices, networks}, or {error}; null while it's on its
+ * way), or the password being typed for a network (`form`, see typed()),
+ * while it joins network `joining` (saved, or open) or not (null):
+ * {loading, message, error, items: [{id, label, icon, detail, chosen,
+ * disabled}], buttons: [{id, label, disabled}], form}. Its networks, the
+ * one it's on first, each joined by a tap (wifi-join:<ssid>), those wanting
+ * more than a password greyed out, and the others while it joins one;
+ * looking again, or turning Wi-Fi on while it's off.
+ */
+export function wifiSheet(answer, form = null, joining = null) {
+  const sheet = { loading: false, message: "", error: "", items: [], buttons: [], form: null };
+  if (form) return { ...sheet, form: passwordForm(form) };
+  if (!answer) return { ...sheet, loading: true, message: "Looking for networks…" };
+  if (!answer.networks) return { ...sheet, error: capitalize(answer.error ?? "") };
+  if (answer.radio === "off") {
+    return { ...sheet, message: "Wi-Fi is off", buttons: [{ id: "wifi-on", label: "Turn it on", disabled: false }] };
+  }
+  if (!answer.devices?.length) return { ...sheet, message: "No Wi-Fi here" };
+  const items = answer.networks
+    .filter((n) => n?.ssid)
+    .map((n) => ({
+      id: `wifi-join:${n.ssid}`,
+      label: n.ssid,
+      icon: `wifi-${bars(n.signal)}`,
+      detail:
+        n.ssid === joining ? "Joining…" : n.active ? "Connected" : n.saved ? "Saved" : (SECURITY[n.security] ?? ""),
+      chosen: Boolean(n.active),
+      disabled: n.security === "enterprise" || (joining !== null && n.ssid !== joining),
+    }));
+  return {
+    ...sheet,
+    items,
+    buttons: [{ id: "wifi-rescan", label: "Look again", disabled: joining !== null }],
+    message: items.length ? "" : "No networks in sight",
   };
 }
 

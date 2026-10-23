@@ -75,6 +75,11 @@
           inherit pkgs;
           module = self.nixosModules.default;
         };
+        # Its Wi-Fi, against simulated radios.
+        wifi = import ./body/tests/wifi.nix {
+          inherit pkgs;
+          module = self.nixosModules.default;
+        };
       } // lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
         # A grognix in a VM, with its desktop and headless.
         grognix = import ./body/tests/grognix.nix {

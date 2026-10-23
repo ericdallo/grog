@@ -12,6 +12,7 @@
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [grog.config :as config]
             [grog.log :as log])
   (:import (java.io ByteArrayOutputStream InputStream)
@@ -26,6 +27,11 @@
 
 ;; How often the output of a running command is looked at.
 (def ^:private poll-ms 10)
+
+(defn quoted
+  "`s` as a single word for bash, in a command for the hands."
+  [s]
+  (str "'" (str/replace s "'" "'\\''") "'"))
 
 (defn ^:private read-output
   "What `proc` prints until it exits: [its first `max-output-chars`

@@ -16,17 +16,12 @@
 
 (def ^:private default-sink "@DEFAULT_AUDIO_SINK@")
 
-(defn ^:private quoted
-  "`s` as a single word for bash."
-  [s]
-  (str "'" (str/replace s "'" "'\\''") "'"))
-
 (defn ^:private find-sink
   "Bash setting `sink` to the id of the speaker named `speaker`, found with
   pw-dump, or to the default one while it isn't there (grog-voice speaks on
   that one then)."
   [speaker]
-  (str "sink=$(pw-dump -N " (quoted speaker) " 2>/dev/null | grep -m 1 -o '\"id\": *[0-9]*' | grep -o '[0-9]*$'); "
+  (str "sink=$(pw-dump -N " (hands/quoted speaker) " 2>/dev/null | grep -m 1 -o '\"id\": *[0-9]*' | grep -o '[0-9]*$'); "
        "sink=${sink:-" default-sink "}; "))
 
 (defn ^:private whole

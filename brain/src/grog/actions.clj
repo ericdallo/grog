@@ -3,7 +3,8 @@
   name, or to stop answering, and its music (grog-voice, see grog.voice;
   grog.music); to turn its mic on or off; which speakers there are, and
   which ones the music and its voice play on (grog-voice's); to change
-  the volume of the speaker it speaks on; to forget its conversations;
+  the volume of the speaker it speaks on; its Wi-Fi (grog.wifi); to forget
+  its conversations;
   to connect something to it (grog.integrations); to update itself
   (grog.update); and to go away: restart itself (its voice, then its
   brain), restart the machine, or turn it off. Someone at its skin asks
@@ -20,7 +21,8 @@
             [grog.music :as music]
             [grog.player :as player]
             [grog.update :as update]
-            [grog.voice :as voice]))
+            [grog.voice :as voice]
+            [grog.wifi :as wifi]))
 
 ;; grog restarts itself by exiting with it: its systemd service starts it
 ;; again then (the NixOS module's RestartForceExitStatus).
@@ -42,7 +44,8 @@
 
 ;; What can be asked of grog, on some machines only (see `available`).
 (def known
-  #{"listen" "stop" "mic" "speakers" "volume" "new-conversation" "connect" "update" "restart" "reboot" "power-off"})
+  #{"listen" "stop" "mic" "speakers" "volume" "wifi" "new-conversation" "connect" "update" "restart" "reboot"
+    "power-off"})
 
 (defn exit!
   "Ends grog with `code` (tests redefine it)."
@@ -71,11 +74,12 @@
 (defn available
   "What can be asked of grog with `config`: to listen or stop, its mic and
   its speakers (when grog-voice is there to ask), forgetting its
-  conversations, connecting something, the volume with hands, updating
-  itself with the update service and hands, and going away (`going-away`)."
+  conversations, connecting something, the volume and the Wi-Fi with hands,
+  updating itself with the update service and hands, and going away
+  (`going-away`)."
   [config]
   (into (cond-> ["listen" "stop" "mic" "speakers" "new-conversation" "connect"]
-          (hands? config) (conj "volume")
+          (hands? config) (into ["volume" "wifi"])
           (update/available? config) (conj "update"))
         (going-away config)))
 
@@ -99,7 +103,7 @@
     (when-not (some #{name} (available config))
       (throw (ex-info (case name
                         "restart" "not running as a service here: nothing would start it again"
-                        ("reboot" "power-off" "volume") "there are no hands to do that with (hands.socket)"
+                        ("reboot" "power-off" "volume" "wifi") "there are no hands to do that with (hands.socket)"
                         "update" "it can't update itself here: no update service, or no hands to start it"
                         (str "there's no action called " name))
                       {:type ::unavailable})))
@@ -203,8 +207,9 @@
 
 (defn perform!
   "Takes action `name`, with `args` (the volume's, see grog.machine; the
-  mic's, {:on}; the speakers', {:music :voice}; connect's, {:integration
-  :way}), once `check!` says it can: what to answer."
+  Wi-Fi's, grog.wifi; the mic's, {:on}; the speakers', {:music :voice};
+  connect's, {:integration :way}), once `check!` says it can: what to
+  answer."
   ([ctx name]
    (perform! ctx name {}))
   ([ctx name args]
@@ -216,6 +221,7 @@
      "mic" (mic! ctx args)
      "speakers" (speakers! ctx args)
      "volume" (machine/set-volume! ctx args)
+     "wifi" (wifi/act! ctx args)
      "new-conversation" (forget! ctx)
      "connect" (connect! ctx args)
      "update" (update/start! @(:config ctx))

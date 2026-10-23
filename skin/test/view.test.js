@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 
 import {
   account,
+  bars,
+  canJoin,
   CAPTIONS_MS,
   capitalize,
   card,
@@ -17,13 +19,18 @@ import {
   host,
   integrationDetail,
   isNight,
+  joinRequest,
+  keyboard,
   level,
   menu,
   mode,
   MUSIC_STEP,
   musicSheet,
+  needsPassword,
   nowPlaying,
   OUTCOME_MS,
+  PASSWORD_MAX,
+  physicalKey,
   pipeline,
   PLEASED_MS,
   qrSrc,
@@ -41,6 +48,7 @@ import {
   tap,
   timeFormats,
   tool,
+  typed,
   UPDATE_FAILED_MS,
   UPDATE_MS,
   UPDATED_MS,
@@ -51,6 +59,7 @@ import {
   VOICE_GRACE_MS,
   VOICE_STALE_MS,
   VOLUME_STEP,
+  wifiSheet,
   wordChanges,
 } from "../web/view.js";
 import { ICONS } from "../web/icons.js";
@@ -1307,6 +1316,127 @@ describe("the speakers", () => {
     });
     assert.deepEqual(request("speaker-voice:alsa_output.speaker", state()).body, { voice: "alsa_output.speaker" });
     assert.deepEqual(request("speaker-voice:", state()).body, { voice: null });
+  });
+});
+
+describe("the Wi-Fi", () => {
+  const home = { ssid: "GREGSON-2G", signal: 84, security: "password", device: "wlx", active: true, saved: true };
+  const saved = { ssid: "GREGSON-5G", signal: 60, security: "password", device: "wlx", active: false, saved: true };
+  const neighbor = { ssid: "JOAO1808", signal: 40, security: "password", device: "wlo1", active: false, saved: false };
+  const cafe = { ssid: "Cafe", signal: 10, security: "open", device: "wlo1", active: false, saved: false };
+  const office = { ssid: "Office", signal: 90, security: "enterprise", device: "wlo1", active: false, saved: false };
+  const answer = { radio: "on", devices: [{ device: "wlx", state: "connected" }], networks: [home, saved, neighbor, cafe, office] };
+
+  it("in the actions, with hands", () => {
+    const [item] = menu(state({ actions: ["wifi"] }));
+    assert.deepEqual([item.id, item.kind, item.group, item.label, item.icon], ["wifi", "button", "everyday", "Wi-Fi", "wifi"]);
+    assert.ok(ICONS[item.icon]);
+  });
+
+  it("its sheet: the network it's on first, the others to join", () => {
+    const sheet = wifiSheet(answer);
+    assert.deepEqual(
+      sheet.items.map((i) => [i.id, i.label, i.icon, i.detail, i.chosen, i.disabled]),
+      [
+        ["wifi-join:GREGSON-2G", "GREGSON-2G", "wifi-4", "Connected", true, false],
+        ["wifi-join:GREGSON-5G", "GREGSON-5G", "wifi-3", "Saved", false, false],
+        ["wifi-join:JOAO1808", "JOAO1808", "wifi-2", "Password", false, false],
+        ["wifi-join:Cafe", "Cafe", "wifi-1", "Open", false, false],
+        ["wifi-join:Office", "Office", "wifi-4", "Wants more than a password", false, true],
+      ],
+    );
+    for (const i of sheet.items) assert.ok(ICONS[i.icon], i.icon);
+    assert.deepEqual(sheet.buttons, [{ id: "wifi-rescan", label: "Look again", disabled: false }]);
+    assert.deepEqual([bars(100), bars(75), bars(74), bars(25), bars(0), bars(undefined)], [4, 4, 3, 2, 1, 1]);
+  });
+
+  it("while it joins a saved or open network: that one says so, the others wait", () => {
+    const sheet = wifiSheet(answer, null, "GREGSON-5G");
+    assert.deepEqual(
+      sheet.items.map((i) => [i.label, i.detail, i.disabled]),
+      [
+        ["GREGSON-2G", "Connected", true],
+        ["GREGSON-5G", "Joining…", false],
+        ["JOAO1808", "Password", true],
+        ["Cafe", "Open", true],
+        ["Office", "Wants more than a password", true],
+      ],
+    );
+    assert.deepEqual(sheet.buttons, [{ id: "wifi-rescan", label: "Look again", disabled: true }]);
+  });
+
+  it("which networks ask their password first, and what joining asks of grog", () => {
+    assert.deepEqual([home, saved, neighbor, cafe].map(needsPassword), [false, false, true, false]);
+    assert.deepEqual(request("wifi-join:Cafe", state()), { method: "POST", path: "/v1/actions/wifi", body: { connect: "Cafe" } });
+    assert.deepEqual(joinRequest("JOAO1808", "s3cret!!").body, { connect: "JOAO1808", password: "s3cret!!" });
+    assert.deepEqual(request("wifi-rescan", state()).body, { rescan: true });
+    assert.deepEqual(request("wifi-on", state()).body, { on: true });
+    assert.deepEqual(request("wifi", state()), { method: "POST", path: "/v1/actions/wifi", body: {} });
+  });
+
+  it("its sheet while grog looks, when it can't, with Wi-Fi off, or none", () => {
+    assert.equal(wifiSheet(null).message, "Looking for networks…");
+    assert.equal(wifiSheet({ error: "there are no hands to do that with" }).error, "There are no hands to do that with");
+    assert.deepEqual(wifiSheet({ radio: "off", devices: [], networks: [] }).buttons, [
+      { id: "wifi-on", label: "Turn it on", disabled: false },
+    ]);
+    assert.equal(wifiSheet({ radio: "on", devices: [], networks: [] }).message, "No Wi-Fi here");
+    assert.equal(wifiSheet({ radio: "on", devices: [{ device: "wlo1" }], networks: [] }).message, "No networks in sight");
+  });
+
+  it("a keyboard with every printable ASCII character, letters capitals with shift", () => {
+    const typable = new Set(
+      ["letters", "digits", "symbols"].flatMap((page) =>
+        [false, true].flatMap((shift) => keyboard(page, shift).flat().filter((k) => k.kind === "char").map((k) => k.key)),
+      ),
+    );
+    typable.add(" ");
+    for (let c = 0x20; c <= 0x7e; c++) assert.ok(typable.has(String.fromCharCode(c)), JSON.stringify(String.fromCharCode(c)));
+    const letters = keyboard("letters", true);
+    assert.deepEqual(letters[0].slice(0, 3).map((k) => k.label), ["Q", "W", "E"]);
+    assert.deepEqual(letters[2][0], { key: "shift", kind: "shift", icon: "shift", label: "Shift", on: true });
+    assert.deepEqual(letters[3].map((k) => k.kind), ["digits", "space", "done"]);
+    for (const k of ["letters", "digits", "symbols"].flatMap((p) => keyboard(p).flat())) if (k.icon) assert.ok(ICONS[k.icon], k.icon);
+  });
+
+  it("what typing does: shift for a letter, pages, back, and no more than a password takes", () => {
+    const key = (kind, k = kind) => ({ kind, key: k });
+    let f = { ssid: "JOAO1808", text: "", page: "letters", shift: false, error: "the password didn't work" };
+    f = typed(f, key("shift"));
+    assert.equal(f.error, "", "typing again, what went wrong goes");
+    f = typed(f, keyboard("letters", f.shift)[0][0]);
+    f = typed(f, keyboard("letters", f.shift)[0][1]);
+    assert.deepEqual([f.text, f.shift], ["Qw", false]);
+    f = typed(f, key("digits"));
+    f = typed(f, keyboard(f.page)[0][0]);
+    f = typed(f, key("space"));
+    f = typed(f, key("back"));
+    f = typed(f, key("back"));
+    assert.deepEqual([f.text, f.page], ["Qw", "digits"]);
+    assert.equal(typed({ text: "x".repeat(PASSWORD_MAX) }, key("char", "y")).text.length, PASSWORD_MAX);
+    assert.deepEqual([canJoin({ text: "1234567" }), canJoin({ text: "12345678" }), canJoin({ text: "12345678", busy: true })], [false, true, false]);
+  });
+
+  it("a physical keyboard types too", () => {
+    assert.deepEqual(physicalKey("a"), { key: "a", kind: "char" });
+    assert.deepEqual(physicalKey("~"), { key: "~", kind: "char" });
+    assert.deepEqual([physicalKey(" ").kind, physicalKey("Backspace").kind, physicalKey("Enter").kind], ["space", "back", "done"]);
+    assert.deepEqual([physicalKey("Shift"), physicalKey("é"), physicalKey("ArrowLeft")], [null, null, null]);
+  });
+
+  it("the password form: dots until shown, a hint until long enough, why it failed", () => {
+    const form = (extra) => wifiSheet(answer, { ssid: "JOAO1808", text: "abc", page: "letters", ...extra }).form;
+    assert.deepEqual([form({}).title, form({}).field, form({}).hint, form({}).join], [
+      "Password for JOAO1808",
+      "•••",
+      "At least 8 characters",
+      false,
+    ]);
+    assert.equal(form({ shown: true }).field, "abc");
+    assert.deepEqual([form({ text: "abcdefgh" }).hint, form({ text: "abcdefgh" }).join], ["", true]);
+    assert.equal(form({ error: "the password didn't work" }).error, "The password didn't work");
+    assert.equal(form({ text: "abcdefgh", busy: true }).join, false);
+    assert.equal(wifiSheet(answer, { ssid: "x" }).items.length, 0, "only the form, while typing");
   });
 });
 

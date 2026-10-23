@@ -43,8 +43,8 @@ On a touch screen, or with a mouse:
   stops it, and pauses the music. With its mic off, it turns it on and
   listens.
 - The button by the clock opens its actions: the volume (of the speaker
-  grog speaks on), the mic, its speakers, a new conversation, its
-  integrations (signing in to ChatGPT or out of it,
+  grog speaks on), the mic, its speakers, its Wi-Fi, a new conversation,
+  its integrations (signing in to ChatGPT or out of it,
   adding a computer, forgetting one, connecting YouTube Music with a code
   entered at Google's page, connecting an MCP server, with how
   many tools it has, whether you added it, which grog didn't check, and
@@ -60,6 +60,13 @@ On a touch screen, or with a mouse:
   as it opens (`GET /v1/music/library`). Without your YouTube Music
   account, it says so, with the entry connecting it. Tapping one plays it
   and closes it. What fails shows in red, for a moment.
+- Wi-Fi, in the actions (with grog's hands), opens the networks the
+  machine sees, the one it's on first, asked of grog as it opens (`POST
+  /v1/actions/wifi`). Tapping a saved or open one joins it; a protected one
+  asks its password first, typed on a keyboard of the skin's own (letters,
+  digits and every symbol, shown or as dots; a physical keyboard types too),
+  as the screen may have none. A saved password that stops working asks for
+  it again. The password only goes to grog, to join the network.
 - Speakers, in the actions, opens which ones the music and grog's voice
   play on, asked of grog as it opens (`POST /v1/actions/speakers`): the
   music on one (the session's default), grog's voice with it, or on

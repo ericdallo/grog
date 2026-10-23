@@ -56,7 +56,7 @@
   (let [voice ["listen" "stop" "mic" "speakers" "new-conversation" "connect"]]
     (with-redefs [actions/service? (constantly false)]
       (is (= voice (actions/available config/defaults)))
-      (is (= (into voice ["volume" "reboot" "power-off"])
+      (is (= (into voice ["volume" "wifi" "reboot" "power-off"])
              (actions/available (assoc-in config/defaults [:hands :socket] socket))))
       (is (nil? (actions/tool config/defaults))))
     (with-redefs [actions/service? (constantly true)]
@@ -65,7 +65,7 @@
         (is (= ["restart"] (get-in (actions/tool config/defaults) [:parameters :properties :action :enum])))))
     (testing "updating itself, with the update service and hands to start it"
       (with-redefs [actions/service? (constantly false)]
-        (is (= (into voice ["volume" "update" "reboot" "power-off"])
+        (is (= (into voice ["volume" "wifi" "update" "reboot" "power-off"])
                (actions/available (-> config/defaults
                                       (assoc-in [:hands :socket] socket)
                                       (assoc-in [:update :status] "/run/grog-update/status.json")))))))))

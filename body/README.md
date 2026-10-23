@@ -93,9 +93,11 @@ On grognix:
   `journalctl --user -u grog-voice -f` the voice's. Neither has what was said.
   `journalctl --user -u grog-music -f` shows the player's, without what it
   played.
-- A Wi-Fi profile made in GNOME only works on the USB port the dongle was
-  in. `sudo nmcli connection modify <name> connection.interface-name ""`
-  makes it work on any.
+- Wi-Fi, in the actions on its screen, joins another network, its password
+  typed there; what it saves works with any Wi-Fi dongle, on any port. A
+  profile made in GNOME only works on the USB port the dongle was in.
+  `sudo nmcli connection modify <name> connection.interface-name ""` makes
+  it work on any.
 
 To add an API key, kept out of git and the Nix store:
 

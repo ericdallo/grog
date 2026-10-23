@@ -49,4 +49,22 @@ export const ICONS = {
   screen: '<rect x="3" y="4.5" width="18" height="12" rx="1.5"/><path d="M8.5 20h7M12 16.5V20"/>',
   headphones:
     '<path d="M4.5 15v-3a7.5 7.5 0 0 1 15 0v3"/><rect x="3.5" y="14" width="4" height="6.5" rx="1.5"/><rect x="16.5" y="14" width="4" height="6.5" rx="1.5"/>',
+  wifi: wifi(3),
+  "wifi-1": wifi(0),
+  "wifi-2": wifi(1),
+  "wifi-3": wifi(2),
+  "wifi-4": wifi(3),
+  shift: '<path d="M12 4.5l7 7.5h-4v7.5H9V12H5z"/>',
+  backspace: '<path d="M8.5 5.5h12v13h-12L3 12z"/><path d="M12 9.5l5 5M17 9.5l-5 5"/>',
+  eye: '<path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
+  "eye-off":
+    '<path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/><path d="M4 4l16 16"/>',
 };
+
+/** A Wi-Fi signal: its dot, and `arcs` of its three arcs strong, the others faint. */
+function wifi(arcs) {
+  const paths = ["M8.6 16.2a5 5 0 0 1 6.8 0", "M5.6 13a9.5 9.5 0 0 1 12.8 0", "M2.6 9.8a14 14 0 0 1 18.8 0"];
+  return (
+    '<path d="M12 19.5h.01"/>' + paths.map((d, i) => `<path d="${d}"${i < arcs ? "" : ' opacity="0.3"'}/>`).join("")
+  );
+}
