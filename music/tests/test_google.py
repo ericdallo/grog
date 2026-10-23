@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from fakes import AUTH
 
 from grog_music import Refused
-from grog_music.google import AccountError, Google, artist_of_channel, iso_seconds
+from grog_music.google import MAX_PAGES, AccountError, Google, artist_of_channel, iso_seconds
 
 
 class FakeGoogleServer:
@@ -104,16 +104,18 @@ class GoogleTest(unittest.TestCase):
         )
         self.assertEqual("PL1", self.fake.requests[0][1]["playlistId"])
 
-    def test_liked(self):
+    def test_liked_music_only(self):
         self.fake.routes["/youtube/v3/videos"] = (
             200,
             {
                 "items": [
                     {
                         "id": "v1",
-                        "snippet": {"title": "Liked", "channelTitle": "Singer"},
+                        "snippet": {"title": "Liked", "channelTitle": "Singer", "categoryId": "10"},
                         "contentDetails": {"duration": "PT3M20S"},
                     },
+                    {"id": "v2", "snippet": {"title": "A podcast", "categoryId": "22"}},
+                    {"id": "v3", "snippet": {"title": "No category", "channelTitle": "Someone"}},
                 ]
             },
         )
@@ -122,6 +124,20 @@ class GoogleTest(unittest.TestCase):
             self.google.liked(self.auth, 100),
         )
         self.assertEqual("like", self.fake.requests[0][1]["myRating"])
+
+    def test_liked_reads_on_for_enough_music(self):
+        def page(query):
+            n = int(query.get("pageToken") or 0)
+            music = {"id": f"m{n}", "snippet": {"title": f"Song {n}", "categoryId": "10"}}
+            other = {"id": f"o{n}", "snippet": {"title": f"Video {n}", "categoryId": "24"}}
+            return 200, {"nextPageToken": str(n + 1), "items": [other, music]}
+
+        self.fake.routes["/youtube/v3/videos"] = page
+        self.assertEqual(["m0", "m1", "m2"], [s["id"] for s in self.google.liked(self.auth, 3)])
+        self.assertEqual(3, len(self.fake.requests))
+        self.fake.requests.clear()
+        self.assertEqual(MAX_PAGES, len(self.google.liked(self.auth, 100)))
+        self.assertEqual(MAX_PAGES, len(self.fake.requests))
 
     def test_refreshes_a_token_about_to_expire_in_memory(self):
         self.auth["expiresAt"] = int((self.now + 30) * 1000)

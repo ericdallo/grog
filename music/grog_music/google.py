@@ -1,8 +1,8 @@
 """The user's YouTube library through YouTube's Data API v3, with the Google
-token grog hands over: their playlists, a playlist's videos, and what they
-liked. YouTube Music's own endpoints refuse ytmusicapi's OAuth tokens (HTTP
-400 since August 2025, sigma67/ytmusicapi#813) while the Data API takes
-them. The token is only kept in memory, for the request."""
+token grog hands over: their playlists, a playlist's videos, and the music
+they liked. YouTube Music's own endpoints refuse ytmusicapi's OAuth tokens
+(HTTP 400 since August 2025, sigma67/ytmusicapi#813) while the Data API
+takes them. The token is only kept in memory, for the request."""
 
 import json
 import re
@@ -18,6 +18,11 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 RECONNECT = "your YouTube Music account needs connecting again"
 # Refreshed this long before it expires.
 REFRESH_EARLY_S = 60
+# YouTube's category of music videos: of what the user liked, the music.
+MUSIC_CATEGORY = "10"
+# Pages of 50 read at most for an answer: likes are read on until there's
+# enough music among them.
+MAX_PAGES = 10
 
 
 class AccountError(Refused):
@@ -96,13 +101,17 @@ class Google:
                 raise Refused("nothing found for that") from e
             raise Refused("YouTube didn't answer") from e
 
-    def _pages(self, auth, path, params, limit):
+    def _pages(self, auth, path, params, limit, keep=lambda _: True):
+        """Up to `limit` of the items `keep` keeps, from at most MAX_PAGES
+        pages."""
         out, token = [], None
-        while len(out) < limit:
+        for _ in range(MAX_PAGES):
+            if len(out) >= limit:
+                break
             page = self._get(
                 auth, path, params | {"maxResults": 50} | ({"pageToken": token} if token else {})
             )
-            out.extend(i for i in page.get("items") or [] if isinstance(i, dict))
+            out.extend(i for i in page.get("items") or [] if isinstance(i, dict) and keep(i))
             token = page.get("nextPageToken")
             if not token:
                 break
@@ -135,11 +144,13 @@ class Google:
         return out
 
     def liked(self, auth, limit=100):
-        """What the user liked on YouTube (YouTube Music's likes are YouTube's):
-        [{kind "song", id, title, artist?, durationS?}]."""
+        """The music the user liked on YouTube: YouTube Music's likes are
+        YouTube's, and it only shows those in the Music category, not the
+        podcasts or other videos. [{kind "song", id, title, artist?,
+        durationS?}]."""
         out = []
         params = {"part": "snippet,contentDetails", "myRating": "like"}
-        for v in self._pages(auth, "videos", params, limit):
+        for v in self._pages(auth, "videos", params, limit, keep=_music):
             snippet = v.get("snippet") or {}
             if isinstance(v.get("id"), str) and isinstance(snippet.get("title"), str):
                 out.append(
@@ -152,3 +163,7 @@ class Google:
 
 def _maybe(key, value):
     return {key: value} if value not in (None, "") else {}
+
+
+def _music(video):
+    return (video.get("snippet") or {}).get("categoryId") == MUSIC_CATEGORY

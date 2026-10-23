@@ -49,7 +49,8 @@ for now (HTTP 400, sigma67/ytmusicapi#813): it's tried first, and once it
 refuses, not again for 6 hours. Meanwhile the user's playlists, a
 playlist's songs and their likes come from the Data API
 ([`google.py`](grog_music/google.py); likes there are all of YouTube's,
-music or not), and their saved albums and history can't be read.
+so only those in its Music category are kept, as YouTube Music shows
+them), and their saved albums and history can't be read.
 
 To try it:
 

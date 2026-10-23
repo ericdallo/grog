@@ -389,8 +389,9 @@ and the sign-in lasts 7 days.
 
 YouTube Music refuses grog's sign-in for its own API (ytmusicapi's), so
 your library comes through the YouTube Data API v3: your playlists, a
-playlist's songs, and what you liked (all your likes on YouTube, music or
-not). Not your saved albums or history, for now. The tokens refresh on
+playlist's songs, and the music you liked (your likes on YouTube in its
+Music category, as YouTube Music shows them: not the podcasts or other
+videos). Not your saved albums or history, for now. The tokens refresh on
 their own; once they can't, connect it again. Disconnecting revokes them.
 
 ### While grog listens

@@ -272,8 +272,8 @@ phases land.
   - ytmusicapi's OAuth is refused by YouTube Music (HTTP 400,
     sigma67/ytmusicapi#813), so the user's library comes through the
     YouTube Data API v3: their playlists, a playlist's songs, and their
-    likes (all of YouTube's, music or not), not their saved albums or
-    history. grog-music tries ytmusicapi first, and after a refusal not
+    likes (YouTube's, those in its Music category, as YouTube Music shows
+    them), not their saved albums or history. grog-music tries ytmusicapi first, and after a refusal not
     again for 6 hours. Search and play are anonymous.
   - The Google client is grog's own, shipped by the project, or the user's
     own: not only the user's. Shipped, its consent screen must be
