@@ -1,7 +1,8 @@
 (ns grog.memory
-  "What the user asked grog to remember, through the model's `memory` tool:
-  facts, and how they want it to answer, kept in memory.json in the state
-  directory, which go in the system prompt."
+  "What grog remembers: facts, and how the user wants it to answer, kept in
+  memory.json in the state directory, which go in the system prompt. What
+  the user asks it to remember or forget, through the model's `memory`
+  tool, and what it learns by itself from conversations (grog.learning)."
   (:require [babashka.fs :as fs]
             [cheshire.core :as json]
             [clojure.string :as str]
@@ -62,19 +63,52 @@
                :else (throw (ex-info "more than one remembered thing matches: say which, as listed" {})))]
     (vec (remove gone facts))))
 
+(defn ^:private save!
+  "Keeps `facts` as what's remembered."
+  [{:keys [config memory]} facts]
+  (state/write! (file @config) (json/generate-string {:facts facts} {:pretty true}))
+  (reset! memory facts))
+
 (defn change!
   "Applies the `memory` tool's `args`: forgets, then remembers. Throws
   ex-info saying what's wrong."
-  [{:keys [config memory lock]} {what :forget fact :remember}]
+  [{:keys [memory lock] :as ctx} {what :forget fact :remember}]
   (when (and (str/blank? what) (str/blank? fact))
     (throw (ex-info "say what to remember or what to forget" {})))
   (locking lock
     (let [facts (cond-> @memory
                   (not (str/blank? what)) (forget what)
                   (not (str/blank? fact)) (remember fact))]
-      (state/write! (file @config) (json/generate-string {:facts facts} {:pretty true}))
-      (reset! memory facts)
+      (save! ctx facts)
       {:remembering (count facts)})))
+
+(defn ^:private each
+  "`facts` after `f` (`remember` or `forget`) with each of `items` it takes,
+  skipping those it can't: blank, or that it throws for."
+  [f facts items]
+  (reduce (fn [facts item]
+            (if (and (string? item) (not (str/blank? item)))
+              (try
+                (f facts item)
+                (catch clojure.lang.ExceptionInfo _ facts))
+              facts))
+          facts
+          items))
+
+(defn learn!
+  "Applies what grog learned by itself (grog.learning), lists of what to
+  forget and what to remember: forgets, then remembers, each one that it
+  can, skipping the rest (too long, no room, nothing or more than one thing
+  matching). Returns how many it remembered and forgot."
+  [{:keys [memory lock] :as ctx} {to-forget :forget to-remember :remember}]
+  (locking lock
+    (let [before @memory
+          kept (each forget before to-forget)
+          facts (each remember kept to-remember)]
+      (when (not= before facts)
+        (save! ctx facts))
+      {:remembered (- (count facts) (count kept))
+       :forgot (- (count before) (count kept))})))
 
 (def tool
   {:name "memory"

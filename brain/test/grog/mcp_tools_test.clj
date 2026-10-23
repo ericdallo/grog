@@ -99,6 +99,9 @@
           (is (= {:type "object" :properties {:name {:type "string"}}} (:parameters off)) "without $schema")
           (is (= {:type "object" :properties {}} (:parameters (ts "ha__Unlock"))) "an object, when it says none")
           (is (= "Turn off" ((:detail off) {:name "x"}))))
+        (testing "whether what they answer may carry someone else's text"
+          (is (true? (:open-world off)))
+          (is (false? (:open-world (ts "ha__GetLiveContext")))))
         (testing "the policy: its defaults, the entry's, the user's"
           (is (= [["HassTurnOff" "allow" true] ["GetLiveContext" "allow" true] ["Unlock" "deny" true]
                   ["read.mail" "allow" true]]

@@ -10,7 +10,8 @@
 
     read-only   readOnlyHint
     open-world  unless trusted and openWorldHint is false: what it answers
-                may carry someone else's text (told, not guarded)
+                may carry someone else's text (told, not guarded; grog
+                learns nothing from it, grog.learning)
     destructive not read-only and destructiveHint: asks first by default
 
   Each tool's policy: \"allow\", \"ask\" (grog.asks) or \"deny\", by default
@@ -253,11 +254,12 @@
 (defn ^:private as-tool
   "The grog tool for the MCP tool of `settings`, named `tool-name`, of
   connection `id`."
-  [id integration tool-name {:keys [name title mode] :as settings}]
+  [id integration tool-name {:keys [name title mode open-world] :as settings}]
   {:name tool-name
    :description (description integration title (:description settings))
    :parameters (:parameters settings)
    :detail (constantly title)
+   :open-world open-world
    :run (fn [ctx args turn]
           (case mode
             "deny" (throw (ex-info (str "the user doesn't let " (:name @(:config ctx)) " use it") {:type ::denied}))

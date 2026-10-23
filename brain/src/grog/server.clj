@@ -3,9 +3,10 @@
   what runs in the background: pings to whoever watches what grog is up
   to, and to grog-voice, keeping what they know of its usage current, and of
   how an update goes (grog.update), a sign-in with a code going while
-  grog has nothing to pay with, for its skin to show (grog.signin), and
-  its music going down while someone talks to it, and grog-voice told
-  whether it plays (grog.music)."
+  grog has nothing to pay with, for its skin to show (grog.signin), its
+  music going down while someone talks to it, and grog-voice told whether
+  it plays (grog.music), and what it learns from conversations once they
+  go quiet (grog.learning)."
   (:require [babashka.nrepl.server :as nrepl]
             [grog.api :as api]
             [grog.assistant :as assistant]
@@ -13,6 +14,7 @@
             [grog.connect :as connect]
             [grog.credentials :as credentials]
             [grog.events :as events]
+            [grog.learning :as learning]
             [grog.log :as log]
             [grog.music :as music]
             [grog.provider :as provider]
@@ -50,6 +52,10 @@
 ;; How often grog sees whether it's time to ask its player whether it plays
 ;; (grog.music/keep-up!): reading an atom, mostly.
 (def ^:private music-check-ms 1000)
+
+;; How often grog looks for conversations gone quiet, to learn from them
+;; (grog.learning): reading atoms, mostly.
+(def ^:private learn-check-ms (* 30 1000))
 
 (defn ^:private every!
   "Runs `f` every `ms`, in the background, starting now or after `ms`
@@ -102,7 +108,9 @@
                     (every! update-check-ms true #(update/watch! ctx seen)))
                   (every! servers-check-ms false #(servers/stop-idle! ctx))
                   (let [last-checked (atom 0)]
-                    (every! music-check-ms true #(music/keep-up! ctx last-checked (System/currentTimeMillis))))]
+                    (every! music-check-ms true #(music/keep-up! ctx last-checked (System/currentTimeMillis))))
+                  (let [learned (atom {})]
+                    (every! learn-check-ms false #(learning/learn! ctx learned (System/currentTimeMillis))))]
      :nrepl (when (get-in config [:nrepl :enable])
               (nrepl/start-server! (select-keys (:nrepl config) [:host :port])))}))
 

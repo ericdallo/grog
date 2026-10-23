@@ -8,8 +8,9 @@
      location    e.g. "São Paulo, SP, BR"; null when the `location` setting isn't set
      model       the AI model answering, e.g. "gpt-6-luna"
      web_search  true when the provider can search the web
-     memory      what the user asked to remember (the `memory` tool), facts and
-                 how to answer, a list of sentences; null when nothing
+     memory      what it remembers, facts and how to answer, as the user asked
+                 (the `memory` tool) or as it learned from conversations
+                 (memory.learn), a list of sentences; null when nothing
 
    Replace it with your own through the `systemPrompt` (text) or
    `systemPromptFile` (path) setting, starting from a copy of this file if you
@@ -30,5 +31,5 @@ Context:
 - You don't know where the home is. When an answer depends on it, like the weather, ask the user which city they live in, saying you'll save it. When they say it, save it with the settings tool.{% endif %}{% if model %}
 - You run on the AI model {{model}}.{% endif %}{% if memory %}
 
-What you were asked to remember (follow what it says about how to answer):{% for fact in memory %}
+What you remember, asked to or learned from earlier conversations (follow what it says about how to answer):{% for fact in memory %}
 - {{fact}}{% endfor %}{% endif %}

@@ -41,7 +41,7 @@
 
 (defn variables
   "What templates can use, at instant `now` (a ZonedDateTime), knowing
-  `memory` (what grog was told to remember)."
+  `memory` (what grog remembers, grog.memory)."
   [config ^ZonedDateTime now {:keys [memory]}]
   {:name (:name config)
    :language (:language config)

@@ -51,6 +51,42 @@
       (memory/change! ctx {:forget "Fato 0." :remember "Mais um."})
       (is (= "Mais um." (peek @(:memory ctx)))))))
 
+(deftest learns
+  (let [ctx (context (h/temp-dir))
+        f (memory/file @(:config ctx))]
+    (memory/change! ctx {:remember "O lixo passa terça."})
+    (memory/change! ctx {:remember "A Ana é minha esposa."})
+    (testing "forgets, then remembers, each one it can"
+      (is (= {:remembered 2 :forgot 1}
+             (memory/learn! ctx {:forget ["O lixo passa terça." "cachorro" " " nil]
+                                 :remember ["O lixo passa quarta."
+                                            " a ana é minha esposa. "
+                                            ""
+                                            (str/join (repeat (inc memory/max-fact-chars) "a"))
+                                            "A Bia gosta de gatos."]})))
+      (is (= ["A Ana é minha esposa." "O lixo passa quarta." "A Bia gosta de gatos."] @(:memory ctx)))
+      (is (= {:facts @(:memory ctx)} (json/parse-string (slurp f) true))))
+
+    (testing "skips what more than one thing matches"
+      (is (= {:remembered 0 :forgot 0} (memory/learn! ctx {:forget ["a"]})))
+      (is (= 3 (count @(:memory ctx)))))
+
+    (testing "leaves the file alone when nothing changes"
+      (fs/delete f)
+      (is (= {:remembered 0 :forgot 0} (memory/learn! ctx {:remember ["A Bia gosta de gatos."]})))
+      (is (not (fs/exists? f))))))
+
+(deftest learns-within-limits
+  (let [ctx (context (h/temp-dir))]
+    (doseq [i (range (dec memory/max-facts))]
+      (memory/change! ctx {:remember (str "Fato " i ".")}))
+    (is (= {:remembered 1 :forgot 0} (memory/learn! ctx {:remember ["Um." "Dois."]})))
+    (is (= "Um." (peek @(:memory ctx))))
+    (testing "forgetting first makes room"
+      (is (= {:remembered 1 :forgot 1} (memory/learn! ctx {:forget ["Fato 0."] :remember ["Dois."]})))
+      (is (= memory/max-facts (count @(:memory ctx))))
+      (is (= "Dois." (peek @(:memory ctx)))))))
+
 (deftest ignores-a-broken-file
   (let [state-dir (h/temp-dir)]
     (spit (str (fs/path state-dir "memory.json")) "{\"facts\": \"not a list\"}")

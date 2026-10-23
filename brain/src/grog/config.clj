@@ -31,6 +31,10 @@
    :max-history-messages 20
    ;; A conversation is forgotten after this much inactivity.
    :conversation-ttl-minutes 10
+   ;; What grog remembers (grog.memory). learn: whether it also learns by
+   ;; itself, from conversations once they go quiet, what's worth
+   ;; remembering for good (grog.learning).
+   :memory {:learn true}
    ;; allowed-hosts: the names clients may reach grog by (the Host header).
    :server {:host "127.0.0.1" :port 8484 :allowed-hosts ["localhost" "127.0.0.1" "[::1]"]}
    :nrepl {:enable false :host "127.0.0.1" :port 1667}
@@ -69,7 +73,7 @@
                   :relay "https://ericdallo.github.io/grog/oauth/"}
    ;; Where grog keeps its files: what's connected to it (integrations.json,
    ;; their secrets in secrets/), the settings changed by asking
-   ;; (settings.json), what it was told to remember (memory.json), whether
+   ;; (settings.json), what it remembers (memory.json), whether
    ;; grog-voice's mic is on (voice.json), what it consumed (usage.json),
    ;; the computers paired with it (computers.json, its SSH key and their
    ;; host keys in computers/), the MCP servers the user added (catalog/),
@@ -220,6 +224,7 @@
         (check config [:instructions] (some-fn nil? string?) "text or null")
         (check config [:max-history-messages] pos-int? "a positive integer")
         (check config [:conversation-ttl-minutes] pos-int? "a positive integer")
+        (check config [:memory :learn] boolean? "true or false")
         (check config [:server :host] non-blank-string? "an address, like \"127.0.0.1\"")
         (check config [:server :port] port? "a port number")
         (check config [:server :allowed-hosts] #(and (sequential? %) (every? non-blank-string? %))

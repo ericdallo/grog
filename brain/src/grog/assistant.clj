@@ -19,8 +19,8 @@
 
 (defn new-context
   "What turns need: the settings (an atom, so they can change live) with
-  those changed through the `settings` tool over `config`, what grog was told
-  to remember, the conversation histories, how many turns there were (each
+  those changed through the `settings` tool over `config`, what grog
+  remembers, the conversation histories, how many turns there were (each
   turn's number), what grog is up to, for whoever watches (grog.events),
   what it asks of grog-voice (grog.voice), what it consumed (grog.usage),
   how connecting something goes (grog.connect), the MCP servers running
@@ -71,6 +71,16 @@
 
 (defn ^:private turn-lock [id]
   (turn-locks (mod (hash id) (count turn-locks))))
+
+(defn ^:private read-others?
+  "Whether a turn read what others wrote, as its `usage` and the names of
+  the tools it `used`, of those `offered`, say: it searched the web, or used
+  a tool whose answers may carry someone else's text (:open-world, see
+  grog.tools)."
+  [usage offered used]
+  (let [used (set used)]
+    (boolean (or (pos? (or (:web-searches usage) 0))
+                 (some #(and (:open-world %) (used (:name %))) offered)))))
 
 (defn reply!
   "Answers `message` within conversation `id`, streaming the text through
@@ -131,7 +141,11 @@
             (when (str/blank? text)
               (throw (ex-info (format "The model gave no answer (%s)." (or stop-reason "no reason given"))
                               {:type ::no-answer})))
-            (conversation/save! store id (conj messages {:role "assistant" :content text}) now-ms opts)
+            ;; Marked, so that grog learns nothing from it (grog.learning).
+            (conversation/save! store id
+                                (conj messages (cond-> {:role "assistant" :content text}
+                                                 (read-others? usage offered @used) (assoc :read-others? true)))
+                                now-ms opts)
             (publish! {:type :done :ms (elapsed-ms) :tools @used})
             text)
           (catch Throwable e

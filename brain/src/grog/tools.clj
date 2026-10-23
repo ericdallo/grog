@@ -11,7 +11,10 @@
                caller takes them (grog.actions), :detail! (fn [name
                detail]), telling whoever watches what a tool is used with}.
     :detail    (fn [args]), optional: what it's used with, in a few words
-               (a command, a level), for whoever watches; nil for nothing."
+               (a command, a level), for whoever watches; nil for nothing.
+    :open-world  optional: whether what it answers may carry someone
+               else's text (grog.mcp-tools): grog learns nothing from the
+               answers of turns that used it (grog.learning)."
   (:require [cheshire.core :as json]
             [clojure.string :as str]
             [grog.actions :as actions]

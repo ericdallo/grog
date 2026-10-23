@@ -62,6 +62,7 @@
           "systemPromptFile: expected a readable file or null, got \"/nope.md\""
           "systemPrompt, systemPromptFile: set only one of them"
           "maxHistoryMessages: expected a positive integer, got \"20\""
+          "memory.learn: expected true or false, got \"yes\""
           "server.port: expected a port number, got 99999"
           "nrepl.enable: expected true or false, got nothing"
           "nrepl.host: expected an address, like \"127.0.0.1\", got \"\""]
@@ -72,6 +73,7 @@
                                      :system-prompt "Hi."
                                      :system-prompt-file "/nope.md"
                                      :max-history-messages "20")
+                              (assoc-in [:memory :learn] "yes")
                               (assoc-in [:server :port] 99999)
                               (assoc-in [:nrepl :enable] nil)
                               (assoc-in [:nrepl :host] ""))))))

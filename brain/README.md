@@ -88,6 +88,16 @@ It also remembers things when asked ("the trash goes out on Tuesdays",
 "answer more briefly"): up to 50 short notes in `memory.json`, part of every
 prompt. It forgets them when asked, too.
 
+And it learns by itself (`memory.learn`): once a conversation has been
+quiet for a couple of minutes, the model reads it again with what grog
+remembers, and keeps what's worth knowing later (who lives in the home,
+routines, tastes, how you like answers), or forgets what turned out wrong.
+Only what you said counts: answers with what it found on the web, or got
+from a tool that reads what others wrote, are left out. Nothing sensitive,
+like health, money or passwords, unless you asked. Each read is a request
+to the model, counted in its usage. A conversation dropped with New
+conversation before then isn't read.
+
 Asked to stop listening, it turns its mic off: nothing is heard until it's
 turned on again, at its skin or with `grog mic on`, even after restarts
 (`voice.json`).
@@ -484,7 +494,8 @@ client.
 The system prompt is a [Selmer](https://github.com/yogthos/Selmer) template,
 [`system-prompt.md`](resources/grog/system-prompt.md), which can use `name`,
 `language`, `now`, `timezone`, `location`, `model`, `web_search` and
-`memory`.
+`memory`. What it learns from conversations, it's asked with
+[`learning-prompt.md`](resources/grog/learning-prompt.md).
 
 ```nix
 services.grog.settings = {
@@ -515,6 +526,7 @@ says which one.
 | `provider` | `"openai"` | The only one for now |
 | `maxHistoryMessages` | `20` | Messages kept per conversation |
 | `conversationTtlMinutes` | `10` | Idle time before a conversation is forgotten |
+| `memory.learn` | `true` | Whether it also [remembers by itself](#changing-it-by-asking) what's worth it, from conversations once they go quiet: a request to the model each |
 | `server.host`, `server.port` | `"127.0.0.1"`, `8484` | |
 | `server.allowedHosts` | `["localhost", "127.0.0.1", "[::1]"]` | Names clients may reach it by (the `Host` header) |
 | `nrepl.enable`, `.host`, `.port` | `false`, `"127.0.0.1"`, `1667` | For development: any local user can run code in grog |
@@ -597,7 +609,7 @@ it in text the script reads, a line of `key=value` each
   PUT and DELETE need `Content-Type: application/json` (no CORS).
 - On NixOS it runs as a dynamic user, in a tight systemd sandbox.
 - Tokens, changed settings and memory are only readable by it. Logs never
-  have what's said, only which tools ran.
+  have what's said, nor what it learned, only which tools ran.
 - Its hands can do anything their user can (on NixOS, anything at all),
   without asking. So can anyone who runs code in grog with `nrepl.enable`,
   and any local user can take its actions, like restarting the machine
@@ -606,7 +618,9 @@ it in text the script reads, a line of `key=value` each
   an MCP server answers. Nothing it read holds back what it does next in
   that turn (it once did, and grog couldn't look a song up and play it),
   so a page written to fool it could have it use any of its tools, its
-  hands included. Destructive MCP tools still ask first.
+  hands included. Destructive MCP tools still ask first. What grog learns
+  by itself, once a conversation is quiet, leaves out the answers of turns
+  that read such things.
 - Updating runs what was pushed to grog's flake input, as root: whoever can
   push there runs code on the machine, once someone asks for an update.
 - grog only listens on the network while someone at it connects something,

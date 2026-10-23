@@ -63,7 +63,8 @@
                       (str "save it with the settings tool.\n"
                            "- You run on the AI model gpt-6-luna.\n"
                            "\n"
-                           "What you were asked to remember (follow what it says about how to answer):\n"
+                           "What you remember, asked to or learned from earlier conversations (follow what it"
+                           " says about how to answer):\n"
                            "- A Ana é minha esposa.\n"
                            "- O lixo passa terça.")))
   (is (not (str/includes? (prompt/system-prompt config/defaults now {:memory []}) "remember"))))
