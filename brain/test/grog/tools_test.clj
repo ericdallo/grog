@@ -12,7 +12,6 @@
   {:name "echo"
    :description "Says it back."
    :parameters {:type "object"}
-   :changes? (fn [args] (contains? args :change))
    :run (fn [_ args turn]
           (cond
             (:fail args) (throw (ex-info "it can't" {}))
@@ -48,8 +47,7 @@
            (mapv :name (tools/available config/defaults))))))
 
 (deftest runs-tools-for-the-model
-  (let [searched? (atom false)
-        run (tools/runner {} [echo] {:id "c" :n 3 :searched? #(deref searched?)})]
+  (let [run (tools/runner {} [echo] {:id "c" :n 3})]
     (testing "results go back as JSON, or as they are when text"
       (is (= "{\"say\":\"oi\"}" (run "echo" {:say "oi"}))))
     (testing "tools know the turn"
@@ -61,26 +59,13 @@
       (let [log (with-out-str (is (= "error: IllegalStateException" (run "echo" {:bug "a secret"}))))]
         (is (str/includes? log "the echo tool failed: java.lang.IllegalStateException"))
         (is (not (str/includes? log "secret")))))
-    (testing "after a web search, it doesn't change anything, but still reads"
-      (reset! searched? true)
-      (is (= (str "error: nothing is changed in a turn that read what others wrote, like a web search: "
-                  "ask the user to say it again")
-             (run "echo" {:change 1})))
-      (is (= "{\"say\":\"oi\"}" (run "echo" {:say "oi"}))))))
-
-(deftest after-reading-what-others-wrote
-  (let [mail (assoc echo :name "mail" :open-world? true :changes? (constantly false))
-        run (tools/runner {} [echo mail] {:searched? (constantly false)})]
-    (is (= "{\"change\":1}" (run "echo" {:change 1})) "before, it changes things")
-    (is (= "{\"say\":\"oi\"}" (run "mail" {:say "oi"})))
-    (is (str/starts-with? (run "echo" {:change 1}) "error: nothing is changed in a turn that read what others wrote"))
-    (is (= "{\"say\":\"oi\"}" (run "echo" {:say "oi"})) "it still reads")))
+    (testing "as many calls as the model makes in a turn"
+      (is (= (repeat 3 "{\"say\":\"oi\"}") (repeatedly 3 #(run "echo" {:say "oi"})))))))
 
 (deftest tells-what-a-tool-is-used-with
   (let [told (atom [])
         tool (assoc echo :detail (fn [{:keys [say bug]}] (if bug (throw (Exception. "oops")) say)))
-        run (tools/runner {} [tool] {:searched? (constantly false)
-                                     :detail! #(swap! told conj [%1 %2])})]
+        run (tools/runner {} [tool] {:detail! #(swap! told conj [%1 %2])})]
     (run "echo" {:say "oi"})
     (run "echo" {})
     (run "echo" {:bug true :say "x"})

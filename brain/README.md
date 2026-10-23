@@ -92,9 +92,10 @@ Asked to stop listening, it turns its mic off: nothing is heard until it's
 turned on again, at its skin or with `grog mic on`, even after restarts
 (`voice.json`).
 
-Nothing changes in a turn where it searched the web, or used a tool that
-reads what others wrote ([MCP servers](#mcp-servers)), since a page could
-have asked for it.
+In a turn it uses as many tools as it needs, one after another: it looks a
+song up on the web, then plays it. Nothing it read holds back what it does
+next, a page included ([Security](#security)). After 29 calls it has to
+answer, which only stops a model that wouldn't.
 
 ## Hands
 
@@ -274,12 +275,11 @@ sees them without starting it.
 
 A server's tools are named `<prefix>__<tool>` (its id, 64 characters at
 most), and the model sees the first 40, unless its catalog entry says
-which. Their annotations say what they do, but only count for servers that
-come with grog: those you add are taken at their worst, every tool
-changing things and reading what others wrote.
+which. Their annotations say what they do (read-only, destructive,
+open-world: what it answers may carry someone else's text, like mail or a
+page), but open-world only counts for servers that come with grog: the
+tools of those you add are taken as open-world, whatever they say.
 
-- A tool that changes things doesn't run in a turn that read what others
-  wrote: after a web search, or a tool that's open-world (mail, a page).
 - Each tool is allowed, asked first, or denied. Destructive ones ask by
   default, the rest are allowed.
 - Asked first, a call doesn't run: the model asks you, and once you say
@@ -599,10 +599,14 @@ it in text the script reads, a line of `key=value` each
 - Tokens, changed settings and memory are only readable by it. Logs never
   have what's said, only which tools ran.
 - Its hands can do anything their user can (on NixOS, anything at all),
-  without asking, except in a turn that read what others wrote (a web
-  search, an open-world tool). So can anyone who
-  runs code in grog with `nrepl.enable`, and any local user can take its
-  actions, like restarting the machine (`POST /v1/actions/<name>`).
+  without asking. So can anyone who runs code in grog with `nrepl.enable`,
+  and any local user can take its actions, like restarting the machine
+  (`POST /v1/actions/<name>`).
+- What the model reads can steer it: a page found searching the web, what
+  an MCP server answers. Nothing it read holds back what it does next in
+  that turn (it once did, and grog couldn't look a song up and play it),
+  so a page written to fool it could have it use any of its tools, its
+  hands included. Destructive MCP tools still ask first.
 - Updating runs what was pushed to grog's flake input, as root: whoever can
   push there runs code on the machine, once someone asks for an update.
 - grog only listens on the network while someone at it connects something,
@@ -626,10 +630,8 @@ it in text the script reads, a line of `key=value` each
   gets its own secrets, from `secrets/`: in its environment, or its
   headers. What it asks for in a form crosses the network in plain HTTP,
   like a secret typed while connecting it.
-- What servers answer is untrusted, like a web page: tools of servers you
-  added count as changing things and as reading what others wrote, so
-  nothing changes after them in that turn, and destructive ones ask first.
-  What tools are given and answer is never logged.
+- What servers answer is untrusted, like a web page (above): destructive
+  tools ask first. What tools are given and answer is never logged.
 - grog-music runs in the session of the user with the speaker, apart from
   grog, which reaches its socket through a group. Your Google tokens stay
   in grog's `secrets/`, and go to grog-music with each request that needs

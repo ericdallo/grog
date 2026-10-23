@@ -251,8 +251,10 @@
       (call-tool name args)
       "error: the arguments weren't a JSON object")))
 
-;; Requests per turn: the model can call tools in all but the last one.
-(def ^:private max-requests 6)
+(def max-requests
+  "Requests per turn: the model can call tools in all but the last one. As
+  many as a turn could need: only there to stop a model that wouldn't."
+  30)
 
 (defn stream-reply!
   "Streams the model's answer to `request` ({:system :messages :location

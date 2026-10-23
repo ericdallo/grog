@@ -4,20 +4,12 @@
 
     :name :description :parameters  what the model sees (parameters: a JSON
                                     schema)
-    :changes?  (fn [args]): whether running it changes something. Those don't
-               run in a turn that read what others wrote (searched the web,
-               or ran an :open-world? tool), as it could have told the model
-               to.
-    :open-world?  optional: whether what it answers may carry someone else's
-               text (an MCP server's mail, a page), so nothing changes after
-               it in that turn.
     :run       (fn [ctx args turn]): the result for the model, text or data
                (sent as JSON). Throws ex-info to tell it what went wrong.
-               `turn`: {:id the conversation, :n its turn number, :searched?
-               (fn []), :later an atom of the actions to take once its
-               answer is out, when its caller takes them (grog.actions),
-               :detail! (fn [name detail]), telling whoever watches what a
-               tool is used with}.
+               `turn`: {:id the conversation, :n its turn number, :later an
+               atom of the actions to take once its answer is out, when its
+               caller takes them (grog.actions), :detail! (fn [name
+               detail]), telling whoever watches what a tool is used with}.
     :detail    (fn [args]), optional: what it's used with, in a few words
                (a command, a level), for whoever watches; nil for nothing."
   (:require [cheshire.core :as json]
@@ -85,31 +77,20 @@
 
 (defn runner
   "Runs the model's calls of `tools` during `turn`: (fn [name args]) -> what
-  to tell the model, never throwing. Once it ran an :open-world? tool, as
-  after a web search, nothing that changes runs in that turn."
-  [ctx tools {:keys [searched?] :as turn}]
-  (let [by-name (into {} (map (juxt :name identity)) tools)
-        read-others? (atom false)]
+  to tell the model, never throwing. Any of them, as many as it calls, a web
+  search before them or not."
+  [ctx tools turn]
+  (let [by-name (into {} (map (juxt :name identity)) tools)]
     (fn [name args]
-      (let [{:keys [run changes? open-world?] :as tool} (get by-name name)]
-        (cond
-          (nil? tool)
-          (str "error: there's no tool called " name)
-
-          (and (or (searched?) @read-others?) (changes? args))
-          (str "error: nothing is changed in a turn that read what others wrote, like a web search: "
-               "ask the user to say it again")
-
-          :else
-          (try
-            (when open-world?
-              (reset! read-others? true))
-            (tell-detail! tool args turn)
-            (let [result (run ctx args turn)]
-              (if (string? result) result (json/generate-string result)))
-            (catch clojure.lang.ExceptionInfo e
-              (str "error: " (ex-message e)))
-            (catch Exception e
-              ;; Its message could quote what was said.
-              (log/info (format "the %s tool failed: %s" name (.getName (class e))))
-              (str "error: " (.getSimpleName (class e))))))))))
+      (if-let [{:keys [run] :as tool} (get by-name name)]
+        (try
+          (tell-detail! tool args turn)
+          (let [result (run ctx args turn)]
+            (if (string? result) result (json/generate-string result)))
+          (catch clojure.lang.ExceptionInfo e
+            (str "error: " (ex-message e)))
+          (catch Exception e
+            ;; Its message could quote what was said.
+            (log/info (format "the %s tool failed: %s" name (.getName (class e))))
+            (str "error: " (.getSimpleName (class e)))))
+        (str "error: there's no tool called " name)))))

@@ -110,8 +110,7 @@
                 on-text (fn [text]
                           (publish! {:type :text :text text})
                           (on-text text))
-                turn {:id id :n n :searched? #(boolean (some #{"web_search"} @used)) :later later
-                      :detail! #(on-tool {:name %1 :detail %2})}
+                turn {:id id :n n :later later :detail! #(on-tool {:name %1 :detail %2})}
                 {:keys [text stop-reason usage quota]} (provider/stream-reply!
                                                         config
                                                         {:system (prompt/system-prompt

@@ -138,8 +138,6 @@
   {:name "lights"
    :description (description (catalog/title entry))
    :parameters (parameters mapping)
-   :changes? (fn [args] (not= "state" (:action args)))
-   :open-world? false
    :detail detail
    :run (fn [ctx args _turn] (call! ctx source "lights" args))})
 

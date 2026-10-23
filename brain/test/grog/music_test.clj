@@ -125,7 +125,7 @@
 
 (deftest the-tool
   (let [ctx (context "/run/music.sock")
-        {:keys [description parameters changes? open-world? detail]} (music/tool @(:config ctx))]
+        {:keys [description parameters detail]} (music/tool @(:config ctx))]
     (is (str/starts-with? description "Plays music through YouTube Music when the user asks"))
     (is (str/includes? description "need their YouTube Music account connected (connect youtube-music)"))
     (is (= music/actions (get-in parameters ["properties" "action" "enum"])))
@@ -133,10 +133,6 @@
     (is (= ["song" "album" "playlist" "artist" "my-playlist" "liked"] (get-in parameters ["properties" "kind" "enum"])))
     (is (= ["action"] (parameters "required")))
     (is (false? (parameters "additionalProperties")))
-    (is (false? open-world?))
-    (testing "changes things, unless it tells what's playing"
-      (is (every? #(changes? {:action %}) (remove #{"status"} music/actions)))
-      (is (not (changes? {:action "status"}))))
     (testing "its detail never says what was asked for"
       (is (= "play" (detail {:action "play" :query "the secret song" :kind "song"})))
       (is (= "play, liked, shuffled" (detail {:action "play" :kind "liked" :shuffle true})))

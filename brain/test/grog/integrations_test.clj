@@ -43,12 +43,11 @@
 
 (deftest the-model-opens-a-session-when-asked
   (let [ctx (context)
-        {:keys [run parameters changes?] :as tool} (integrations/tool @(:config ctx))]
+        {:keys [run parameters] :as tool} (integrations/tool @(:config ctx))]
     (try
       (is (= "connect" (:name tool)))
       (is (= ["openai" "computer" "home-assistant"] (get-in parameters [:properties :integration :enum])))
       (is (str/includes? (:description tool) "computer (your computers, to act on them)"))
-      (is (changes? {}) "not in a turn that searched the web: it opens grog to the network")
       (is (= (str "Add a computer: a window is open for 10 minutes, and your screen shows its link and QR code. Tell "
                   "the user to open it on their phone or computer; don't read the link aloud.")
              (run ctx {:integration "computer"} nil)))

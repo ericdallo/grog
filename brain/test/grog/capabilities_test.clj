@@ -87,17 +87,13 @@
   (with-redefs [catalog/shipped (constantly [home])]
     (let [ctx (context)
           _ (connect! ctx "home" all-tools)
-          {:keys [description parameters changes? detail open-world?]} (first (capabilities/tools @(:config ctx)))]
+          {:keys [description parameters detail]} (first (capabilities/tools @(:config ctx)))]
       (is (re-find #"through Home Assistant\. For other devices, use Home Assistant's own tools\." description))
       (is (= ["on" "off" "set" "state"] (get-in parameters ["properties" "action" "enum"])))
       (is (= #{"action" "name" "area" "brightness" "color" "temperature"} (set (keys (parameters "properties")))))
       (is (= {"type" "integer" "minimum" 0 "maximum" 100} (dissoc (get-in parameters ["properties" "brightness"]) "description")))
       (is (= ["action"] (parameters "required")))
       (is (false? (parameters "additionalProperties")))
-      (is (false? open-world?))
-      (testing "changes things, unless it tells how they are"
-        (is (every? #(changes? {:action %}) ["on" "off" "set"]))
-        (is (not (changes? {:action "state"}))))
       (is (= "off, living room" (detail {:action "off" :area "living room"})))
       (is (= "set, lamp, 40%, 2700 K" (detail {:action "set" :name "lamp" :brightness 40 :temperature 2700})))))
   (testing "only what the entry maps"

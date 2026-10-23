@@ -413,8 +413,6 @@
     {:name "music"
      :description (str/trimr (description config provider))
      :parameters (parameters provider)
-     :changes? (fn [args] (not= "status" (:action args)))
-     :open-world? false
      :detail detail
      :run (fn [ctx args _turn] (perform! ctx args))}))
 

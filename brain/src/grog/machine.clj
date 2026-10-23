@@ -95,7 +95,6 @@
                                       :description "Raise (positive) or lower (negative) it by this many points."}
                              :mute {:type "boolean" :description "Mute (true) or unmute (false)."}}
                 :additionalProperties false}
-   :changes? (fn [args] (boolean (some #(contains? args %) [:level :change :mute])))
    :run (fn [ctx args _] (set-volume! ctx args))})
 
 (def status-script
@@ -107,7 +106,6 @@
                      "and temperature, its network and Wi-Fi, the speaker and mic in use, the Bluetooth "
                      "devices connected, your services, and its NixOS version and when it was last deployed.")
    :parameters {:type "object" :properties {} :additionalProperties false}
-   :changes? (constantly false)
    :run (fn [{:keys [config]} _ _]
           (str/trim (str (:output (on-machine! @config @status-script)))))})
 
@@ -132,7 +130,6 @@
                 :properties {:command {:type "string" :description "The bash command."}}
                 :required ["command"]
                 :additionalProperties false}
-   :changes? (constantly true)
    :detail :command
    :run shell!})
 

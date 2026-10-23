@@ -167,19 +167,21 @@
           (is (nil? (:tool_choice second-request))))))))
 
 (deftest asks-for-an-answer-after-too-many-tool-calls
-  (h/with-fake [fake (conj (vec (for [i (range 5)]
-                                  {:body (apply h/sse (concat (function-call (str "call_" i) "memory" "{}")
-                                                              [(completed 1 1)]))}))
-                           (text-answer "Chega."))]
-    (with-redefs [http/api-key (constantly "k")]
-      (let [calls (atom 0)
-            result (openai/stream-reply! (cfg (:url fake))
-                                         (assoc request :tools [memory-tool] :call-tool (fn [_ _] (swap! calls inc) "ok"))
-                                         identity identity)
-            bodies (map :body @(:requests fake))]
-        (is (= "Chega." (:text result)))
-        (is (= 5 @calls))
-        (is (= [nil nil nil nil nil "none"] (map :tool_choice bodies)))))))
+  (let [n (dec openai/max-requests)]
+    (is (<= 20 n) "plenty for a turn")
+    (h/with-fake [fake (conj (vec (for [i (range n)]
+                                    {:body (apply h/sse (concat (function-call (str "call_" i) "memory" "{}")
+                                                                [(completed 1 1)]))}))
+                             (text-answer "Chega."))]
+      (with-redefs [http/api-key (constantly "k")]
+        (let [calls (atom 0)
+              result (openai/stream-reply! (cfg (:url fake))
+                                           (assoc request :tools [memory-tool] :call-tool (fn [_ _] (swap! calls inc) "ok"))
+                                           identity identity)
+              bodies (map :body @(:requests fake))]
+          (is (= "Chega." (:text result)))
+          (is (= n @calls))
+          (is (= (concat (repeat n nil) ["none"]) (map :tool_choice bodies))))))))
 
 (deftest tells-the-model-its-arguments-are-bad
   ;; The call only comes in the final event, as some streams have it.

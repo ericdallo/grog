@@ -84,6 +84,4 @@
                (run machine/shell-tool ctx {:command "sleep 99"} {:id "c" :n 2})))))
     (testing "a command is needed"
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"which command"
-                            (run machine/shell-tool ctx {:command " "} {:id "c" :n 3}))))
-    (testing "it changes things: not in a turn that searched the web (see grog.tools)"
-      (is (true? ((:changes? machine/shell-tool) {:command "ls"}))))))
+                            (run machine/shell-tool ctx {:command " "} {:id "c" :n 3}))))))

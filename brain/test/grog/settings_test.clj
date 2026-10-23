@@ -218,12 +218,3 @@
         (is (= "grog" (:name @(:config ctx))))
         (is (str/includes? log "ignoring the settings changed earlier"))))))
 
-(deftest the-tool
-  (let [{:keys [changes?]} settings/tool]
-    (is (false? (changes? {})))
-    (is (true? (changes? {:name "Jarvis"})))
-    (is (true? (changes? {:language nil})))
-    (is (true? (changes? {:model "gpt-6-astra"})))
-    (is (true? (changes? {:reset ["name"]})))
-    (testing "how to answer is the memory's business"
-      (is (false? (changes? {:instructions "Be brief."}))))))

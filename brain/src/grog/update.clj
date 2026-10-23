@@ -133,7 +133,6 @@
                        "something new: then you restart on your own once it's ready, and should that not work, "
                        "you stay as you are.")
      :parameters {:type "object" :properties {} :additionalProperties false}
-     :changes? (constantly true)
      :run (fn [ctx _ _] (update-now! ctx))}))
 
 (defn watch!

@@ -87,8 +87,6 @@
                   :properties {:integration {:type "string" :enum (mapv :id integrations)}}
                   :required ["integration"]
                   :additionalProperties false}
-     ;; It opens grog to the network for a while.
-     :changes? (constantly true)
      :detail :integration
      :run (fn [ctx {:keys [integration]} _]
             (let [{:keys [heading link]} (open! ctx integration nil)]

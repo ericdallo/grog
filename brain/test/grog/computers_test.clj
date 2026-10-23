@@ -198,10 +198,8 @@
     (is (not-any? #{"computer"} (map :name (tools/available (settings))))))
   (let [config (settings)]
     (computers/add! config deluxe)
-    (let [{:keys [parameters changes?]} (computers/tool config)]
+    (let [{:keys [parameters]} (computers/tool config)]
       (is (= ["deluxe"] (get-in parameters [:properties :computer :enum])))
-      (is (false? (changes? {:computer "deluxe" :action "status"})))
-      (is (true? (changes? {:computer "deluxe" :action "notify"})))
       (is (some #{"computer"} (map :name (tools/available config)))))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"there's no computer called attic \(there's deluxe\)"
                           (computers/act! config {:computer "attic" :action "status"})))))

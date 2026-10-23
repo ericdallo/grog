@@ -77,13 +77,13 @@
 
 (deftest guards
   (testing "trusted: as annotated, MCP's defaults otherwise"
-    (is (= {:read-only true :changes false :open-world false :destructive false}
+    (is (= {:read-only true :open-world false :destructive false}
            (mcp-tools/guards true {:annotations {:readOnlyHint true :openWorldHint false}})))
-    (is (= {:read-only false :changes true :open-world true :destructive true} (mcp-tools/guards true {})))
-    (is (= {:read-only false :changes true :open-world true :destructive false}
+    (is (= {:read-only false :open-world true :destructive true} (mcp-tools/guards true {})))
+    (is (= {:read-only false :open-world true :destructive false}
            (mcp-tools/guards true {:annotations {:destructiveHint false}}))))
-  (testing "untrusted: it changes things and reads what others wrote, whatever it says"
-    (is (= {:read-only true :changes true :open-world true :destructive false}
+  (testing "untrusted: it reads what others wrote, whatever it says"
+    (is (= {:read-only true :open-world true :destructive false}
            (mcp-tools/guards false {:annotations {:readOnlyHint true :openWorldHint false}})))))
 
 (deftest the-models-tools
@@ -99,11 +99,6 @@
           (is (= {:type "object" :properties {:name {:type "string"}}} (:parameters off)) "without $schema")
           (is (= {:type "object" :properties {}} (:parameters (ts "ha__Unlock"))) "an object, when it says none")
           (is (= "Turn off" ((:detail off) {:name "x"}))))
-        (testing "guards"
-          (is ((:changes? off) {}))
-          (is (not ((:changes? (ts "ha__GetLiveContext")) {})))
-          (is (false? (:open-world? (ts "ha__GetLiveContext"))))
-          (is (true? (:open-world? off))))
         (testing "the policy: its defaults, the entry's, the user's"
           (is (= [["HassTurnOff" "allow" true] ["GetLiveContext" "allow" true] ["Unlock" "deny" true]
                   ["read.mail" "allow" true]]
@@ -162,9 +157,9 @@
       (mcp-tools/set-tool! config id "t44" {:show true})
       (is (= 41 (count (mcp-tools/tools config)))))
     (testing "what it says of itself doesn't count"
-      (is (= "allow" (:mode (first (mcp-tools/tool-settings config id)))) "its _meta policy was dropped")
-      (is ((:changes? (first ts)) {}) "read-only, it says")
-      (is (true? (:open-world? (first ts)))))))
+      (let [settings (first (mcp-tools/tool-settings config id))]
+        (is (= "allow" (:mode settings)) "its _meta policy was dropped")
+        (is (true? (:open-world settings)) "open-world, though it says it isn't")))))
 
 (deftest reading-what-others-wrote
   (with-redefs [catalog/shipped (constantly [home])
@@ -173,11 +168,9 @@
           _ (connected! ctx home [{:name "read" :annotations {:readOnlyHint true}}
                                   {:name "write" :annotations {:destructiveHint false}}]
                         true)
-          run (tools/runner ctx (mcp-tools/tools @(:config ctx)) {:id "c" :n 1 :searched? (constantly false)})]
-      (is (= "did write" (run "ha__write" {})))
+          run (tools/runner ctx (mcp-tools/tools @(:config ctx)) {:id "c" :n 1})]
       (is (= "did read" (run "ha__read" {})) "it may read mail, say")
-      (is (str/starts-with? (run "ha__write" {}) "error: nothing is changed in a turn that read what others wrote"))
-      (is (= "did read" (run "ha__read" {})) "reading still works"))))
+      (is (= "did write" (run "ha__write" {})) "and change things after it, in the same turn"))))
 
 (defn ^:private session [ctx]
   (connect/view @(:connect ctx)))

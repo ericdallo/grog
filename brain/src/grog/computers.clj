@@ -411,7 +411,6 @@
                                :command {:type "string" :description "shell: the bash command."}}
                   :required ["computer" "action"]
                   :additionalProperties false}
-     :changes? (fn [args] (not= "status" (:action args)))
      :detail (fn [{:keys [computer action text target media command] :as args}]
                (str computer ": " (str/join " " (remove str/blank? [action
                                                                     (case action

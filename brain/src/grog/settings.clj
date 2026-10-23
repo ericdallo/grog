@@ -253,7 +253,6 @@
                                      :items {:type "string" :enum (mapv name settable)}
                                      :description "Settings to put back as they were configured."}}
                 :additionalProperties false}
-   :changes? (fn [args] (boolean (or (seq (:reset args)) (some #(contains? args %) settable))))
    :detail (fn [args]
              (str/join ", " (for [[k v] args]
                               (if (string? v) (str (name k) " " v) (name k)))))

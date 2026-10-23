@@ -27,7 +27,7 @@
                 "\n"
                 "Context:\n"
                 "- It is now Thursday, October 15, 2026, 09:05 (America/Sao_Paulo time zone).\n"
-                "- You don't know where the home is. When an answer depends on it, like the weather, ask the user which city they live in, saying you'll save it. When they say it, save it with the settings tool before searching the web, since nothing can be saved after a search until their next message.\n"
+                "- You don't know where the home is. When an answer depends on it, like the weather, ask the user which city they live in, saying you'll save it. When they say it, save it with the settings tool.\n"
                 "- You run on the AI model gpt-6-luna.")
            (prompt/system-prompt config/defaults now))))
 
@@ -60,7 +60,7 @@
 
 (deftest what-it-remembers
   (is (str/ends-with? (prompt/system-prompt config/defaults now {:memory ["A Ana é minha esposa." "O lixo passa terça."]})
-                      (str "until their next message.\n"
+                      (str "save it with the settings tool.\n"
                            "- You run on the AI model gpt-6-luna.\n"
                            "\n"
                            "What you were asked to remember (follow what it says about how to answer):\n"

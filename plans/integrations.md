@@ -69,7 +69,9 @@ phases land.
     in `<state>/tools/<id>.json`.
   - `grog.mcp-tools`, the model's tools: `<prefix>__<tool>`, which are
     shown, the guards, the policy. `grog.tools` grew `:open-world?`:
-    after such a tool, as after a web search, nothing changes in the turn.
+    after such a tool, as after a web search, nothing changed in the turn,
+    until the user dropped that guard (October 2026): grog couldn't look a
+    song up and then play it.
     `grog.asks`, asking first; `grog.elicit`, what a server asks mid-call;
     and the engine's new steps for them, `confirm` and `link`, and typed
     form fields (number, integer, boolean, choice, choices, formats).
@@ -106,9 +108,8 @@ phases land.
     environment variables and arguments' variables, a remote's headers and
     the variables in its address, in a form (`isSecret` warned about).
     Everything of grog's `_meta` in an entry the user added is dropped, and
-    its annotations aren't trusted: its tools count as changing things and
-    as open-world, though those marked read-only or non-destructive don't
-    ask first.
+    its annotations aren't trusted: its tools count as open-world, though
+    those marked read-only or non-destructive don't ask first.
   - A package is preferred to a remote when an entry has both and the
     runner is set. Packages only from npm's and PyPI's public registries,
     versions pinned; remotes over https, or http on the local network; no
@@ -589,16 +590,16 @@ network, generation-guarded timers, Allow and Deny at grog).
   shows: some servers have dozens, and each costs tokens on every turn. The
   user can show or hide more.
 - **Guards**, from MCP's tool annotations, which the catalog can override:
-  - a tool not marked `readOnlyHint` changes things: blocked in a turn that
-    searched the web, like grog's own (`:changes?`);
   - one marked `destructiveHint` asks first: grog asks, and the next thing
     said answers ("Desligo o alarme?"), or Allow and Deny on the screen;
-  - the web-search rule grows: after any tool whose result can carry
-    someone else's text (`openWorldHint`: reading mail, a page), nothing
-    changes in that turn.
+  - `readOnlyHint` and `openWorldHint` (its result can carry someone else's
+    text: reading mail, a page) are told (`grog tools`), no longer guarded.
+    Nothing changed in a turn after a web search or such a tool, as a page
+    could have asked for it, until the user dropped that (October 2026):
+    grog couldn't look a song up and then play it.
 
-  Tools of servers the catalog doesn't know count as changing things, and
-  their destructive ones ask.
+  Tools of servers the catalog doesn't know count as open-world, and their
+  destructive ones ask.
 - **A policy per integration**, like a computer's `hands.json`: each tool
   allowed, asked or denied, with defaults from the annotations, changed on
   the screen.
@@ -712,7 +713,8 @@ grog works but grog may hear its name less over loud music.
   versions are pinned; a server the user adds is their call, as the screen
   says; a server only gets its own secrets.
 - **Prompt injection**: what servers answer is untrusted text, like a web
-  page: the guards above.
+  page: destructive tools ask first, and nothing else holds the model back
+  after reading it (the guards above).
 - **Remote servers** see what grog sends them: the catalog says which ones
   are in the cloud.
 

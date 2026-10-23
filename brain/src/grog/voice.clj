@@ -233,7 +233,6 @@
                 :properties {:on {:type "boolean" :description "On (true) or off (false)."}}
                 :required ["on"]
                 :additionalProperties false}
-   :changes? (constantly true)
    :detail (fn [{:keys [on]}] (case on true "on" false "off" nil))
    :run (fn [ctx {:keys [on]} _]
           (when-not (boolean? on)

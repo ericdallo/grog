@@ -4,15 +4,13 @@
   connection's last tool list (grog.servers/cached-tools) that are shown,
   named <prefix>__<tool>, 64 characters at most.
 
-  Guards, from the tools' annotations, which only count for entries
-  shipped with grog (grog.catalog/trusted?); MCP's defaults otherwise:
+  What the tools' annotations say, which only counts for entries shipped
+  with grog (grog.catalog/trusted?); MCP's defaults otherwise:
   readOnlyHint false, destructiveHint true, openWorldHint true.
 
-    changes     unless trusted and read-only: not after what others wrote
-                (grog.tools)
+    read-only   readOnlyHint
     open-world  unless trusted and openWorldHint is false: what it answers
-                may carry someone else's text, so nothing changes after it
-                in that turn
+                may carry someone else's text (told, not guarded)
     destructive not read-only and destructiveHint: asks first by default
 
   Each tool's policy: \"allow\", \"ask\" (grog.asks) or \"deny\", by default
@@ -117,12 +115,11 @@
 
 (defn guards
   "What `tool`'s annotations mean, trusted (`trusted?`) or not: {:read-only
-  :changes :open-world :destructive}."
+  :open-world :destructive}."
   [trusted? tool]
   (let [{:keys [readOnlyHint destructiveHint openWorldHint]} (:annotations tool)
         read-only (true? readOnlyHint)]
     {:read-only read-only
-     :changes (not (and trusted? read-only))
      :open-world (if trusted? (not (false? openWorldHint)) true)
      :destructive (and (not read-only) (not (false? destructiveHint)))}))
 
@@ -256,12 +253,10 @@
 (defn ^:private as-tool
   "The grog tool for the MCP tool of `settings`, named `tool-name`, of
   connection `id`."
-  [id integration tool-name {:keys [name title mode changes open-world] :as settings}]
+  [id integration tool-name {:keys [name title mode] :as settings}]
   {:name tool-name
    :description (description integration title (:description settings))
    :parameters (:parameters settings)
-   :changes? (constantly changes)
-   :open-world? open-world
    :detail (constantly title)
    :run (fn [ctx args turn]
           (case mode
@@ -279,12 +274,8 @@
              :let [entry (catalog/entry config id)
                    listed (when entry (servers/cached-tools config id))]
              :when (seq listed)
-             :let [trusted? (catalog/trusted? entry)
-                   integration (catalog/title entry)
+             :let [integration (catalog/title entry)
                    names (tool-names (prefix entry) (map :name listed))]
              [tool-name tool settings] (map vector names listed (settings-of config id entry listed))
              :when (:shown settings)]
-         (as-tool id integration tool-name
-                  (assoc settings
-                         :parameters (parameters tool)
-                         :changes (:changes (guards trusted? tool)))))))
+         (as-tool id integration tool-name (assoc settings :parameters (parameters tool))))))
