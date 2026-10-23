@@ -122,6 +122,10 @@
                                     (refused (str "Error: Connection activation failed: Secrets were required, "
                                                   "but not provided.\n"))
                                     #"^the password didn't work$"]
+                                   [{:connect "GREGSON-5G"}
+                                    (refused (str "Error: Connection activation failed: Secrets were required, "
+                                                  "but not provided.\n"))
+                                    #"^it needs its password$"]
                                    [{:connect "JOAO1808" :password "pass"}
                                     (refused "Error: Connection activation failed: 802.1X supplicant took too long to authenticate.\n")
                                     #"^Connection activation failed: 802.1X supplicant took too long to authenticate$"]

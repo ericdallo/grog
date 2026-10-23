@@ -104,16 +104,17 @@
                     vec)}))
 
 (defn ^:private failure
-  "What went wrong joining a network, in a few words, from what nmcli said:
-  never anything typed, which it doesn't repeat."
-  [output]
+  "What went wrong joining a network, in a few words, from what nmcli said,
+  with a password `typed` or not (a saved one that no longer works, or none
+  this device can use): never anything typed, which it doesn't repeat."
+  [typed output]
   (let [text (str output)
         said (some->> (str/split-lines text)
                       (filter #(str/starts-with? % "Error: "))
                       last
                       (#(subs % 7)))]
     (cond
-      (re-find #"Secrets were required" text) "the password didn't work"
+      (re-find #"Secrets were required" text) (if typed "the password didn't work" "it needs its password")
       (re-find #"No network with SSID" text) "that network isn't in sight now"
       (re-find #"NetworkManager is not running" text) "NetworkManager isn't running here"
       said (str/replace said #"\.$" "")
@@ -169,7 +170,8 @@
       nil
 
       :else
-      (apply script! config connect-timeout-ms failure "connect" ssid (:device network) (when password [password])))))
+      (apply script! config connect-timeout-ms (partial failure (some? password))
+             "connect" ssid (:device network) (when password [password])))))
 
 (defn act!
   "What the `wifi` action asks (`args`): {} tells the Wi-Fi, {:rescan true}
