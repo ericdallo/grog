@@ -5,7 +5,9 @@
 # models, which whoever watches grog sees go; its skin, served; its hands: a
 # shell, the volume, root, and restarting grog when asked; its music
 # (grog-music, playing a local file offline): paused, resumed, turned down,
-# going down while someone talks to grog, through its tool; what grog asks of
+# going through its echo canceller, out of what grog-voice records, which grog
+# tells when it plays, going down while someone talks to grog, through its
+# tool; what grog asks of
 # grog-voice: its mic off, listening without its name; a computer pairing
 # with it (pc, with services.grog.computer and no grog), running what grog
 # serves, which the model then acts on, as it allows; MCP servers the user
@@ -87,10 +89,9 @@ pkgs.testers.runNixOSTest {
     };
 
     services.grog.user = "grog";
-    services.grog.voice = {
-      enable = true;
-      settings.mic = "null-mic";
-    };
+    # Recording from grog-mic: the virtual mic below, through the echo
+    # canceller its music plays into (services.grog.music.echoCancel).
+    services.grog.voice.enable = true;
     services.grog.hands.enable = true;
     services.grog.music.enable = true;
     # Served only: no one's desktop shows it.
@@ -461,6 +462,70 @@ pkgs.testers.runNixOSTest {
         assert (out := grog("music volume 40")) == "Volume 40.", out
         assert (out := grog("music")).startswith("Playing Tone") and out.endswith(", volume 40."), out
         assert (s := player({"command": "status"}))["volume"] == 40 and not s["ducked"], s
+
+    def pipewire():
+        """PipeWire's nodes in grog's session ({id: props}), its links ([(from props,
+        to props)]), and its default nodes ({"default.audio.sink": name...})."""
+        dump = json.loads(machine.succeed("su - grog -c 'XDG_RUNTIME_DIR=/run/user/$(id -u) pw-dump'"))
+        nodes = {o["id"]: o["info"]["props"] for o in dump if o["type"] == "PipeWire:Interface:Node"}
+        links = [
+            (nodes.get(o["info"]["output-node-id"], {}), nodes.get(o["info"]["input-node-id"], {}))
+            for o in dump
+            if o["type"] == "PipeWire:Interface:Link"
+        ]
+        defaults = {
+            m["key"]: m["value"].get("name")
+            for o in dump
+            if o["type"] == "PipeWire:Interface:Metadata" and o["props"].get("metadata.name") == "default"
+            for m in o.get("metadata", [])
+            if isinstance(m.get("value"), dict)
+        }
+        return nodes, links, defaults
+
+    def is_pw_cat(props):
+        return "pw-cat" in (props.get("application.process.binary", ""), props.get("application.name", ""))
+
+    def linked(check):
+        """A command succeeding once some link of grog's session passes `check` (its
+        from and to props), for retry."""
+        def go(_):
+            return any(check(a, b) for a, b in pipewire()[1])
+        return go
+
+    with subtest("its music goes through its echo canceller, out of what grog-voice records"):
+        machine.wait_until_succeeds("systemctl --user -M grog@ is-active grog-echo-cancel.service")
+        nodes, _, defaults = pipewire()
+        classes = {p.get("node.name"): p.get("media.class") for p in nodes.values()}
+        assert classes.get("grog-mic") == "Audio/Source", classes
+        assert classes.get("grog-music-out") == "Audio/Sink", classes
+        # Never the defaults: grog's own voice and earcons go straight to the speaker.
+        assert defaults.get("default.audio.sink") == "null-speaker", defaults
+        assert defaults.get("default.audio.source") == "null-mic", defaults
+        # The music into the canceller, the canceller on to the speaker.
+        retry(linked(lambda a, b: a.get("node.name") == "grog-music" and b.get("node.name") == "grog-music-out"))
+        retry(linked(lambda a, b: a.get("node.name") == "grog-echo-cancel-playback" and b.get("node.name") == "null-speaker"))
+        # grog-voice records from the mic without the music, which comes from the mic.
+        machine.succeed("pgrep -u grog -af 'pw-cat --record' | grep -q -- '--target grog-mic'")
+        retry(linked(lambda a, b: a.get("node.name") == "grog-mic" and is_pw_cat(b)))
+        retry(linked(lambda a, b: a.get("node.name") == "null-mic" and b.get("node.name") == "grog-echo-cancel-capture"))
+
+    def voice_told():
+        """What grog tells grog-voice first: the snapshot of what it asks of it."""
+        out = machine.succeed("curl -sN --max-time 2 http://127.0.0.1:8484/v1/voice/commands || true")
+        return json.loads(out.split("data: ", 1)[1].splitlines()[0])
+
+    def music_told(playing):
+        """A command succeeding once grog told grog-voice whether music plays, for retry."""
+        def go(_):
+            return voice_told().get("music") is playing
+        return go
+
+    with subtest("grog-voice is told whether the music plays"):
+        retry(music_told(True))
+        assert (out := grog("music pause")) == "Paused.", out
+        retry(music_told(False))
+        assert (out := grog("music resume")).startswith("Playing Tone by Sox"), out
+        retry(music_told(True))
 
     with subtest("while someone talks to grog the music goes down, then back"):
         # Touching its face: grog-voice listens without its name for a while

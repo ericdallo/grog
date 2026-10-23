@@ -402,8 +402,15 @@ It's the brain's doing, from what grog-voice says it's doing: grog-voice
 knows nothing of the music. Touching grog's face while it answers stops it,
 and pauses the music (`POST /v1/actions/stop` does too).
 
-grog-voice still hears the music, and doesn't take it out: over loud music,
-grog may hear its name less.
+grog also tells grog-voice whether its player plays (`GET
+/v1/voice/commands`, `music`), as it listens for its name differently over
+music: it asks the player right after each music action it takes and after
+the stop action, every 5 s while it last saw it playing (the queue ends,
+someone pauses it), and once a minute otherwise (something played it
+without grog). Paused, stopped, or no player answering: not playing. On
+NixOS, grog's music also goes through an echo canceller, which keeps it
+out of grog-voice's mic ([body/](../body/README.md#music)); elsewhere,
+grog-voice still hears it, and over loud music grog may hear its name less.
 
 ### A Google client for grog
 
@@ -518,7 +525,7 @@ JSON keys are lowerCamelCase.
 | `GET /v1/qr?text=...` | Its QR code, as SVG, for the skin |
 | `GET /v1/events` | What it's up to, as server-sent events: a `snapshot`, then each change ([`events.clj`](src/grog/events.clj)) |
 | `POST /v1/voice` `{"state", "conversationId", "heard"}` | grog-voice saying what it's doing, and with captions what it heard. Answers `{"captions", "name"}` |
-| `GET /v1/voice/commands` | What grog-voice is asked, as server-sent events: a `snapshot` with whether its `mic` is `"on"` or `"off"`, then `mic` when that changes, `listen` (now, without its name) and `stop` (answering) |
+| `GET /v1/voice/commands` | What grog-voice is asked, as server-sent events: a `snapshot` with whether its `mic` is `"on"` or `"off"` and whether grog's `music` plays (`true` or `false`), then `mic` or `music` when one changes, `listen` (now, without its name) and `stop` (answering) |
 | `POST /v1/music` `{"action", "query", "kind", "shuffle", "level", "change"}` | Does it through what plays [music](#music), as the `music` tool takes them: `{"provider", "text"}`, `text` saying what it did. A 400 without a known `action`, or saying why it can't |
 | `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice; `stop` also pauses the music), `mic` `{"on"}`, `volume` (`{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `new-conversation` (forgets them all), `connect` `{"integration", "way"}` (opens a session, like `POST /v1/integrations/<id>/connect`), `update` (starts [updating](#updating), unless it is: `{"started"}`), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
 | `GET /` | The skin, with `skin.dir` |

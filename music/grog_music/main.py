@@ -46,7 +46,12 @@ def build(settings, spawn=None, client=None):
     )
     mpv_args = {"spawn": spawn} if spawn is not None else {}
     player.mpv = Mpv(
-        settings["mpv"], mpv_socket(settings), settings["ytdlp"], on_start=player.on_mpv_start, **mpv_args
+        settings["mpv"],
+        mpv_socket(settings),
+        settings["ytdlp"],
+        on_start=player.on_mpv_start,
+        audio_device=settings["audioDevice"],
+        **mpv_args,
     )
     youtube = settings["youtubeMusic"]
     provider = YouTubeMusic(

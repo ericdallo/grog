@@ -160,7 +160,7 @@
         (events/publish! (:events ctx) {:type :turn :conversation "voice" :n 1})
         (actions/perform! ctx "stop")
         (is (true? (get-in (state ctx) [:turn :stopping]))))
-      (is (= [["snapshot" {:mic "on"}] ["listen" {}] ["stop" {}]] @got)))))
+      (is (= [["snapshot" {:mic "on" :music false}] ["listen" {}] ["stop" {}]] @got)))))
 
 (deftest turns-the-mic-on-or-off
   (let [ctx (context false)
@@ -169,7 +169,7 @@
     (is (= "off" (:mic (state ctx))))
     (testing "asked to listen, it's turned on first"
       (actions/perform! ctx "listen")
-      (is (= [["snapshot" {:mic "on"}] ["mic" {:mic "off"}] ["mic" {:mic "on"}] ["listen" {}]] @got)))
+      (is (= [["snapshot" {:mic "on" :music false}] ["mic" {:mic "off"}] ["mic" {:mic "on"}] ["listen" {}]] @got)))
     (testing "only on or off"
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"whether it's on" (actions/perform! ctx "mic" {:on "yes"}))))))
 

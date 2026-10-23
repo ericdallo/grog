@@ -97,14 +97,23 @@ class WakeWords:
         self.phrases = [[(sound(w), _voiced_end(w)) for w in re.findall(r"[^\W_]+", p)] for p in phrases]
         self.phrases = [p for p in self.phrases if p and all(key for key, _ in p)]
 
-    def match(self, text):
+    def match(self, text, anywhere=False):
         """The command in `text` after a wake phrase near its start ("" when
-        there's nothing after it), or None when it has none."""
+        there's nothing after it), or None when it has none. `anywhere`:
+        after the first wake phrase anywhere in it, for text that starts
+        anywhere, like a window cut out of what was heard over music."""
+        found = self.find(text, anywhere)
+        return None if found is None else text[found[1] :].lstrip(" ,.;:!?…-–—").strip()
+
+    def find(self, text, anywhere=False):
+        """Where the wake phrase is in `text`, as for match: (where it
+        starts, where it ends), or None."""
         words = list(re.finditer(r"[^\W_]+", text))
         keys = [sound(w.group()) for w in words]
         for phrase in self.phrases:
             n = len(phrase)
-            for start in range(min(MAX_LEADING_WORDS, len(words) - n) + 1):
+            leading = len(words) if anywhere else MAX_LEADING_WORDS
+            for start in range(min(leading, len(words) - n) + 1):
                 if all(_alike(keys[start + i], words[start + i].group(), phrase[i]) for i in range(n)):
-                    return text[words[start + n - 1].end() :].lstrip(" ,.;:!?…-–—").strip()
+                    return words[start].start(), words[start + n - 1].end()
         return None

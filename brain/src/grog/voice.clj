@@ -1,11 +1,11 @@
 (ns grog.voice
   "What grog asks of grog-voice, which watches for it (`GET
   /v1/voice/commands`, as server-sent events, keys in lowerCamelCase):
-  whether its mic is on (a `snapshot` first, then `mic` when it changes),
-  and as they come, to `listen` now, without its name, or to `stop`
-  answering. Whether the mic is on stays in voice.json, in the state
-  directory: off, grog-voice hears nothing until it's turned on again, even
-  after restarts."
+  whether its mic is on and whether grog's music plays (a `snapshot` first,
+  then `mic` or `music` when one changes), and as they come, to `listen`
+  now, without its name, or to `stop` answering. Whether the mic is on
+  stays in voice.json, in the state directory: off, grog-voice hears
+  nothing until it's turned on again, even after restarts."
   (:require [babashka.fs :as fs]
             [grog.config :as config]
             [grog.events :as events]
@@ -37,9 +37,11 @@
 
 (defn new-channel
   "Where what grog asks of grog-voice goes: whether its mic is on (as last
-  set, with `config`), and whoever watches for it."
+  set, with `config`), whether grog's music plays (not yet), and whoever
+  watches for it."
   [config]
   {:mic (atom (load-mic config))
+   :music (atom false)
    :watchers (atom {})
    ;; One message at a time, sent to everyone in the same order.
    :lock (Object.)})
@@ -48,6 +50,11 @@
   "\"on\" or \"off\": whether grog-voice's mic is on, as asked."
   [{:keys [mic]}]
   (mic-name @mic))
+
+(defn music
+  "Whether grog-voice was told grog's music plays."
+  [{:keys [music]}]
+  @music)
 
 (defn ^:private send-all!
   "Sends `text` to every watcher, forgetting those gone (their send!
@@ -58,12 +65,12 @@
       (swap! watchers dissoc k))))
 
 (defn watch!
-  "Sends whether the mic is on to `send!` (a function of an SSE text
-  returning false once the watcher is gone), then what's asked, until it's
-  gone or `unwatch!`ed by `k`."
+  "Sends whether the mic is on and whether music plays to `send!` (a
+  function of an SSE text returning false once the watcher is gone), then
+  what's asked, until it's gone or `unwatch!`ed by `k`."
   [{:keys [watchers lock] :as channel} k send!]
   (locking lock
-    (when (send! (sse/message "snapshot" {:mic (mic channel)}))
+    (when (send! (sse/message "snapshot" {:mic (mic channel) :music (music channel)}))
       (swap! watchers assoc k send!))))
 
 (defn unwatch! [{:keys [watchers lock]} k]
@@ -80,6 +87,21 @@
   [{:keys [lock] :as channel} command]
   (locking lock
     (send-all! channel (sse/message (name command) {}))))
+
+(defn set-music!
+  "Tells grog-voice whether grog's music plays (`playing?`), only when that
+  changed: it listens for its name differently over music. Whether it
+  changed."
+  [{:keys [lock] :as channel} playing?]
+  (let [playing? (boolean playing?)
+        changed? (locking lock
+                   (when (not= playing? @(:music channel))
+                     (reset! (:music channel) playing?)
+                     (send-all! channel (sse/message "music" {:music playing?}))
+                     true))]
+    (when changed?
+      (log/info "music:" (if playing? "on" "off")))
+    (boolean changed?)))
 
 (defn ping!
   "A comment to every watcher: keeps the connections alive, and finds those

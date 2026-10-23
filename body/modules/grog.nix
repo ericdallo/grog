@@ -23,7 +23,78 @@ let
   # grog-music's socket: its user creates it, grog (in the group) connects.
   musicDir = "/run/grog-music";
   musicSocket = "${musicDir}/music.sock";
-  musicConfigFile = json.generate "grog-music.json" cfg.music.settings;
+
+  # grog's echo canceller (`music.echoCancel`): the music plays into its
+  # sink, which goes on to the default speaker, and grog-voice hears its
+  # mic without it. grog's own voice and earcons don't go through it.
+  echoCancel = cfg.music.enable && cfg.music.echoCancel;
+  echoMic = "grog-mic";
+  echoSink = "grog-music-out";
+  # grog-voice can only record from it in the same session.
+  voiceEchoCancel = echoCancel && cfg.voice.enable && cfg.voice.user == cfg.music.user;
+  # PipeWire's echo-cancel module in a PipeWire process of its own, like
+  # PipeWire's filter-chain service: a client of the user's PipeWire. JSON is
+  # PipeWire's config language too.
+  echoCancelConf = json.generate "grog-echo-cancel.conf" {
+    "context.spa-libs" = {
+      "audio.convert.*" = "audioconvert/libspa-audioconvert";
+      "support.*" = "support/libspa-support";
+    };
+    "context.modules" = [
+      { name = "libpipewire-module-rt"; args = { }; flags = [ "ifexists" "nofail" ]; }
+      { name = "libpipewire-module-protocol-native"; }
+      { name = "libpipewire-module-client-node"; }
+      { name = "libpipewire-module-adapter"; }
+      {
+        name = "libpipewire-module-echo-cancel";
+        args = {
+          "library.name" = "aec/libspa-aec-webrtc";
+          "monitor.mode" = false;
+          # The canceller alone (plans/voice.md). What PipeWire 1.6's WebRTC
+          # (webrtc-audio-processing 2, AEC3) reads: its delay estimation
+          # and filter length are its own, no longer options.
+          "aec.args" = {
+            "webrtc.high_pass_filter" = true;
+            "webrtc.noise_suppression" = false;
+            "webrtc.gain_control" = false;
+            "webrtc.mobile_mode" = false;
+          };
+          # From the default mic, mixed to mono, as grog-voice hears it.
+          "capture.props" = {
+            "node.name" = "grog-echo-cancel-capture";
+            "node.description" = "grog's echo canceller, from the mic";
+            "audio.position" = [ "MONO" ];
+          };
+          # Below any real device: never the session's default mic or
+          # speaker, which grog's own voice plays to.
+          "source.props" = {
+            "node.name" = echoMic;
+            "node.description" = "grog's mic, without its music";
+            "media.class" = "Audio/Source";
+            "audio.position" = [ "MONO" ];
+            "priority.session" = -1;
+          };
+          "sink.props" = {
+            "node.name" = echoSink;
+            "node.description" = "grog's music, kept out of its mic";
+            "media.class" = "Audio/Sink";
+            "audio.position" = [ "FL" "FR" ];
+            "priority.session" = -1;
+          };
+          # On to the default speaker.
+          "playback.props" = {
+            "node.name" = "grog-echo-cancel-playback";
+            "node.description" = "grog's echo canceller, to the speaker";
+            "audio.position" = [ "FL" "FR" ];
+          };
+        };
+      }
+    ];
+  };
+
+  musicConfigFile = json.generate "grog-music.json" (lib.recursiveUpdate
+    (lib.optionalAttrs echoCancel { audioDevice = "pipewire/${echoSink}"; })
+    cfg.music.settings);
 
   # grog's runner's socket: its dynamic user creates it, grog (in the group)
   # connects.
@@ -39,7 +110,7 @@ let
 
   models = pkgs.callPackage ../packages/voice-models.nix { };
   voiceConfigFile = json.generate "grog-voice.json" (lib.recursiveUpdate
-    {
+    ({
       inherit grogUrl;
       stt.model = "${cfg.voice.sttModel}";
       tts = {
@@ -48,7 +119,9 @@ let
       } // lib.optionalAttrs (cfg.voice.ttsEngine != "piper") {
         model = "${cfg.voice.ttsModel}";
       };
-    }
+    } // lib.optionalAttrs voiceEchoCancel {
+      mic = echoMic;
+    })
     cfg.voice.settings);
 in
 {
@@ -318,8 +391,9 @@ in
       enable = lib.mkEnableOption ''
         grog-music, the player grog plays music with (mpv and yt-dlp), and
         YouTube Music's search and library (music/ in the repo), run by a
-        service of `user`, playing through their session's default sink:
-        its speaker, or a Bluetooth speaker paired with it'';
+        service of `user`, playing through their session's default sink
+        (through `echoCancel`'s canceller): its speaker, or a Bluetooth
+        speaker paired with it'';
 
       package = lib.mkOption {
         type = lib.types.package;
@@ -352,6 +426,22 @@ in
           Settings rendered to JSON (lowerCamelCase keys) and merged over
           grog-music's defaults (music/grog_music/config.py, documented in
           music/README.md). Its socket is the module's.
+        '';
+      };
+
+      echoCancel = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Whether grog keeps its own music out of its mic, so it hears its
+          name over it: the music plays into an echo canceller (PipeWire's
+          echo-cancel module, with WebRTC's canceller alone, run by a user
+          service of `user`, `grog-echo-cancel`), its sink `grog-music-out`,
+          which plays it on to the default speaker, and grog-voice records
+          from its source `grog-mic`, the default mic without the music
+          (unless `voice.settings.mic` says another). grog's own voice and
+          earcons go straight to the speaker. Without the canceller running,
+          both play and record through the defaults.
         '';
       };
     };
@@ -500,8 +590,8 @@ in
       systemd.user.services.grog-voice = {
         description = "grog-voice, grog's ears and mouth";
         wantedBy = [ "default.target" ];
-        wants = [ "pipewire.service" ];
-        after = [ "pipewire.service" "wireplumber.service" ];
+        wants = [ "pipewire.service" ] ++ lib.optional voiceEchoCancel "grog-echo-cancel.service";
+        after = [ "pipewire.service" "wireplumber.service" ] ++ lib.optional voiceEchoCancel "grog-echo-cancel.service";
         unitConfig.ConditionUser = cfg.voice.user;
         serviceConfig = {
           ExecStart = "${lib.getExe cfg.voice.package} --config ${voiceConfigFile} run";
@@ -561,8 +651,8 @@ in
       systemd.user.services.grog-music = {
         description = "grog-music, the player grog plays music with";
         wantedBy = [ "default.target" ];
-        wants = [ "pipewire.service" ];
-        after = [ "pipewire.service" "wireplumber.service" ];
+        wants = [ "pipewire.service" ] ++ lib.optional echoCancel "grog-echo-cancel.service";
+        after = [ "pipewire.service" "wireplumber.service" ] ++ lib.optional echoCancel "grog-echo-cancel.service";
         unitConfig.ConditionUser = cfg.music.user;
         serviceConfig = {
           ExecStart = utils.escapeSystemdExecArgs [
@@ -576,6 +666,32 @@ in
           RestartSec = 5;
           # grog-voice, on the same CPU, comes first.
           CPUWeight = 50;
+          LockPersonality = true;
+          NoNewPrivileges = true;
+        };
+      };
+    })
+
+    (lib.mkIf echoCancel {
+      assertions = [{
+        assertion = config.services.pipewire.enable;
+        message = "services.grog.music.echoCancel runs in PipeWire: enable services.pipewire, or turn it off.";
+      }];
+
+      # In grog's music user's session only: not in a desktop user's of the
+      # same machine. A client of their PipeWire, going and coming with it.
+      # Restarted, the streams it carried play and record through the
+      # defaults meanwhile, and WirePlumber moves them back once it's there.
+      systemd.user.services.grog-echo-cancel = {
+        description = "grog's echo canceller, its music out of its mic";
+        wantedBy = [ "default.target" "pipewire.service" ];
+        bindsTo = [ "pipewire.service" ];
+        after = [ "pipewire.service" "wireplumber.service" ];
+        unitConfig.ConditionUser = cfg.music.user;
+        serviceConfig = {
+          ExecStart = "${config.services.pipewire.package}/bin/pipewire -c ${echoCancelConf}";
+          Restart = "on-failure";
+          RestartSec = 2;
           LockPersonality = true;
           NoNewPrivileges = true;
         };

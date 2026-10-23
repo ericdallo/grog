@@ -191,7 +191,8 @@ doesn't have: grognix turns on `programs.nix-ld` for them.
 grog plays [music](../brain/README.md#music) with grog-music
 ([`music/`](../music/README.md)), a service in the session of the user with
 the speaker (`services.grog.music.user`, `services.grog.user` by default),
-like the voice, playing through that session's default sink. grog reaches
+like the voice, playing through that session's default sink (through its
+echo canceller, below). grog reaches
 it on `/run/grog-music/music.sock`, through the `grog-music` group. It's on
 in grognix; on another machine:
 
@@ -201,6 +202,37 @@ services.grog.music = {
   settings.youtubeMusic.location = "BR"; # what YouTube Music finds; the rest in music/README.md
 };
 ```
+
+### Echo cancellation
+
+grog's music comes out of the speaker next to its mic, and would drown its
+name. So it plays into an echo canceller (`services.grog.music.echoCancel`,
+on by default): PipeWire's echo-cancel module, WebRTC's canceller alone (a
+high-pass filter, no noise suppression or gain control), in a PipeWire
+process of its own, a user service of grog's music user
+(`grog-echo-cancel`), so only grog's session has it, not a desktop user's
+on the same machine. It makes two nodes there:
+
+- `grog-music-out`, a sink: grog-music plays into it (its `audioDevice`,
+  `pipewire/grog-music-out`), and it plays on to the default speaker.
+  What goes in is what's taken out of the mic.
+- `grog-mic`, a source: the default mic, mixed to mono, without the music.
+  grog-voice records from it, unless `services.grog.voice.settings.mic`
+  names another.
+
+Only the music goes through it. grog's own voice and earcons go straight
+to the speaker: tried on them, the canceller lowered grog's echo by ~11 dB
+but the speaker beside the mic clipped it, and it ate the words of someone
+talking over grog ([plans/voice.md](../plans/voice.md)), so grog-voice
+stays half duplex. Both nodes rank below any real device, so they never
+become the session's defaults (don't pick them in GNOME's sound settings).
+grog also tells grog-voice when its music plays, to listen for its name in
+short windows over it, and ducks the music once it heard it.
+
+If the canceller isn't running (restarting, or failed), WirePlumber plays
+and records through the defaults instead, and moves both streams back once
+it's there. `journalctl --user -u grog-echo-cancel` as grog shows its
+logs, `wpctl status` its nodes.
 
 To play on a Bluetooth speaker, pair it with the machine (GNOME's
 Bluetooth settings, or `bluetoothctl` over SSH) and make it the default

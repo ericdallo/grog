@@ -4,7 +4,8 @@
   to, and to grog-voice, keeping what they know of its usage current, and of
   how an update goes (grog.update), a sign-in with a code going while
   grog has nothing to pay with, for its skin to show (grog.signin), and
-  its music going down while someone talks to it (grog.music)."
+  its music going down while someone talks to it, and grog-voice told
+  whether it plays (grog.music)."
   (:require [babashka.nrepl.server :as nrepl]
             [grog.api :as api]
             [grog.assistant :as assistant]
@@ -45,6 +46,10 @@
 
 ;; How often MCP servers unused for a while are stopped (grog.servers).
 (def ^:private servers-check-ms (* 60 1000))
+
+;; How often grog sees whether it's time to ask its player whether it plays
+;; (grog.music/keep-up!): reading an atom, mostly.
+(def ^:private music-check-ms 1000)
 
 (defn ^:private every!
   "Runs `f` every `ms`, in the background, starting now or after `ms`
@@ -95,7 +100,9 @@
                   (every! login-check-ms true #(signin/keep-up! ctx))
                   (let [seen (atom nil)]
                     (every! update-check-ms true #(update/watch! ctx seen)))
-                  (every! servers-check-ms false #(servers/stop-idle! ctx))]
+                  (every! servers-check-ms false #(servers/stop-idle! ctx))
+                  (let [last-checked (atom 0)]
+                    (every! music-check-ms true #(music/keep-up! ctx last-checked (System/currentTimeMillis))))]
      :nrepl (when (get-in config [:nrepl :enable])
               (nrepl/start-server! (select-keys (:nrepl config) [:host :port])))}))
 

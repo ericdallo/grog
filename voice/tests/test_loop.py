@@ -17,12 +17,14 @@ from fakes import (
     FakeTts,
     FakeVad,
     Held,
+    OverMusic,
     Players,
     Saying,
     answering,
     frames,
     hanging,
     slow_mic,
+    song,
 )
 
 from grog_voice import loop
@@ -303,6 +305,48 @@ class RunTest(unittest.TestCase):
         )
         self.assertEqual(["listening", "hearing", "answering", "speaking", "listening"], v.reported)
         self.assertEqual(0, v.ears.partial_stt.holds, "it went on once it listened again")
+
+
+class MusicTest(unittest.TestCase):
+    def test_over_music_its_name_in_a_window_is_answered_and_nothing_heard_is_logged(self):
+        # Music, then its name over it, as the second window of what followed.
+        music = [*song(9.0), *frames((".", 1.0)), *song(7.5, start=1000), *frames((".", 1.0))]
+        stt = OverMusic(
+            ["la la la", "Droga, esqueci", "la la la", "la la Grog, que horas"],
+            rest=["Droga, esqueci a chave", "la Grog, que horas são?"],
+        )
+        ask = answering("Dez e quinze.")
+        v = voice(mic=FakeMic(music, frame_wait_s=0.002), stt=stt, ask=ask, wake=GROG, captions=True)
+        with self.assertLogs("grog_voice", "INFO") as logs, self.assertRaises(MicError):
+            v.set_music(True)
+            v.set_music(True)
+            v.run()
+        self.assertEqual(4, len(stt.windows))
+        self.assertEqual(["que horas são?"], ask.asked)
+        self.assertEqual(["Grog, que horas são?"], ask.said, "from its name on")
+        self.assertEqual(
+            [("Grog, que horas", False), ("Grog, que horas são?", False), ("Grog, que horas são?", True)],
+            v.heard_reports,
+        )
+        self.assertEqual("INFO:grog_voice:music on", logs.output[0], "once")
+        # The music alone: since the last window it cut, how it sounded.
+        ignored = [line for line in logs.output if "not for grog" in line]
+        self.assertEqual(1, len(ignored))
+        self.assertTrue(
+            ignored[0].startswith("INFO:grog_voice:not for grog: 3.2 s, 3.2 s of it speech, peak")
+        )
+        text = "\n".join(logs.output)
+        for words in ("la la", "Droga", "esqueci", "chave", "que horas", "Grog,", "quinze"):
+            self.assertNotIn(words, text)
+
+    def test_music_off_is_logged_once(self):
+        v = voice()
+        with self.assertLogs("grog_voice", "INFO") as logs:
+            v.set_music(False)
+            v.set_music(True)
+            v.set_music(False)
+        self.assertEqual(["INFO:grog_voice:music on", "INFO:grog_voice:music off"], logs.output)
+        self.assertFalse(v.ears.music())
 
 
 class AskedByGrogTest(unittest.TestCase):

@@ -34,6 +34,18 @@ up to it.
    [Piper](https://github.com/OHF-Voice/piper1-gpl) (lighter, but flatter)
    can speak instead (`tts.engine`).
 
+While grog plays music, the VAD takes the music for speech, so what you
+say never ends, and its name gets lost in the lyrics. The brain tells it
+when music plays (`GET /v1/voice/commands`). Until it hears its name, it
+then cuts what it hears into 4 s windows (`musicUtteranceSeconds`), each
+starting 1 s before the last one ends, so a name said across a cut is
+whole in one of them. Each window is transcribed and searched for the
+name, anywhere in it: a window can start mid-sentence. When it hears its
+name, what you say starts with that window, from the name on, and the
+brain ducks the music. From there it ends as usual. Its mic should record
+from an echo-cancelled node that removes grog's own music (`grog-mic`,
+see [body](../body/README.md#echo-cancellation)).
+
 It doesn't listen while it talks. A low sound means something went wrong,
 and the log says what. A rising one means the brain is there: at start, or
 back after it restarted (after an update, say).
@@ -131,6 +143,7 @@ or `$GROG_VOICE_CONFIG`), merged over the defaults in
 | `speculateMs` | `250` | A pause this long starts transcribing, in case it's the end. `0`: wait for the end |
 | `partialMs` | `300` | How much more you have to say before what you've said so far is transcribed again. `0`: only at pauses, without the second model |
 | `maxUtteranceSeconds` | `15` | Longer is cut |
+| `musicUtteranceSeconds` | `4` | While grog plays music, until it hears its name: how long each window it looks for the name in is. They overlap by 1 s. From 2 to `maxUtteranceSeconds` |
 
 ## Development
 

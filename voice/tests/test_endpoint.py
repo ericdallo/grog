@@ -35,6 +35,17 @@ class EndpointerTest(unittest.TestCase):
     def test_silence_is_nothing(self):
         self.assertEqual([], feed(endpointer(), [SILENCE] * 50))
 
+    def test_letting_go_of_its_start(self):
+        ep = endpointer()
+        self.assertEqual([], feed(ep, [SPEECH] * 10))
+        self.assertEqual(10, ep.size)
+        ep.drop(4)
+        self.assertEqual((6, bytes(range(4, 10))), (ep.size, ep.audio()))
+        # Its maximum (3 s) counts from there.
+        events = feed(ep, [SPEECH] * 30, start=10)
+        self.assertEqual([33], [i for i, _ in events])
+        self.assertEqual(bytes(range(4, 34)), events[0][1].audio)
+
     def test_utterance_with_preroll_and_tail(self):
         probs = [SILENCE] * 3 + [SPEECH] * 5 + [SILENCE] * 6
         events = feed(endpointer(), probs)

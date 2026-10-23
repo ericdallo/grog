@@ -35,7 +35,8 @@ said otherwise.
   ends grog's turn), or to switch its mic off (pw-cat for the mic stopped:
   nothing recorded), over `GET /v1/voice/commands`
   (`voice/grog_voice/commands.py`). Until then grog-voice could only tell
-  grog what it was doing.
+  grog what it was doing. grog also tells it when its music plays, to
+  listen for its name in short windows over it (see "Music" below).
 - Code: `voice/grog_voice/pocket.py` and `voice/grog_voice/supertonic.py`
   (text handling, pure), the `Pocket`, `Supertonic` and `Piper` classes in
   `voice/grog_voice/speech.py`, the `tts.*` settings in
@@ -678,6 +679,67 @@ would keep the mic deaf longer (a quick "Sim" to a question), nor after a
 wait for grog's tools. Inside a piece, the carioca voice still sometimes
 runs sentences together (0.1 s), as he does himself (his pauses: 0.1 to
 0.4 s).
+
+## Music
+
+Once grog played music on its own speaker (the station: a laptop, its
+speaker right next to its mics), it couldn't hear its name over it. The
+log said "not for grog: 15.0 s, 14.6 s of it speech, peak -3 dBFS" over
+and over. Silero took the music for speech, so every utterance ran to
+`maxUtteranceSeconds`. The name was somewhere in 15 s of lyrics, past the
+two words allowed before it, and partials only cover an utterance's first
+2.5 s. Alexa handles it in three steps, and grog now does too:
+
+1. **Echo cancellation of the music only**: grog-music plays into
+   PipeWire's echo-cancel module (WebRTC's canceller alone), and
+   grog-voice records from its source, `grog-mic` (see body/README.md,
+   "Echo cancellation"). The canceller's reference is the music alone.
+   grog's own voice and earcons go straight to the speaker, as before (see
+   "Echo cancellation" under "The ears": on them, it clipped and ate the
+   words of someone talking over grog). grog-voice stays half duplex.
+2. **Windows** (`ears.py`, `Ears._window`): grog tells grog-voice whether
+   music plays (`GET /v1/voice/commands`: `music` in the snapshot, and a
+   `music` event when it changes). While it does, and grog-voice waits for
+   its name (not once awake, or asked), what the VAD takes for speech is
+   cut into windows of `musicUtteranceSeconds` (4 s), each starting
+   `MUSIC_OVERLAP_S` (1 s) before the last one ends, so a name said across
+   a cut is whole in one of them. Each window is transcribed on the main
+   Parakeet, one transcription at a time with the pause guesses, and the
+   name is looked for anywhere in it (`WakeWords.match(anywhere=True)`), as
+   a window starts mid-sentence. A name last in a window counts, unlike in
+   partials, since people say it and wait. The next window starts before
+   it ends, so a name cut short there ("Drog" of "Droga") is whole in that
+   one. Without the name, what came before the next window is let go of,
+   so utterances over music no longer run to 15 s. With it, the utterance
+   starts over from that window: what follows the name is the request, as
+   with "Grog, que horas são?" said in one breath. From there it ends as
+   usual, with `maxUtteranceSeconds` counted from that window. What's
+   shown and asked starts at the name, never at the lyrics or someone else's
+   words before it. Once the music stops, it's back to the usual at the
+   next frame.
+3. **Ducking**: grog lowers the music once grog-voice says it hears
+   someone talking to it (`hearing`), so the request ends at a pause as
+   usual.
+
+Partials still run at an utterance's start, up to 2.5 s, but not once it
+is cut into windows. By then the windows do their job, on the other model,
+for nothing. Measured with fakes over 13 s of music: 4 windows, at most 6
+partials, none past 2.5 s. A 4 s window every 3 s costs the main Parakeet
+~0.2 s on the station (fp32, 4 threads, by the commands measured in round
+3), so it's busy ~7% of the time, about a quarter of a core. That's an
+estimate, and it only applies while music plays and the VAD hears speech.
+
+What's left to measure on the station:
+
+- How much of the music the canceller takes out at listening volumes, and
+  whether the VAD then still takes what's left for speech. If it doesn't,
+  utterances are short again and windows rarely come into play.
+- The wake rate over music, at listening volumes and from 1 and 3 m, and
+  false wakes from lyrics, now that the name counts anywhere in a window.
+- CPU with music playing (`top`): grog-voice, grog-music and the echo
+  canceller together.
+- Whether ducking is enough for the request to end at a pause, or whether
+  it runs to `maxUtteranceSeconds`.
 
 ## Where to go from here
 

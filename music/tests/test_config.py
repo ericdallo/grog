@@ -46,6 +46,15 @@ class ConfigTest(unittest.TestCase):
             [p.split(":")[0] for p in problems[1:]],
         )
 
+    def test_audio_device(self):
+        settings = config.load(None) | {"socket": "/s"}
+        self.assertIsNone(settings["audioDevice"])
+        self.assertEqual([], config.problems(settings | {"audioDevice": "pipewire/grog-music-out"}))
+        self.assertEqual(
+            ['audioDevice: expected an mpv audio device, like "pipewire/grog-music-out", or null, got ""'],
+            config.problems(settings | {"audioDevice": ""}),
+        )
+
     def test_bad_files(self):
         for text in ("{", "[]"):
             with self.assertRaises(config.ConfigError):

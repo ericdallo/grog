@@ -2,8 +2,8 @@
 grog ("Grog, ..."), asks grog and speaks the answer as it streams in (see
 mouth.py). Half duplex: what the mic hears while grog answers is dropped
 (hearing someone over grog's own voice would take echo cancellation). grog
-may also ask it to listen now, to stop answering, or to turn its mic off
-(see commands.py)."""
+may also ask it to listen now, to stop answering, or to turn its mic off,
+and tells it when it plays music (see commands.py)."""
 
 import logging
 import threading
@@ -73,6 +73,7 @@ class Voice:
         self.told = None  # what it last told grog it's doing
         self.no_mic = False
         self.muted = False  # its mic is switched off (see set_mic)
+        self.music = False  # grog plays music (see set_music)
         self._telling = threading.Lock()
         self._back_at = None  # when its sound last said grog is back
         self.mouth = Mouth(tts=tts, player=player, ask=ask, tell=self.tell, captions=captions)
@@ -88,6 +89,7 @@ class Voice:
             chime=self.mouth.chime,
             report_heard=report_heard,
             captions=captions,
+            music=lambda: self.music,
             frame_bytes=frame_bytes,
             frame_s=frame_s,
         )
@@ -207,6 +209,15 @@ class Voice:
             answering = self.told in ANSWERING
         if not answering:
             self.tell(self.awake() or "listening")
+
+    def set_music(self, playing):
+        """grog plays music, or no longer does: while it does, its name is
+        looked for in short windows of what's heard (see Ears._window), and
+        from the next frame on once it stops, as usual."""
+        if self.music == playing:
+            return
+        self.music = playing
+        log.info("music %s", "on" if playing else "off")
 
     def tell(self, state):
         """Tells grog what it's doing, when that changed: muted, while the

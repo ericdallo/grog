@@ -30,6 +30,13 @@ class MpvTest(unittest.TestCase):
         ):
             self.assertIn(arg, argv)
         self.assertEqual([1], self.started)
+        self.assertFalse([a for a in argv if a.startswith("--audio-device")], "the default sink")
+
+    def test_plays_where_told(self):
+        mpv = Mpv("mpv", self.socket, "yt-dlp", spawn=self.spawn, audio_device="pipewire/grog-music-out")
+        self.addCleanup(mpv.close)
+        mpv.ensure()
+        self.assertIn("--audio-device=pipewire/grog-music-out", self.spawn.argv[-1])
 
     def test_commands_get_their_reply_past_events(self):
         self.mpv.set("volume", 40)

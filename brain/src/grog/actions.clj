@@ -154,8 +154,8 @@
 (defn ^:private stop!
   "Asks grog-voice to stop answering, the turn under way, if any, ending
   then, stopped (grog.events), and pauses grog's music."
-  [{:keys [voice events config]}]
-  (music/pause! @config)
+  [{:keys [voice events] :as ctx}]
+  (music/pause! ctx)
   (events/publish! events {:type :stop})
   (voice/ask! voice :stop)
   {:ok true})

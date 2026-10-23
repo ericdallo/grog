@@ -14,6 +14,9 @@ class FakeVoice:
     def set_mic(self, on):
         self.did.append(("mic", on))
 
+    def set_music(self, playing):
+        self.did.append(("music", playing))
+
     def listen_now(self):
         self.did.append("listen")
 
@@ -108,12 +111,57 @@ class CommandsTest(unittest.TestCase):
         )
 
     def test_what_makes_no_sense_is_ignored(self):
-        connect = grog([("mic", {"mic": "maybe"}), ("mic", ["off"]), ("snapshot", {}), ("dance", {})])
+        connect = grog(
+            [
+                ("mic", {"mic": "maybe"}),
+                ("mic", ["off"]),
+                ("snapshot", {}),
+                ("dance", {}),
+                ("music", {"music": "yes"}),
+                ("music", [True]),
+                ("mic", {"music": True}),
+            ]
+        )
         c = self.commands(connect)
         v = FakeVoice()
         c.attach(v)
         self.assertTrue(connect.said_all.wait(5))
-        self.assertEqual((["back"], None), (v.did, c.mic_on), "but grog is there")
+        self.assertEqual((["back"], None, None), (v.did, c.mic_on, c.music), "but grog is there")
+
+    def test_whether_music_plays_waits_for_the_voice(self):
+        connect = grog([("snapshot", {"mic": "on", "music": True})])
+        c = self.commands(connect)
+        self.assertTrue(connect.said_all.wait(5))
+        self.assertEqual((True, True), (c.mic_on, c.music))
+        v = FakeVoice()
+        c.attach(v)
+        self.assertEqual([("mic", True), ("music", True), "back"], v.did)
+
+    def test_whether_music_plays_as_it_changes(self):
+        attached = threading.Event()
+        connect = grog(
+            [
+                ("snapshot", {"mic": "on", "music": False}),
+                ("music", {"music": True}),
+                ("listen", {}),
+                ("music", {"music": False}),
+            ],
+            GrogError("grog went away"),
+            [("snapshot", {"mic": "on", "music": True})],
+            gate=attached,
+        )
+        c = self.commands(connect)
+        v = FakeVoice()
+        c.attach(v)
+        with self.assertLogs("grog_voice", "INFO"):
+            attached.set()
+            self.assertTrue(connect.said_all.wait(5))
+        self.assertEqual(
+            [("mic", True), ("music", False), "back", ("music", True), "listen", ("music", False)]
+            + [("mic", True), ("music", True), "back"],
+            v.did,
+        )
+        self.assertIs(True, c.music, "as grog last said")
 
 
 if __name__ == "__main__":

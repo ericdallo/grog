@@ -17,6 +17,7 @@
             [grog.settings :as settings]
             [grog.test-helpers :as h]
             [grog.tools :as tools]
+            [grog.voice :as voice]
             [grog.youtube-music :as youtube-music]))
 
 (defn ^:private settings-of [socket provider]
@@ -73,8 +74,17 @@
 (defn ^:private run [ctx args]
   ((:run (music/tool @(:config ctx))) ctx args {:id "c" :n 1}))
 
+(defn ^:private requests
+  "What grog asked of `player`, but whether it plays, which it asks in the
+  background after each action."
+  [player]
+  (filterv #(not= {:command "status"} %) @(:requests player)))
+
+(defn ^:private lines [player]
+  (filterv #(not= "{\"command\":\"status\"}" %) @(:lines player)))
+
 (defn ^:private commands [player]
-  (mapv :command @(:requests player)))
+  (mapv :command (requests player)))
 
 (deftest which-plays
   (with-redefs [catalog/shipped (constantly [spot])]
@@ -144,13 +154,13 @@
       (let [ctx (context (:socket player))]
         (testing "what the user asks for, anonymously"
           (is (= "Playing Song by Band, then 49 more." (run ctx {:action "play" :query " a song " :kind "song" :shuffle true})))
-          (is (= {:command "youtube-music.play" :query "a song" :kind "song" :shuffle true} (last @(:requests player)))))
+          (is (= {:command "youtube-music.play" :query "a song" :kind "song" :shuffle true} (last (requests player)))))
         (testing "the user's own, only with their account"
           (is (thrown-with-msg? clojure.lang.ExceptionInfo #"need their YouTube Music account connected"
                                 (run ctx {:action "play" :kind "liked"})))
           (is (thrown-with-msg? clojure.lang.ExceptionInfo #"need their YouTube Music account connected"
                                 (run ctx {:action "play" :kind "my-playlist" :query "road trip"})))
-          (is (= 1 (count @(:requests player))) "asked nothing of the player"))
+          (is (= 1 (count (requests player))) "asked nothing of the player"))
         (testing "play without what: it goes on"
           (is (= "Playing Song by Band, from LP (1:23 of 3:45), 3 of 50, volume 60." (run ctx {:action "play"})))
           (is (= "resume" (last (commands player)))))
@@ -159,12 +169,12 @@
           (is (= "Playing Song by Band, from LP (1:23 of 3:45), 3 of 50, volume 60." (run ctx {:action "next"})))
           (is (= "Stopped." (run ctx {:action "stop"})))
           (is (= "Volume 40." (run ctx {:action "volume" :level 40.0})))
-          (is (= {:command "volume" :level 40} (last @(:requests player))))
+          (is (= {:command "volume" :level 40} (last (requests player))))
           (is (= "Volume 50." (run ctx {:action "volume" :change -10})))
-          (is (= {:command "volume" :change -10} (last @(:requests player))))
+          (is (= {:command "volume" :change -10} (last (requests player))))
           (is (thrown-with-msg? clojure.lang.ExceptionInfo #"say a level" (run ctx {:action "volume"})))
           (is (= "Playing Song by Band, from LP (1:23 of 3:45), 3 of 50, volume 60." (run ctx {:action "status"})))
-          (is (= ["pause" "next" "stop" "volume" "volume" "status"] (subvec (commands player) 2))))))))
+          (is (= ["pause" "next" "stop" "volume" "volume"] (subvec (commands player) 2))))))))
 
 (deftest with-the-account
   (with-player
@@ -186,12 +196,12 @@
               (is (= {:command "youtube-music.play" :kind "liked" :shuffle false
                       :auth {:access-token "at-1" :refresh-token "rt-1" :client-id "cid" :client-secret "cs"
                              :scope youtube-music/scope :token-type "Bearer"}}
-                     (update (last @(:requests player)) :auth dissoc :expires-at)))
-              (is (str/includes? (last @(:lines player)) "\"refreshToken\":\"rt-1\"")))
+                     (update (last (requests player)) :auth dissoc :expires-at)))
+              (is (str/includes? (last (lines player)) "\"refreshToken\":\"rt-1\"")))
             (testing "refreshed first when they expire within a minute"
               (connect-account! ctx (+ (System/currentTimeMillis) 30000))
               (run ctx {:action "play" :query "a song"})
-              (let [{:keys [access-token refresh-token expires-at]} (:auth (last @(:requests player)))]
+              (let [{:keys [access-token refresh-token expires-at]} (:auth (last (requests player)))]
                 (is (= ["at-2" "rt-1"] [access-token refresh-token]))
                 (is (> expires-at (+ (System/currentTimeMillis) 3000000))))
               (is (= "at-2" (:access-token (connections/secrets (config/state-dir @(:config ctx)) "youtube-music")))))
@@ -199,7 +209,7 @@
               (reset! refused true)
               (connect-account! ctx (+ (System/currentTimeMillis) 30000))
               (run ctx {:action "play" :query "a song"})
-              (is (not (contains? (last @(:requests player)) :auth)))
+              (is (not (contains? (last (requests player)) :auth)))
               (is (= "signed-out" (:status (connections/by-id (config/state-dir @(:config ctx)) "youtube-music"))))
               (is (thrown-with-msg? clojure.lang.ExceptionInfo #"need their YouTube Music account connected"
                                     (run ctx {:action "play" :kind "liked"})))))
@@ -241,7 +251,7 @@
           (testing "down once grog-voice hears someone talk to grog"
             (voice! "hearing")
             (is (h/eventually 2000 #(= ["duck"] (sent))))
-            (is (= {:command "duck"} (last @(:requests player)))))
+            (is (= {:command "duck"} (last (requests player)))))
           (testing "while grog answers, still down"
             (voice! "answering")
             (voice! "speaking")
@@ -274,6 +284,68 @@
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"its voice isn't there"
                           (actions/perform! (context nil) "stop")))))
 
+(defn ^:private music-sent
+  "What grog-voice was told of the music, in order, through a watcher of
+  `ctx`'s channel."
+  [ctx]
+  (let [sent (atom [])]
+    (voice/watch! (:voice ctx) ::music
+                  #(do (when (str/starts-with? % "event: music\n")
+                         (swap! sent conj (:music (config/parse (second (re-find #"data: (.*)\n" %))))))
+                       true))
+    sent))
+
+(deftest grog-voice-knows-whether-it-plays
+  (let [state (atom "idle")
+        player (h/start-player! (fn [{:keys [command]}]
+                                  (case command
+                                    "pause" (reset! state "paused")
+                                    "youtube-music.play" (reset! state "playing")
+                                    nil)
+                                  {:ok true :state @state :volume 60}))
+        statuses #(count (filter #{{:command "status"}} @(:requests player)))]
+    (try
+      (with-out-str
+        (let [ctx (context (:socket player))
+              sent (music-sent ctx)
+              last-checked (atom 0)]
+          (testing "told once grog plays something"
+            (run ctx {:action "play" :query "a song"})
+            (is (h/eventually 2000 #(= [true] @sent)))
+            (is (true? (voice/music (:voice ctx)))))
+          (testing "asked again soon while it plays: the queue ended"
+            (reset! state "idle")
+            (is (nil? (music/keep-up! ctx last-checked 4999)) "not yet")
+            (is (= [true] @sent))
+            (is (false? (music/keep-up! ctx last-checked 5000)))
+            (is (= [true false] @sent)))
+          (testing "now and then otherwise, telling nothing when nothing changed"
+            (let [asked (statuses)]
+              (is (nil? (music/keep-up! ctx last-checked 64999)))
+              (is (= asked (statuses)))
+              (is (false? (music/keep-up! ctx last-checked 65000)))
+              (is (= (inc asked) (statuses)))
+              (is (= [true false] @sent))))
+          (testing "something else played it: seen within a minute"
+            (reset! state "playing")
+            (is (true? (music/keep-up! ctx last-checked 125000)))
+            (is (= [true false true] @sent)))
+          (testing "touching grog's face pauses it: told at once"
+            (actions/perform! ctx "stop")
+            (is (h/eventually 2000 #(= [true false true false] @sent))))
+          (testing "the player gone: not playing"
+            (reset! state "playing")
+            (is (true? (music/check-playing! ctx)))
+            (swap! (:config ctx) assoc-in [:music :socket] (str (h/temp-dir) "/gone.sock"))
+            (is (false? (music/check-playing! ctx)))
+            (is (= [true false true false true false] @sent)))))
+      (finally ((:stop! player)))))
+  (testing "without a player, never"
+    (let [ctx (context nil)
+          sent (music-sent ctx)]
+      (is (false? (music/check-playing! ctx)))
+      (is (= [] @sent)))))
+
 (deftest chosen-by-asking
   (with-redefs [catalog/shipped (constantly [spot])
                 settings/try-model! (fn [_ _])]
@@ -298,7 +370,7 @@
           (is (= "Playing Song by Band, from LP (1:23 of 3:45), 3 of 50, volume 60.\n"
                  (with-out-str (is (true? (client/music! url []))))))
           (is (= "Playing Song by Band, then 49 more.\n" (with-out-str (client/music! url ["play" "a" "song"]))))
-          (is (= {:command "youtube-music.play" :query "a song"} (last @(:requests player))))
+          (is (= {:command "youtube-music.play" :query "a song"} (last (requests player))))
           (is (= "Volume 50.\n" (with-out-str (client/music! url ["volume" "-10"]))))
           (is (= "Paused.\n" (with-out-str (client/music! url ["pause"]))))
           (is (= "[error] Say: grog music [play WHAT | pause | resume | next | previous | stop | volume N|+N|-N]\n"

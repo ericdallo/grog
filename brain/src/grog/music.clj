@@ -28,12 +28,15 @@
 
   While someone talks to grog (grog-voice heard its name, and until it
   waits for it again), its player's music goes down (`watch-voice!`).
-  Never logged: what's asked or played."
+  grog-voice is told whether its player plays (`check-playing!`), as it
+  listens for its name differently over music: after each action, and
+  now and then (`keep-up!`). Never logged: what's asked or played."
   (:require [clojure.string :as str]
             [grog.capabilities :as capabilities]
             [grog.catalog :as catalog]
             [grog.log :as log]
             [grog.player :as player]
+            [grog.voice :as voice]
             [grog.youtube-music :as youtube-music]))
 
 (def actions
@@ -47,8 +50,19 @@
 ;; What only plays with the user's account.
 (def ^:private library-kinds #{"my-playlist" "liked"})
 
-;; How long ducking and pausing wait for the player: they're for now.
+;; How long ducking, pausing and asking whether it plays wait for the
+;; player: they're for now.
 (def ^:private quick-timeout-ms 2000)
+
+;; How often grog asks its player whether it plays: often while it was
+;; last seen playing (the queue ends, someone pauses it), now and then
+;; otherwise (something played it without grog, like the CLI's raw player
+;; commands).
+(def ^:private playing-check-ms 5000)
+(def ^:private idle-check-ms 60000)
+
+;; One check at a time, so that an older status never wins over a newer one.
+(def ^:private checking (Object.))
 
 (def ^:private properties
   "What the model can say with `music`, by argument, in order."
@@ -215,10 +229,52 @@
     (number? level) (assoc :level (long level))
     (number? change) (assoc :change (long change))))
 
+(defn playing?
+  "Whether the player's `status` says it plays: paused or idle, it doesn't."
+  [status]
+  (= "playing" (:state status)))
+
+(defn check-playing!
+  "Asks grog's player whether it plays, and tells grog-voice when that
+  changed (grog.voice): whether it plays. It doesn't without a player, or
+  when the player doesn't answer soon."
+  [ctx]
+  (locking checking
+    (let [config @(:config ctx)
+          playing (and (player/there? config)
+                       (try (playing? (player/request! config "status" nil quick-timeout-ms))
+                            (catch Exception _ false)))]
+      (voice/set-music! (:voice ctx) playing)
+      playing)))
+
+(defn ^:private check-soon!
+  "`check-playing!`, in the background."
+  [ctx]
+  (future
+    (try (check-playing! ctx)
+         (catch Exception e
+           (log/info "music: checking whether it plays failed:" (.getSimpleName (class e)))))))
+
+(defn check-due?
+  "Whether to ask the player again whether it plays, `since-ms` after it
+  was last asked: soon while it was last seen `playing?`, now and then
+  otherwise."
+  [playing? since-ms]
+  (>= since-ms (if playing? playing-check-ms idle-check-ms)))
+
+(defn keep-up!
+  "Asks grog's player whether it plays when it's due (`check-due?`), it was
+  last asked at `last-checked` (an atom of epoch milliseconds), now being
+  `now-ms`."
+  [ctx last-checked now-ms]
+  (when (check-due? (voice/music (:voice ctx)) (- now-ms @last-checked))
+    (reset! last-checked now-ms)
+    (check-playing! ctx)))
+
 (defn perform!
   "Does what `args` ask ({:action :query :kind :shuffle :level :change})
   through the provider chosen: what to answer. Throws ex-info saying why
-  it can't."
+  it can't. Then, in the background, whether grog's player plays."
   [ctx args]
   (let [{:keys [action] :as args} (normalize args)
         {:keys [title run!] :as provider} (chosen @(:config ctx))]
@@ -227,7 +283,8 @@
                       {:type ::none})))
     (when-not (contains? (:actions provider) action)
       (throw (ex-info (str "music can't " (or action "do that") " through " title) {:type ::unsupported})))
-    (run! ctx action args)))
+    (try (run! ctx action args)
+         (finally (check-soon! ctx)))))
 
 (defn detail
   "What a `music` call does, in a few words, never what was asked for:
@@ -278,12 +335,15 @@
 
 (defn pause!
   "Pauses grog's player, if there's one, in the background, whatever goes
-  wrong: someone touched grog's face to stop it."
-  [config]
-  (when (player/there? config)
-    (future
-      (try (player/request! config "pause" nil quick-timeout-ms)
-           (catch Exception _ nil)))))
+  wrong, then checks whether it plays: someone touched grog's face to stop
+  it."
+  [ctx]
+  (let [config @(:config ctx)]
+    (when (player/there? config)
+      (future
+        (try (player/request! config "pause" nil quick-timeout-ms)
+             (catch Exception _ nil))
+        (check-playing! ctx)))))
 
 ;; grog-voice's states while someone talks to grog: hearing them, after its
 ;; name, waiting for them, and answering.

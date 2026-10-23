@@ -77,7 +77,16 @@ DEFAULTS = {
     "partialMs": 300,
     # Longer utterances are cut.
     "maxUtteranceSeconds": 15,
+    # While grog plays music, the VAD takes it for speech: what it hears then,
+    # until it hears its name, is cut into windows this long, each starting a
+    # second before the one before ends, and its name looked for in each.
+    "musicUtteranceSeconds": 4,
 }
+
+# The shortest musicUtteranceSeconds: windows overlap by a second
+# (ears.MUSIC_OVERLAP_S), so each starts at least a second after the one
+# before.
+MIN_MUSIC_UTTERANCE_S = 2
 
 
 class ConfigError(Exception):
@@ -265,11 +274,26 @@ def _tts_checks(settings):
     ]
 
 
+def _music_check(settings):
+    """musicUtteranceSeconds: from MIN_MUSIC_UTTERANCE_S to
+    maxUtteranceSeconds, as longer windows would be cut first."""
+    longest = _get(settings, "maxUtteranceSeconds")
+    if not _number(longest):
+        longest = None
+    return (
+        "musicUtteranceSeconds",
+        lambda v: _number(v) and v >= MIN_MUSIC_UTTERANCE_S and (longest is None or v <= longest),
+        f"a number from {MIN_MUSIC_UTTERANCE_S} to maxUtteranceSeconds ({longest})"
+        if longest is not None
+        else f"a number, {MIN_MUSIC_UTTERANCE_S} or more",
+    )
+
+
 def _checks(settings):
     """CHECKS, with those of the text to speech engine's settings after
-    tts.engine."""
+    tts.engine, and musicUtteranceSeconds's."""
     at = next(i for i, check in enumerate(CHECKS) if check[0] == "tts.engine") + 1
-    return CHECKS[:at] + _tts_checks(settings) + CHECKS[at:]
+    return CHECKS[:at] + _tts_checks(settings) + CHECKS[at:] + [_music_check(settings)]
 
 
 def _get(settings, path):

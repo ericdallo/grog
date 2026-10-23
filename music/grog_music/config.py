@@ -34,6 +34,9 @@ DEFAULTS = {
     # mpv's own control socket. null: grog-music/mpv.sock in $XDG_RUNTIME_DIR,
     # a directory only its user reaches.
     "mpvSocket": None,
+    # Where mpv plays (its --audio-device), like "pipewire/grog-music-out":
+    # the echo canceller's sink on NixOS. null: the session's default.
+    "audioDevice": None,
     # mpv's volume at start, 0 to 100, on top of the speaker's.
     "volume": 100,
     # Where `duck` lowers it to when it doesn't say.
@@ -97,6 +100,7 @@ CHECKS = [
     ("mpv", _non_blank, "a program"),
     ("ytdlp", _non_blank, "a program"),
     ("mpvSocket", _optional(_non_blank), "a path, or null"),
+    ("audioDevice", _optional(_non_blank), 'an mpv audio device, like "pipewire/grog-music-out", or null'),
     ("volume", lambda v: _int(v, 0, 100), "an integer from 0 to 100"),
     ("duckLevel", lambda v: _int(v, 0, 100), "an integer from 0 to 100"),
     ("maxQueue", lambda v: _int(v, 1, 1000), "an integer from 1 to 1000"),

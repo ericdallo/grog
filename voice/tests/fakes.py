@@ -11,7 +11,13 @@ from grog_voice.grog import GrogError
 FRAME = 4  # bytes per frame
 FRAME_S = 0.032
 SPEECH, SILENCE = b"SSSS", b"...."
-SETTINGS = {"endSilenceMs": 600, "speculateMs": 250, "partialMs": 0, "maxUtteranceSeconds": 15}
+SETTINGS = {
+    "endSilenceMs": 600,
+    "speculateMs": 250,
+    "partialMs": 0,
+    "maxUtteranceSeconds": 15,
+    "musicUtteranceSeconds": 4,
+}
 # Partials: what was said so far, transcribed while they talk.
 PARTIAL = {**SETTINGS, "partialMs": 300}
 HEARD, ANSWER = "que horas são", "São dez e quinze. Mais alguma coisa?"
@@ -30,6 +36,39 @@ def frames(*parts):
 
 def seconds(pcm):
     return len(pcm) / FRAME * FRAME_S
+
+
+def song(seconds, start=0):
+    """`seconds` of what the VAD takes for speech, like music, each frame
+    numbered from `start` on (see numbered)."""
+    return [b"S" + i.to_bytes(3, "big") for i in range(start, start + round(seconds / FRAME_S))]
+
+
+def numbered(pcm):
+    """The numbers of the first and the last frame of song in `pcm`."""
+    each = (pcm[i : i + FRAME] for i in range(0, len(pcm), FRAME))
+    numbers = [int.from_bytes(frame[1:], "big") for frame in each if frame[:1] == b"S"]
+    return numbers[0], numbers[-1]
+
+
+class OverMusic:
+    """A fake speech to text over music: windows (WINDOW long) say
+    `windows` in turn, the last one over and over; anything else says
+    `rest`, or in turn when it's a list. The windows it heard are in
+    .windows, the rest in .others."""
+
+    WINDOW = round(4 / FRAME_S) * FRAME  # musicUtteranceSeconds in SETTINGS
+
+    def __init__(self, windows, rest=""):
+        self.texts, self.windows, self.others = list(windows), [], []
+        self.rest = [rest] if isinstance(rest, str) else list(rest)
+
+    def __call__(self, pcm):
+        if len(pcm) != self.WINDOW:
+            self.others.append(pcm)
+            return self.rest[min(len(self.others), len(self.rest)) - 1]
+        self.windows.append(pcm)
+        return self.texts[min(len(self.windows), len(self.texts)) - 1]
 
 
 class FakeMic:
@@ -69,8 +108,10 @@ def slow_mic(*parts):
 
 
 class FakeVad:
+    """Speech: frames starting with S (SPEECH, or song's)."""
+
     def __call__(self, frame):
-        return 0.9 if frame == SPEECH else 0.1
+        return 0.9 if frame[:1] == b"S" else 0.1
 
     def reset(self):
         pass

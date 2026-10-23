@@ -231,7 +231,7 @@ def heard_line(ears, heard):
     """What `grog-voice listen` prints of `heard`: the text, what grog would
     make of it (see Ears.command), and how it sounded (how long, how much of
     it speech, how loud)."""
-    command = ears.command(heard.said, heard.needs_name, heard.addressed)
+    command = ears.command(heard.said, heard.needs_name, heard.addressed, heard.anywhere)
     verdict = (
         "no words heard" if not heard.said
         else "answers anything" if ears.wake() is None

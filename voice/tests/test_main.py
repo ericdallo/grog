@@ -105,7 +105,13 @@ class NameWatchTest(unittest.TestCase):
 
 
 def ears(wake):
-    settings = {"endSilenceMs": 600, "speculateMs": 250, "partialMs": 0, "maxUtteranceSeconds": 15}
+    settings = {
+        "endSilenceMs": 600,
+        "speculateMs": 250,
+        "partialMs": 0,
+        "maxUtteranceSeconds": 15,
+        "musicUtteranceSeconds": 4,
+    }
     e = Ears(settings, mic=FakeMic([]), vad=FakeVad(), stt=FakeStt(""), wake=lambda: wake)
     e.describe = lambda heard: "1.2 s, 1.0 s of it speech, peak -21 dBFS, transcribed 18 dB louder"
     return e

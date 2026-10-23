@@ -271,9 +271,30 @@ phases land.
     grog answers aloud; then back. grog-voice didn't change. Touching the
     face while grog answers stops it and pauses the music (the `stop`
     action); it doesn't stop it whatever happens.
-  - Not measured on grognix yet: transcription's CPU and false wakes with
-    music playing. No echo cancellation with the music as the reference.
-    The docs say grog may hear its name less over loud music.
+  - Hearing its name over its own music, like Alexa, in three parts:
+    - Echo cancellation with the music as the reference
+      (`services.grog.music.echoCancel`, on by default): PipeWire's
+      echo-cancel module (WebRTC's canceller, a high-pass filter, no noise
+      suppression or gain control) in a PipeWire process of its own, a
+      user service of grog's music user (`grog-echo-cancel`). grog-music
+      plays into its sink `grog-music-out` (`audioDevice`), which goes on
+      to the default speaker; grog-voice records its source `grog-mic`.
+      grog's own voice and earcons bypass it: grog-voice stays half
+      duplex. Both nodes rank below real devices, never the defaults;
+      without the canceller, WirePlumber falls back to the defaults and
+      moves the streams back once it's there. PipeWire 1.6's WebRTC
+      (webrtc-audio-processing 2, AEC3) takes only `high_pass_filter`,
+      `noise_suppression`, `gain_control` and `mobile_mode`: delay
+      estimation and the extended filter are its own.
+    - grog tells grog-voice whether its player plays (`music` in `GET
+      /v1/voice/commands`): after each music action and the stop action,
+      every 5 s while it plays, once a minute otherwise. grog-voice looks
+      for its name in short windows then.
+    - The music ducks once grog heard its name (as above).
+  - Not measured on grognix yet: the canceller's CPU and how much of the
+    music it takes out with the speaker beside the mic (it clipped grog's
+    own voice there), transcription's CPU and false wakes with music
+    playing.
   - grog-music gets `CPUWeight=50`: grog-voice, on the same CPU, comes
     first.
 - Next: measuring music on grognix (CPU, false wakes, the duck level), and
@@ -615,11 +636,12 @@ Before grog plays music itself by default:
   volumes people use.
 - **Echo cancellation again**, with the music as the reference (PipeWire's
   echo-cancel): dropped for grog's own voice, as it clipped and ate words,
-  maybe worth it for music.
+  maybe worth it for music. Built (see "Where it stands"), with grog-voice
+  told when music plays, to look for its name in short windows over it.
 - Touching grog's face stops the music whatever happens.
 
-Until then, playing on another device works fully, and playing on grog
-works but grog may not hear its name over loud music: the docs say so.
+Until it's measured, playing on another device works fully, and playing on
+grog works but grog may hear its name less over loud music.
 
 ### Home Assistant
 

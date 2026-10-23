@@ -21,11 +21,11 @@ class MpvError(Exception):
     can't be reached."""
 
 
-def arguments(program, ipc_socket, ytdlp):
-    """mpv, idle and waiting for commands, audio only, through the session's
-    default sink, with YouTube's audio from yt-dlp. --no-terminal: nothing it
-    plays reaches the journal; --no-config: whatever the user's mpv.conf
-    says."""
+def arguments(program, ipc_socket, ytdlp, audio_device=None):
+    """mpv, idle and waiting for commands, audio only, through `audio_device`
+    (mpv's --audio-device) or the session's default sink, with YouTube's
+    audio from yt-dlp. --no-terminal: nothing it plays reaches the journal;
+    --no-config: whatever the user's mpv.conf says."""
     return [
         program,
         "--idle=yes",
@@ -37,13 +37,14 @@ def arguments(program, ipc_socket, ytdlp):
         "--ytdl-format=bestaudio/best",
         f"--script-opts=ytdl_hook-ytdl_path={ytdlp}",
         "--audio-client-name=grog-music",
-    ]
+    ] + ([f"--audio-device={audio_device}"] if audio_device else [])
 
 
 class Mpv:
-    """mpv at `program`, its IPC at `ipc_socket`. `spawn` starts it
-    (subprocess.Popen's arguments); `on_start()` runs each time it (re)starts,
-    once it answers. Safe to use from several threads."""
+    """mpv at `program`, its IPC at `ipc_socket`, playing into `audio_device`
+    (None: the default). `spawn` starts it (subprocess.Popen's arguments);
+    `on_start()` runs each time it (re)starts, once it answers. Safe to use
+    from several threads."""
 
     def __init__(
         self,
@@ -54,8 +55,10 @@ class Mpv:
         on_start=None,
         start_timeout_s=10.0,
         reply_timeout_s=10.0,
+        audio_device=None,
     ):
         self.program, self.ipc_socket, self.ytdlp = program, ipc_socket, ytdlp
+        self.audio_device = audio_device
         self._spawn, self.on_start = spawn, on_start
         self._start_timeout_s, self._reply_timeout_s = start_timeout_s, reply_timeout_s
         self._proc = self._sock = self._file = None
@@ -80,7 +83,7 @@ class Mpv:
             os.unlink(self.ipc_socket)
         except FileNotFoundError:
             pass
-        argv = arguments(self.program, self.ipc_socket, self.ytdlp)
+        argv = arguments(self.program, self.ipc_socket, self.ytdlp, self.audio_device)
         started = time.monotonic()
         try:
             self._proc = self._spawn(

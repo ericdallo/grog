@@ -372,7 +372,7 @@
       (let [[got close!] (watch-events url "/v1/voice/commands")]
         (try
           (testing "it's told first whether its mic is on"
-            (is (eventually #(= [["snapshot" {:mic "on"}]] @got))))
+            (is (eventually #(= [["snapshot" {:mic "on" :music false}]] @got))))
           (testing "then to listen, or to stop"
             (is (= 200 (:status (post "listen" ""))))
             (is (= 200 (:status (post "stop" "{}"))))
@@ -397,7 +397,7 @@
             url (str "http://127.0.0.1:" (:port srv))
             [got close!] (watch-events url "/v1/voice/commands")]
         (try
-          (is (eventually #(= [["snapshot" {:mic "off"}]] @got)))
+          (is (eventually #(= [["snapshot" {:mic "off" :music false}]] @got)))
           (finally
             (close!)
             (server/stop! srv)))))))

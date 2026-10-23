@@ -14,10 +14,13 @@ from fakes import (
     FakeStt,
     FakeVad,
     Held,
+    OverMusic,
     Saying,
     frames,
+    numbered,
     seconds,
     slow_mic,
+    song,
 )
 
 from grog_voice import ears as ears_module
@@ -37,12 +40,22 @@ class Told(list):
 
 
 def ears(
-    mic_frames=(), *, mic=None, stt=None, wake=None, settings=None, partials=None, captions=False, awake=None
+    mic_frames=(),
+    *,
+    mic=None,
+    stt=None,
+    wake=None,
+    settings=None,
+    partials=None,
+    captions=False,
+    awake=None,
+    music=lambda: False,
 ):
     """Ears with fakes, with partials by `partials` (a speech to text) when
-    given, awake for a reason when `awake` says one (awake, asked); what they
-    tell grog is in .told, the earcons they chime in .chimes, what they heard
-    for grog in .heard_reports ((text, final))."""
+    given, awake for a reason when `awake` says one (awake, asked), music
+    playing while `music()`; what they tell grog is in .told, the earcons
+    they chime in .chimes, what they heard for grog in .heard_reports
+    ((text, final))."""
     told, chimes, heard = Told(), [], []
     e = Ears(
         settings or (PARTIAL if partials is not None else SETTINGS),
@@ -56,6 +69,7 @@ def ears(
         chime=chimes.append,
         report_heard=lambda text, final: heard.append((text, final)),
         captions=lambda: captions,
+        music=music,
         frame_bytes=FRAME,
         frame_s=FRAME_S,
     )
@@ -219,6 +233,131 @@ class AddressTest(unittest.TestCase):
         e = ears(mic=mic, stt=FakeStt("Grog.", "Grog, que horas são?"), wake=GROG)
         self.assertEqual("que horas são?", e.address(e.listen()))
         self.assertEqual([], e.heard_reports)
+
+
+def over_music(*parts):
+    """A FakeMic of `parts`, frames, 2 ms each: windows are done before the
+    next one is due."""
+    return FakeMic([frame for part in parts for frame in part], frame_wait_s=0.002)
+
+
+# Windows' frames: musicUtteranceSeconds (4 s) in 32 ms frames, each window
+# starting 31 frames (MUSIC_OVERLAP_S) before the one before ends.
+WINDOW, STEP = 125, 125 - 31
+
+
+class MusicTest(unittest.TestCase):
+    """While grog plays music, it looks for its name in windows."""
+
+    def test_what_it_hears_over_music_is_cut_into_overlapping_windows(self):
+        stt = OverMusic(["la la la"], rest="la la")
+        e = ears(mic=over_music(song(13.0), frames((".", 1.0))), stt=stt, wake=GROG, music=lambda: True)
+        heard = e.listen()
+        self.assertEqual(
+            [(0, 124), (94, 218), (188, 312), (282, 405)],  # the last one ends in silence
+            [numbered(pcm) for pcm in stt.windows],
+        )
+        for a, b in itertools.pairwise(stt.windows):
+            self.assertAlmostEqual(1.0, (numbered(a)[1] - numbered(b)[0] + 1) * FRAME_S, delta=0.01)
+        # What came before the last window was let go of as it went on (and
+        # before the next one, once the last was transcribed, if that was
+        # before the end).
+        self.assertIn(numbered(heard.pcm), [(376, 405), (282, 405)])
+        self.assertLess(heard.seconds, 4.2)
+        self.assertTrue(heard.anywhere)
+        self.assertIsNone(e.address(heard))
+        self.assertEqual(([], [], ["listening"]), (e.chimes, e.heard_reports, e.told), "nobody talked to it")
+
+    def test_its_name_in_the_second_window_wakes_it_and_what_follows_is_asked(self):
+        stt = OverMusic(["la la la", "la la Grog, que horas"], rest="la Grog, que horas são?")
+        mic = over_music(song(7.5), frames((".", 1.0)))
+        e = ears(mic=mic, stt=stt, wake=GROG, music=lambda: True, captions=True)
+        heard = e.listen()
+        self.assertEqual(2, len(stt.windows))
+        self.assertEqual(94, numbered(heard.pcm)[0], "from the window with its name")
+        self.assertEqual("Grog, que horas são?", heard.text, "from its name on")
+        self.assertEqual(["listening", "hearing", "answering"], e.told)
+        self.assertEqual(["listening", "ack"], e.chimes, "its name while it went on, then got it")
+        self.assertEqual("que horas são?", e.address(heard))
+        self.assertEqual(
+            [("Grog, que horas", False), ("Grog, que horas são?", False), ("Grog, que horas são?", True)],
+            e.heard_reports,
+            "never what came before its name",
+        )
+
+    def test_its_name_at_the_end_of_a_window(self):
+        # Someone says its name and waits, over the music.
+        stt = OverMusic(["la la la Grog"], rest="la Grog.")
+        e = ears(mic=over_music(song(5.0), frames((".", 1.5))), stt=stt, wake=GROG, music=lambda: True)
+        heard = e.listen()
+        self.assertEqual("", e.address(heard), "just its name")
+        self.assertEqual(["listening"], e.chimes)
+
+    def test_once_it_heard_its_name_it_ends_as_usual(self):
+        # Then the music is ducked: no more windows, and what follows ends at
+        # a pause, or maxUtteranceSeconds after the window with its name.
+        stt = OverMusic(["la la Grog, toca"], rest="Grog, toca outra")
+        e = ears(mic=over_music(song(25.0)), stt=stt, wake=GROG, music=lambda: True)
+        heard = e.listen()
+        self.assertEqual(1, len(stt.windows))
+        self.assertAlmostEqual(15.0, heard.seconds, delta=0.05)
+        self.assertEqual("toca outra", e.address(heard))
+
+    def test_without_music_as_usual(self):
+        stt = OverMusic(["Grog, toca"], rest="la la la")
+        e = ears(mic=over_music(song(20.0)), stt=stt, wake=GROG)
+        heard = e.listen()
+        self.assertEqual([], stt.windows)
+        self.assertAlmostEqual(15.0, heard.seconds, delta=0.05, msg="maxUtteranceSeconds")
+        self.assertFalse(heard.anywhere)
+        self.assertIsNone(e.address(heard))
+
+    def test_once_awake_as_usual(self):
+        stt = OverMusic(["la la la"], rest="toca outra")
+        e = ears(mic=over_music(song(20.0)), stt=stt, wake=GROG, awake="awake", music=lambda: True)
+        heard = e.listen()
+        self.assertEqual([], stt.windows)
+        self.assertAlmostEqual(15.0, heard.seconds, delta=0.05)
+        self.assertEqual("toca outra", e.address(heard))
+
+    def test_music_stopping_brings_it_back_to_usual_at_once(self):
+        playing = [True]
+
+        class Stopping(FakeMic):
+            def read(self):
+                if self.read_count == 200:
+                    playing[0] = False
+                return super().read()
+
+        stt = OverMusic(["la la la"], rest="la la")
+        mic = Stopping(song(25.0), frame_wait_s=0.002)
+        e = ears(mic=mic, stt=stt, wake=GROG, music=lambda: playing[0])
+        heard = e.listen()
+        self.assertEqual([(0, 124)], [numbered(pcm) for pcm in stt.windows], "none after it stopped")
+        self.assertAlmostEqual(15.0, heard.seconds, delta=0.05, msg="then maxUtteranceSeconds")
+        self.assertEqual(94, numbered(heard.pcm)[0])
+        # Then an utterance as usual: its name first.
+        e.mic.frames = frames(("S", 1.0), (".", 1.0))
+        e.stt = FakeStt("Grog, que horas são?")
+        heard = e.listen()
+        self.assertEqual((False, "que horas são?"), (heard.anywhere, e.address(heard)))
+
+    def test_partials_only_until_the_first_window(self):
+        # They'd only cost CPU: the windows look for its name from then on.
+        partials = Saying("la " * 60)
+        stt = OverMusic(["la la la"], rest="la la")
+        mic = over_music(song(13.0), frames((".", 1.0)))
+        e = ears(mic=mic, stt=stt, partials=partials, wake=GROG, music=lambda: True, settings=PARTIAL)
+        e.listen()
+        self.assertEqual(4, len(stt.windows))
+        self.assertTrue(partials.calls)
+        self.assertLessEqual(max(seconds(pcm) for pcm in partials.calls), ears_module.WAKE_WINDOW_S)
+        self.assertLessEqual(len(partials.calls), 6)
+
+    def test_its_name_is_found_anywhere_in_a_window_only(self):
+        e = ears(wake=GROG)
+        self.assertIsNone(e.command("la la la Grog, que horas", needs_name=True))
+        self.assertEqual("que horas", e.command("la la la Grog, que horas", needs_name=True, anywhere=True))
 
 
 class PartialsTest(unittest.TestCase):

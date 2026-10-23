@@ -45,6 +45,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual("http://127.0.0.1:8484", settings["grogUrl"])
         self.assertEqual(2, settings["stt"]["threads"])
         self.assertEqual(300, settings["partialMs"])
+        self.assertEqual(4, settings["musicUtteranceSeconds"])
         self.assertEqual(
             {
                 "engine": "pocket",
@@ -217,6 +218,34 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(
             ["tts.speed: expected null: Pocket TTS speaks at its voice's own pace, got 1.2"],
             problems({"model": self.pocket, "speed": 1.2}),
+        )
+
+    def test_music_windows(self):
+        def problems(**kw):
+            settings = config.deep_merge(
+                config.DEFAULTS, {"stt": {"model": self.model}, "tts": {"model": self.pocket}, **kw}
+            )
+            return config.problems(settings)
+
+        self.assertEqual(4, config.DEFAULTS["musicUtteranceSeconds"])
+        for ok in (2, 2.5, 4, 15):
+            self.assertEqual([], problems(musicUtteranceSeconds=ok), ok)
+        self.assertEqual([], problems(musicUtteranceSeconds=20, maxUtteranceSeconds=20))
+        for bad in (0, 1.5, 16, "4", True, None):
+            self.assertEqual(
+                [
+                    "musicUtteranceSeconds: expected a number from 2 to maxUtteranceSeconds (15), "
+                    f"got {'nothing' if bad is None else json.dumps(bad)}"
+                ],
+                problems(musicUtteranceSeconds=bad),
+                bad,
+            )
+        self.assertEqual(
+            [
+                "maxUtteranceSeconds: expected a positive number, got 0",
+                "musicUtteranceSeconds: expected a number, 2 or more, got 1",
+            ],
+            problems(musicUtteranceSeconds=1, maxUtteranceSeconds=0),
         )
 
     def test_wake_words(self):

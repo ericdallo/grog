@@ -50,6 +50,16 @@ class WakeWordsTest(unittest.TestCase):
         for text in ["Truque de mágica.", "O truque é esse.", "Troquei o pneu.", "Troque de canal."]:
             self.assertIsNone(wake.match(text), text)
 
+    def test_anywhere(self):
+        # In a window cut out of what was heard over music.
+        wake = WakeWords(["Grog"])
+        text = "e o sol brilhou na estrada, Grog, toca outra"
+        self.assertIsNone(wake.match(text))
+        self.assertEqual("toca outra", wake.match(text, anywhere=True))
+        self.assertEqual((28, 32), wake.find(text, anywhere=True))
+        self.assertEqual((0, 4), wake.find("Grog, que horas são?"))
+        self.assertIsNone(wake.match("a droga da estrada, o truque", anywhere=True))
+
     def test_just_the_wake_word(self):
         wake = WakeWords(["Grog"])
         self.assertEqual("", wake.match("Grog."))

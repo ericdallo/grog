@@ -90,9 +90,22 @@ class Endpointer:
         """How long the utterance under way is so far (0 before one starts)."""
         return duration(self.speech, self.frame_bytes, self.frame_s) if self.speech is not None else 0.0
 
+    @property
+    def size(self):
+        """How long the utterance under way is so far, in bytes (0 before one
+        starts)."""
+        return len(self.speech) if self.speech is not None else 0
+
     def audio(self):
         """The utterance under way so far (b"" before one starts)."""
         return bytes(self.speech) if self.speech is not None else b""
+
+    def drop(self, n):
+        """Lets go of the first `n` bytes of the utterance under way (whole
+        frames): it goes on from there, and its maximum length counts from
+        there too."""
+        if self.speech is not None:
+            del self.speech[: n - n % self.frame_bytes]
 
     def push(self, frame, prob):
         """Pause, Resume, End or None."""

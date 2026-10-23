@@ -74,8 +74,9 @@ and challenge solver scripts for YouTube now: nixpkgs' comes with Deno and
 yt-dlp-ejs.
 
 grog ducks the music, to 20, while someone talks to it and while it
-answers aloud, from what grog-voice says it's doing. grog may still hear
-its name less over loud music.
+answers aloud, from what grog-voice says it's doing. On NixOS it plays into
+grog's echo canceller (`audioDevice`), so that grog hears its name over it;
+without it, grog may hear its name less over loud music.
 
 ## Privacy
 
@@ -94,6 +95,7 @@ or `$GROG_MUSIC_CONFIG`), merged over the defaults in
 | `socket` | `null` | Where grog asks it things. Also `--socket`. On NixOS: `/run/grog-music/music.sock` |
 | `mpv`, `ytdlp` | `"mpv"`, `"yt-dlp"` | The programs |
 | `mpvSocket` | `null` | mpv's control socket. `null`: `grog-music/mpv.sock` in `$XDG_RUNTIME_DIR` |
+| `audioDevice` | `null` | Where mpv plays (its `--audio-device`). On NixOS, `"pipewire/grog-music-out"`: grog's echo canceller, which keeps the music out of grog's mic ([body/](../body/README.md#echo-cancellation)), and falls back to the default sink when it isn't there. `null`: the session's default sink |
 | `volume` | `100` | mpv's volume at start, on top of the speaker's |
 | `duckLevel` | `20` | Where `duck` lowers it to when it doesn't say (grog doesn't) |
 | `maxQueue` | `100` | |
