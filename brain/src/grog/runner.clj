@@ -198,7 +198,7 @@
 (defn ^:private pump-stdout!
   "Passes what the server answers on to grog, noting it answered. Once the
   server is done, says how it exited and closes the connection."
-  [proc ^SocketChannel ch ^OutputStream to answered label]
+  [proc ^SocketChannel ch ^OutputStream to answered stderr label]
   (let [^InputStream from (:out proc)
         buf (byte-array 8192)]
     (try
@@ -210,7 +210,11 @@
             (.flush to)
             (recur))))
       (catch IOException _))
-    (log/info (str label ": exited with " (.waitFor ^Process (:proc proc))))
+    (let [code (.waitFor ^Process (:proc proc))]
+      ;; What it said on stderr before it went, logged first: its stderr
+      ;; ends with it.
+      (deref stderr 2000 nil)
+      (log/info (str label ": exited with " code)))
     (.close ch)))
 
 (defn ^:private log-stderr!
@@ -249,8 +253,8 @@
       (let [answered (promise)]
         (log/info (str label ": started, version " version))
         (send-line! out {:ok true})
-        (future (log-stderr! proc answered label))
-        (future (pump-stdout! proc ch out answered label))
+        (let [stderr (future (log-stderr! proc answered label))]
+          (future (pump-stdout! proc ch out answered stderr label)))
         (future (pump-stdin! (Channels/newInputStream ch) proc (:grace-ms opts)))))))
 
 (defn ^:private handle!
