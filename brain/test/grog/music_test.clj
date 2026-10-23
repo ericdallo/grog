@@ -386,6 +386,179 @@
               (is (= 400 (:status resp)))))
           (finally (server/stop! running)))))))
 
+(deftest what-whoever-watches-sees
+  (testing "the player's status, asked when: no song while it's idle"
+    (is (= (assoc now-playing :provider "youtube-music" :at 5) (music/slice (assoc now-playing :ok-ish 1) 5)))
+    (is (= {:state "idle" :volume 60 :ducked false :provider "youtube-music" :at 5}
+           (music/slice {:state "idle" :title "Old" :artist "Band" :volume 60 :ducked false} 5)))
+    (is (nil? (music/slice nil 5))))
+  (let [at-0 (music/slice now-playing 0)
+        later (fn [ms position] (assoc at-0 :at ms :position-s position))]
+    (testing "told when anything but where the song is changes"
+      (is (true? (music/publish? nil at-0)))
+      (is (true? (music/publish? at-0 nil)))
+      (is (false? (music/publish? nil nil)))
+      (is (true? (music/publish? at-0 (assoc (later 1000 84) :state "paused"))))
+      (is (true? (music/publish? at-0 (assoc (later 1000 84) :volume 50))))
+      (is (true? (music/publish? at-0 (assoc (later 1000 0) :title "Next")))))
+    (testing "while it plays, where it is every 5 s"
+      (is (false? (music/publish? at-0 (later 4999 88))))
+      (is (true? (music/publish? at-0 (later 5000 88))))
+      (is (false? (music/publish? at-0 (later 60000 83))) "it didn't move"))
+    (testing "paused, it doesn't move"
+      (let [paused (assoc at-0 :state "paused")]
+        (is (false? (music/publish? paused (assoc paused :at 60000))))))))
+
+(defn ^:private music-events
+  "The :music slices whoever watches `ctx`'s grog was sent, in order, as
+  they went (JSON)."
+  [ctx]
+  (let [sent (atom [])]
+    (events/watch! (:events ctx) ::music
+                   #(do (when (str/starts-with? % "event: music\n")
+                          (swap! sent conj (second (re-find #"data: (.*)\n" %))))
+                        true))
+    sent))
+
+(deftest whoever-watches-sees-what-plays
+  (let [idle {:state "idle" :volume 60 :ducked false}
+        status (atom idle)
+        player (h/start-player! (fn [{:keys [command]}]
+                                  (case command
+                                    "youtube-music.play" (reset! status (assoc now-playing :index 0 :position-s 0))
+                                    "pause" (swap! status assoc :state "paused")
+                                    "resume" (swap! status assoc :state "playing")
+                                    "next" (swap! status assoc :title "Other" :artist "Else" :index 1 :position-s 0)
+                                    "stop" (reset! status idle)
+                                    nil)
+                                  (assoc @status :ok true)))
+        clock (atom 1000000)]
+    (try
+      (with-out-str
+        (with-redefs [events/now-ms #(deref clock)]
+          (let [ctx (context (:socket player))
+                shown #(:music (events/snapshot (:events ctx)))
+                sent (music-events ctx)]
+            (testing "nothing before grog asked its player"
+              (is (nil? (shown))))
+            (testing "idle: no song"
+              (music/check-playing! ctx)
+              (is (= {:state "idle" :volume 60 :ducked false :provider "youtube-music" :at 1000000} (shown)))
+              (is (= 1 (count @sent))))
+            (testing "once it plays, what"
+              (run ctx {:action "play" :query "a song"})
+              (is (h/eventually 2000 #(= "playing" (:state (shown)))))
+              (is (= {:state "playing" :title "Song" :artist "Band" :album "LP" :position-s 0 :duration-s 225
+                      :volume 60 :ducked false :index 0 :count 50 :provider "youtube-music" :at 1000000}
+                     (shown)))
+              (is (= 2 (count @sent)))
+              (is (every? #(str/includes? (last @sent) %) ["\"positionS\":0" "\"durationS\":225"]) "in lowerCamelCase"))
+            (testing "while it plays, where it is every 5 s, not more"
+              (swap! status assoc :position-s 3)
+              (reset! clock 1003000)
+              (music/check-playing! ctx)
+              (is (= [0 1000000] ((juxt :position-s :at) (shown))))
+              (swap! status assoc :position-s 5)
+              (reset! clock 1005000)
+              (music/check-playing! ctx)
+              (is (= [5 1005000] ((juxt :position-s :at) (shown))))
+              (is (= 3 (count @sent))))
+            (testing "paused, at once, then still"
+              (run ctx {:action "pause"})
+              (is (h/eventually 2000 #(= "paused" (:state (shown)))))
+              (let [n (count @sent)]
+                (reset! clock 1060000)
+                (music/check-playing! ctx)
+                (is (= n (count @sent)))))
+            (testing "the next song"
+              (run ctx {:action "resume"})
+              (run ctx {:action "next"})
+              (is (h/eventually 2000 #(= ["playing" "Other" "Else" 1] ((juxt :state :title :artist :index) (shown))))))
+            (testing "stopped: idle, no song"
+              (run ctx {:action "stop"})
+              (is (h/eventually 2000 #(= {:state "idle" :volume 60 :ducked false :provider "youtube-music" :at 1060000}
+                                         (shown)))))
+            (testing "the player gone: nothing"
+              (swap! (:config ctx) assoc-in [:music :socket] (str (h/temp-dir) "/gone.sock"))
+              (music/check-playing! ctx)
+              (is (nil? (shown)))))))
+      (finally ((:stop! player))))))
+
+(defn ^:private library-answer
+  "The fake player's answers, with a library: the user's playlists; their
+  liked songs, refused."
+  [{:keys [command kind] :as request}]
+  (case [command kind]
+    ["youtube-music.library" "playlists"] {:ok true :items [{:kind "playlist" :id "PL1" :title "Road" :count 12 :extra "x"}
+                                                            {:kind "playlist" :id "PL2" :title "Calm"}]}
+    ["youtube-music.library" "liked"] {:ok false :error "YouTube Music didn't answer that"}
+    (answer request)))
+
+(defn ^:private call
+  "What grog at `url` answers `method` on `path` (with `body`, as JSON):
+  [status body]."
+  ([url method path] (call url method path nil))
+  ([url method path body]
+   (let [resp ((if (= :get method) http/get http/post)
+               (str url path)
+               (cond-> {:throw false}
+                 body (assoc :headers {"content-type" "application/json"} :body (config/generate body))))]
+     [(:status resp) (config/parse (:body resp))])))
+
+(deftest the-screen-chooses
+  (let [player (h/start-player! library-answer)
+        start! (fn [socket] (server/start! (-> (settings-of socket nil) (assoc-in [:server :port] 0))))
+        {:keys [port ctx] :as running} (start! (:socket player))
+        url (str "http://127.0.0.1:" port)
+        library? #(= "youtube-music.library" (:command %))]
+    (try
+      (with-out-str
+        (testing "the user's playlists need their account"
+          (is (= [409 {:error "connect YouTube Music to see your playlists" :connect "youtube-music"}]
+                 (call url :get "/v1/music/library?kind=playlists")))
+          (is (not-any? library? (requests player)) "the player wasn't asked"))
+        (testing "with it, their playlists"
+          (connect-account! ctx (+ (System/currentTimeMillis) 3600000))
+          (is (= [200 {:items [{:kind "playlist" :id "PL1" :title "Road" :count 12}
+                               {:kind "playlist" :id "PL2" :title "Calm"}]}]
+                 (call url :get "/v1/music/library?kind=playlists")))
+          (is (= ["playlists" "at-1"] ((juxt :kind (comp :access-token :auth)) (last (requests player))))))
+        (testing "the player refusing: a 502, saying why"
+          (is (= [502 {:error "YouTube Music didn't answer that"}] (call url :get "/v1/music/library?kind=liked"))))
+        (testing "only what can be listed"
+          (is (= 400 (first (call url :get "/v1/music/library?kind=albums"))))
+          (is (= 400 (first (call url :get "/v1/music/library")))))
+        (testing "one of them, played exactly"
+          (is (= 200 (first (call url :post "/v1/music" {:action "play" :kind "my-playlist" :id "PL1" :shuffle true}))))
+          (is (= {:command "youtube-music.play" :kind "my-playlist" :id "PL1" :shuffle true}
+                 (dissoc (last (requests player)) :auth)))
+          (is (= "at-1" (get-in (last (requests player)) [:auth :access-token]))))
+        (testing "an id says what it is, and is one"
+          (doseq [body [{:action "play" :id "PL1"}
+                        {:action "play" :kind "liked" :id "PL1"}
+                        {:action "play" :kind "song" :id "../etc"}
+                        {:action "play" :kind "song" :id 5}
+                        {:action "play" :kind "song" :id ""}]]
+            (is (= 400 (first (call url :post "/v1/music" body))) (pr-str body))))
+        (testing "a song plays without the account, too"
+          (connections/remove! (config/state-dir @(:config ctx)) "youtube-music")
+          (is (= 200 (first (call url :post "/v1/music" {:action "play" :kind "song" :id "dQw4w9WgXcQ" :query "x"}))))
+          (is (= {:command "youtube-music.play" :kind "song" :id "dQw4w9WgXcQ"} (last (requests player))))))
+      (finally
+        (server/stop! running)
+        ((:stop! player)))))
+  (with-out-str
+    (testing "no player, plainly"
+      (doseq [[socket error] [[nil #"nothing plays music here"]
+                              [(str (h/temp-dir) "/gone.sock") #"grog's player isn't running"]]]
+        (let [{:keys [port ctx] :as running} (server/start! (-> (settings-of socket nil) (assoc-in [:server :port] 0)))]
+          (try
+            (connect-account! ctx (+ (System/currentTimeMillis) 3600000))
+            (let [[status body] (call (str "http://127.0.0.1:" port) :get "/v1/music/library?kind=playlists")]
+              (is (= 409 status))
+              (is (re-find error (:error body))))
+            (finally (server/stop! running))))))))
+
 (deftest what-grog-music-asks
   (is (= {:action "status"} (client/music-request [])))
   (is (= {:action "play" :query "the beatles"} (client/music-request ["play" "the" "beatles"])))

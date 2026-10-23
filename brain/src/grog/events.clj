@@ -52,6 +52,14 @@
                saying what to do now ({:kind ...}: a device-code's :code and
                :url, a script's :command, a code-compare's :code...), its
                :link the page on the network, with its token; nil before any
+    :music     what grog's player plays, as grog.music last saw it:
+               {:state :title :artist :album :position-s :duration-s
+               :volume :ducked :index :count :provider :at}, :state
+               playing, paused or idle (without a song then), :position-s
+               where the song was :at (sent when anything else changes,
+               and while it plays, every 5 s or so: screens move its clock
+               themselves); nil without a player, or while it doesn't
+               answer. Not what was said: it goes in without captions
     :usage     what it consumed (grog.usage)
     :captions  whether what's said is in it
     :now       when it was sent
@@ -81,7 +89,7 @@
   (System/currentTimeMillis))
 
 (def initial-state
-  {:voice nil :turn nil :history [] :connect nil :usage nil})
+  {:voice nil :turn nil :history [] :connect nil :usage nil :music nil})
 
 (defn ^:private turn-path
   "Where in `state` the turn `event` is about is: [:turn], [:history i], or
@@ -246,6 +254,7 @@
     :update (assoc state :update (:update event))
     :usage (assoc state :usage (:usage event))
     :connect (assoc state :connect (:connect event))
+    :music (assoc state :music (:music event))
     state))
 
 (defn redact

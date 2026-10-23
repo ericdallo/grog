@@ -14,6 +14,9 @@ grog's skin: a page showing what grog is up to, for a screen next to it.
   search, a command); without, only which tools it used, and how long each
   turn took. It keeps to the latest, but you can scroll back, and a button
   (or leaving it alone a while) brings it back.
+- While grog's player plays, or is paused, a bar under the rest: the song
+  and its artist, its time (counted on by the skin between grog's updates),
+  and its buttons. Hidden while a card shows, under the sheets.
 - In its actions, what it costs: how much of the subscription's limits is
   used, or what the API key spent.
 - Connecting something (signing in to ChatGPT, adding a computer), a card:
@@ -48,12 +51,21 @@ On a touch screen, or with a mouse:
   machine, and turning the machine off. Those that can't be undone take a
   second tap. They close by themselves after a while. Its version is at
   the bottom.
+- The music's bar: previous, play or pause, next, and the volume down or
+  up by 10. On a laptop's speaker, grog can't hear its name over its own
+  music, so this is where it's controlled while it plays. Its list button
+  (or Music, in the actions, once grog's player answers) opens what to
+  play: liked songs, shuffled or not, then your playlists, asked of grog
+  as it opens (`GET /v1/music/library`). Without your YouTube Music
+  account, it says so, with the entry connecting it. Tapping one plays it
+  and closes it. What fails shows in red, for a moment.
 - Adding a computer, it shows what to run on it (`curl ... | bash`: nothing
   to install there), then the code of the one asking, to allow it if it's
   the same as on the computer, or not.
 
-They go through the brain's actions (`POST /v1/actions/<name>`), and its
-API for what's connected (`/v1/connect`, `/v1/connections`).
+They go through the brain's actions (`POST /v1/actions/<name>`), its
+API for what's connected (`/v1/connect`, `/v1/connections`), and its
+music's (`/v1/music`).
 
 ## Running it
 
@@ -88,4 +100,5 @@ it falls back to the system's.
 It shares a small CPU with grog-voice, so it only moves while something
 happens (at rest, the face only blinks or looks around now and then), keeps
 still while someone talks to grog, and only animates transform and opacity.
-The actions slide in and fade, and that's all.
+The sheets (actions, music) slide in and fade, and that's all: the music's
+time changes once a second, as text, and no bar moves with it.

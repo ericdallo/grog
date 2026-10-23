@@ -245,6 +245,21 @@ phases land.
   - The API (`POST /v1/music`), the CLI (`grog music`), the skin (`music`'s
     label and a note icon), and the settings (`music.socket`,
     `music.provider`).
+  - Controlled on grog's screen while it plays (October 2026): measured on
+    the station (a laptop, its speaker beside its mics), grog can't hear
+    its name over its own music (plans/voice.md, "Music"), so the user
+    decided the skin is where it's controlled then. `grog.music`'s checks
+    of the player also tell whoever watches what it plays (`music` in
+    `/v1/events`: the song, where it was and when, its volume; sent when
+    anything but the position changes, and every 5 s while it plays, the
+    skin counting the time on in between). The skin shows a bar while it
+    plays or is paused (previous, play or pause, next, volume down and up)
+    and a sheet of what to play: liked songs (shuffled or not), then the
+    user's playlists (`GET /v1/music/library`, through the provider's
+    `:library!`, with the account; a 409 saying to connect it without),
+    played exactly by id (`POST /v1/music` `{"action": "play", "kind":
+    "my-playlist", "id"}`, for providers with `:by-id?`). Only grog's own
+    player shows there: catalog providers don't say what they play.
 - Where music differs from what's below ("Music and targets", "YouTube
   Music", "The voice, with music on grog"):
   - Targets: only grog's default sink so far. A Bluetooth speaker paired
@@ -291,10 +306,12 @@ phases land.
       every 5 s while it plays, once a minute otherwise. grog-voice looks
       for its name in short windows then.
     - The music ducks once grog heard its name (as above).
-  - Not measured on grognix yet: the canceller's CPU and how much of the
-    music it takes out with the speaker beside the mic (it clipped grog's
-    own voice there), transcription's CPU and false wakes with music
-    playing.
+  - Measured on the station, a laptop: over music on its own speaker,
+    grog doesn't hear its name (plans/voice.md, "Music"), hence the screen
+    above. Not measured on grognix yet: the canceller's CPU and how much
+    of the music it takes out with the speaker beside the mic (it clipped
+    grog's own voice there), transcription's CPU and false wakes with
+    music playing.
   - grog-music gets `CPUWeight=50`: grog-voice, on the same CPU, comes
     first.
 - Next: measuring music on grognix (CPU, false wakes, the duck level), and

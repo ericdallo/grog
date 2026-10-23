@@ -20,6 +20,9 @@ import {
   level,
   menu,
   mode,
+  MUSIC_STEP,
+  musicSheet,
+  nowPlaying,
   OUTCOME_MS,
   pipeline,
   PLEASED_MS,
@@ -29,6 +32,7 @@ import {
   RETRY_MS,
   seconds,
   shortRevision,
+  songTime,
   spacedCode,
   STALE_MS,
   stale,
@@ -1068,6 +1072,147 @@ describe("what's asked of grog", () => {
 
   it("which close the sheet", () => {
     assert.deepEqual(["volume", "mic", "new-conversation", "restart"].map(closes), [false, false, true, true]);
+  });
+});
+
+describe("the music", () => {
+  const song = {
+    state: "playing",
+    title: "Song",
+    artist: "Band",
+    album: "LP",
+    positionS: 83,
+    durationS: 299,
+    volume: 60,
+    ducked: false,
+    index: 2,
+    count: 50,
+    provider: "youtube-music",
+    at: NOW - 2000,
+  };
+  const playing = (extra = {}) => state({ music: { ...song, ...extra } });
+
+  it("shows while it plays: the song, its time counted on, its buttons", () => {
+    assert.deepEqual(nowPlaying(playing(), NOW), {
+      title: "Song",
+      artist: "Band",
+      time: "1:25 / 4:59",
+      playing: true,
+      volume: 60,
+      buttons: [
+        { action: "music-previous", icon: "previous", label: "Previous" },
+        { action: "music-pause", icon: "pause", label: "Pause" },
+        { action: "music-next", icon: "next", label: "Next" },
+      ],
+    });
+    assert.equal(nowPlaying(playing(), NOW + 1000).time, "1:26 / 4:59", "a second later");
+    assert.equal(nowPlaying(playing(), NOW + 600_000).time, "4:59 / 4:59", "never past its end");
+    assert.equal(nowPlaying(playing({ at: NOW + 500 }), NOW).time, "1:23 / 4:59", "grog's clock ahead");
+  });
+
+  it("paused, still, with play instead of pause", () => {
+    const p = nowPlaying(playing({ state: "paused" }), NOW + 60_000);
+    assert.deepEqual([p.time, p.playing, p.buttons[1]], [
+      "1:23 / 4:59",
+      false,
+      { action: "music-resume", icon: "play", label: "Play" },
+    ]);
+  });
+
+  it("hidden while nothing plays, without a player, or grog isn't there", () => {
+    assert.equal(nowPlaying(state({ music: { state: "idle", volume: 60, at: NOW } }), NOW), null);
+    assert.equal(nowPlaying(state({ music: null }), NOW), null);
+    assert.equal(nowPlaying(state(), NOW), null);
+    assert.equal(nowPlaying(playing(), NOW, true), null);
+    assert.equal(nowPlaying(null, NOW), null);
+  });
+
+  it("what it doesn't know", () => {
+    const p = nowPlaying(playing({ title: " ", artist: undefined, durationS: undefined, volume: undefined }), NOW);
+    assert.deepEqual([p.title, p.artist, p.time, p.volume], ["LP", "", "1:25", null]);
+    assert.equal(nowPlaying(playing({ title: "", album: "" }), NOW).title, "Untitled");
+    assert.equal(nowPlaying(playing({ positionS: undefined }), NOW).time, "");
+    assert.equal(songTime(3723), "1:02:03");
+    assert.equal(songTime(-1), "0:00");
+  });
+
+  it("its buttons ask grog's music", () => {
+    const music = (action) => request(action, playing());
+    assert.deepEqual(music("music-pause"), { method: "POST", path: "/v1/music", body: { action: "pause" } });
+    assert.deepEqual(music("music-resume").body, { action: "resume" });
+    assert.deepEqual(music("music-previous").body, { action: "previous" });
+    assert.deepEqual(music("music-next").body, { action: "next" });
+    assert.deepEqual(music("music-down").body, { action: "volume", change: -MUSIC_STEP });
+    assert.deepEqual(music("music-up").body, { action: "volume", change: MUSIC_STEP });
+    assert.deepEqual(music("music-liked").body, { action: "play", kind: "liked" });
+    assert.deepEqual(music("music-shuffle").body, { action: "play", kind: "liked", shuffle: true });
+    assert.deepEqual(music("music-play:my-playlist:PLx-1_a"), {
+      method: "POST",
+      path: "/v1/music",
+      body: { action: "play", kind: "my-playlist", id: "PLx-1_a" },
+    });
+    for (const b of nowPlaying(playing(), NOW).buttons) assert.ok(ICONS[b.icon], b.icon);
+    for (const name of ["volume-down", "volume-up", "list"]) assert.ok(ICONS[name], name);
+  });
+
+  it("choosing what plays from the actions, once grog's player answers", () => {
+    const actions = ["mic", "new-conversation"];
+    assert.ok(!menu(state({ actions })).some((i) => i.id === "music"));
+    const item = menu(state({ actions, music: { state: "idle", at: NOW } })).find((i) => i.id === "music");
+    assert.deepEqual([item.kind, item.group, item.label, item.icon], ["button", "everyday", "Music", "music"]);
+  });
+
+  it("its sheet: liked songs first, then the user's playlists", () => {
+    const sheet = musicSheet({
+      items: [
+        { kind: "playlist", id: "PL1", title: "Road", count: 12 },
+        { kind: "playlist", id: "PL2", title: "Calm", count: 1 },
+        { kind: "playlist", id: "PL3", title: "New" },
+        { kind: "playlist", id: "", title: "Broken" },
+      ],
+    });
+    assert.deepEqual(sheet, {
+      loading: false,
+      message: "",
+      error: "",
+      items: [
+        { id: "music-liked", label: "Liked songs", icon: "heart", detail: "" },
+        { id: "music-shuffle", label: "Liked songs, shuffled", icon: "shuffle", detail: "" },
+        { id: "music-play:my-playlist:PL1", label: "Road", icon: "list", detail: "12 songs" },
+        { id: "music-play:my-playlist:PL2", label: "Calm", icon: "list", detail: "1 song" },
+        { id: "music-play:my-playlist:PL3", label: "New", icon: "list", detail: "" },
+      ],
+    });
+    for (const item of sheet.items) assert.ok(ICONS[item.icon], item.icon);
+    assert.equal(musicSheet({ items: [] }).message, "No playlists of your own yet");
+    assert.equal(musicSheet({ items: [] }).items.length, 2);
+  });
+
+  it("its sheet while grog looks, and when it can't", () => {
+    assert.deepEqual(musicSheet(null), { loading: true, items: [], message: "Loading…", error: "" });
+    const failed = musicSheet({ error: "YouTube Music didn't answer that" });
+    assert.deepEqual([failed.error, failed.items.map((i) => i.id)], [
+      "YouTube Music didn't answer that",
+      ["music-liked", "music-shuffle"],
+    ]);
+  });
+
+  it("its sheet without the account: why, and connecting it", () => {
+    const integrations = [
+      { id: "youtube-music", title: "YouTube Music", heading: "Connect YouTube Music", about: "your playlists", icon: "music" },
+    ];
+    const sheet = musicSheet(
+      { error: "connect YouTube Music to see your playlists", connect: "youtube-music" },
+      state({ integrations }),
+    );
+    assert.deepEqual(sheet, {
+      loading: false,
+      message: "Connect YouTube Music to see your playlists",
+      error: "",
+      items: [{ id: "connect:youtube-music", label: "Connect YouTube Music", icon: "music", detail: "your playlists" }],
+    });
+    assert.deepEqual(request(sheet.items[0].id, state()).body, { integration: "youtube-music" });
+    assert.equal(musicSheet({ error: "x", connect: "youtube-music" }).items[0].label, "Connect it");
   });
 });
 

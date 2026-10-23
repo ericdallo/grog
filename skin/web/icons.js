@@ -35,4 +35,13 @@ export const ICONS = {
   minus: '<path d="M6 12h12"/>',
   plus: '<path d="M6 12h12M12 6v12"/>',
   muted: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/>',
+  play: '<path d="M8 5.5v13l10.5-6.5z"/>',
+  pause: '<path d="M9 5.5v13M15 5.5v13"/>',
+  previous: '<path d="M6.5 5.5v13M18 5.5v13L8.5 12z"/>',
+  next: '<path d="M17.5 5.5v13M6 5.5v13l9.5-6.5z"/>',
+  list: '<path d="M9 6.5h11M9 12h11M9 17.5h11M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01"/>',
+  heart: '<path d="M12 19.5s-7.5-4.5-7.5-10a4 4 0 0 1 7.5-2 4 4 0 0 1 7.5 2c0 5.5-7.5 10-7.5 10z"/>',
+  shuffle: '<path d="M4 7h3c4.5 0 5.5 10 10 10h3M4 17h3c1.5 0 2.6-1.2 3.4-2.8M13.6 9.8C14.4 8.2 15.5 7 17 7h3M17.5 4.5L20 7l-2.5 2.5M17.5 14.5L20 17l-2.5 2.5"/>',
+  "volume-down": '<path d="M3.5 9.5H7l4.5-4v13l-4.5-4H3.5z"/><path d="M15 12h5.5"/>',
+  "volume-up": '<path d="M3.5 9.5H7l4.5-4v13l-4.5-4H3.5z"/><path d="M15 12h5.5M17.75 9.25v5.5"/>',
 };

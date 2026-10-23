@@ -1,8 +1,10 @@
 // grog's skin: watches what grog is up to (GET /v1/events, server-sent
 // events, each with the whole state) and shows it. What to show comes from
 // view.js; this only draws it, and asks grog what someone touched: its face
-// (to talk to it, or stop it), and its actions (POST /v1/actions/<name>).
-// With ?kiosk (the fullscreen window), there's no mouse pointer.
+// (to talk to it, or stop it), its actions (POST /v1/actions/<name>), and
+// its music (POST /v1/music, and what to play from GET
+// /v1/music/library). With ?kiosk (the fullscreen window), there's no
+// mouse pointer.
 
 import { Face } from "./face.js";
 import { ICONS } from "./icons.js";
@@ -19,6 +21,8 @@ import {
   isNight,
   menu,
   mode,
+  musicSheet,
+  nowPlaying,
   pipeline,
   request,
   stale,
@@ -40,6 +44,7 @@ const EVENTS = ["snapshot", "voice", "turn", "tool", "tool-detail", "text", "don
   "forgot",
   "update",
   "connect",
+  "music",
 ]);
 // How close to its end the chat is still at its end, in pixels.
 const END_PX = 8;
@@ -60,6 +65,9 @@ const els = Object.fromEntries(
     .concat(["card-command", "card-expires", "card-note", "card-error", "card-help", "card-help-text"])
     .concat(["card-help-url", "card-buttons", "card-asked"])
     .concat(["open-actions", "close-actions", "sheet", "items", "sheet-error", "sheet-version", "notice"])
+    .concat(["player", "open-music", "player-title", "player-artist", "player-time", "player-error"])
+    .concat(["player-controls", "player-volume", "music-down", "music-up"])
+    .concat(["music-sheet", "close-music", "music-note", "music-items", "music-error"])
     .map((id) => [id, $(id)]),
 );
 // grog's face, in its block.
@@ -89,6 +97,12 @@ const drawn = {};
 let sheetOpen = false;
 let armed = null;
 const timers = {};
+// The music sheet: whether it shows, what grog answered for it (null while
+// it's on its way), and how many times it was asked, the last answer
+// winning.
+let musicOpen = false;
+let library = null;
+let libraryAsks = 0;
 
 const now = () => Date.now() + skew;
 
@@ -466,6 +480,41 @@ function drawSheet() {
   });
 }
 
+/**
+ * What grog's player plays (view.js nowPlaying), in a bar under the rest:
+ * the song, its time, and its buttons. Its time changes once a second
+ * while it plays, and nothing else moves.
+ */
+function drawPlayer(t) {
+  const p = nowPlaying(state, t, offline);
+  if (els.player.hidden === Boolean(p)) els.player.hidden = !p;
+  if (!p) return;
+  setText(els["player-title"], p.title);
+  setText(els["player-artist"], p.artist);
+  setText(els["player-time"], p.time);
+  setText(els["player-volume"], p.volume === null ? "" : String(p.volume));
+  once("player", p.buttons, (buttons) => {
+    els["player-controls"].replaceChildren(
+      ...buttons.map((b) => {
+        const main = b.action === "music-pause" || b.action === "music-resume";
+        return iconButton(`round${main ? " main" : ""}`, b.icon, b.label, { action: b.action });
+      }),
+    );
+  });
+}
+
+/** What to play (view.js musicSheet), when it shows: grog's player has to be there. */
+function drawMusic() {
+  if (musicOpen && (offline || !state?.music)) shutMusic();
+  els["music-sheet"].classList.toggle("open", musicOpen);
+  if (els["music-sheet"].inert === musicOpen) els["music-sheet"].inert = !musicOpen;
+  once("music", musicSheet(library, state), (v) => {
+    setText(els["music-note"], v.message);
+    setText(els["music-error"], v.error);
+    els["music-items"].replaceChildren(...v.items.map((item) => actionItem({ ...item, kind: "button" })));
+  });
+}
+
 function draw() {
   const t = now();
   drawMode(t);
@@ -474,8 +523,10 @@ function draw() {
   drawNotice(t);
   drawChat(t);
   drawPipeline(t);
+  drawPlayer(t);
   drawUsage(t);
   drawSheet();
+  drawMusic();
   tick();
 }
 
@@ -522,6 +573,7 @@ function touched() {
 }
 
 function openSheet() {
+  shutMusic();
   sheetOpen = true;
   armed = null;
   touched();
@@ -552,9 +604,78 @@ function arm(action) {
   draw();
 }
 
+/** What went wrong asking grog from the music's bar, there, red, for a moment. */
+function showPlayerError(message) {
+  setText(els["player-error"], message);
+  els.player.classList.add("failed");
+  later("player-error", SHEET_ERROR_MS, () => {
+    setText(els["player-error"], "");
+    els.player.classList.remove("failed");
+  });
+}
+
+function showMusicError(message) {
+  setText(els["music-error"], message);
+  later("music-error", SHEET_ERROR_MS, () => setText(els["music-error"], ""));
+}
+
+/** What grog answers for the user's playlists: {items}, or {error, connect}. */
+async function askLibrary() {
+  try {
+    const resp = await fetch("/v1/music/library?kind=playlists");
+    const answer = await resp.json().catch(() => ({}));
+    if (resp.ok) return answer;
+    return { error: answer.error ?? `grog answered ${resp.status}`, connect: answer.connect };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+/** The music sheet stays open while touched. */
+function touchedMusic() {
+  later("music", SHEET_MS, closeMusic);
+}
+
+/** What to play: liked songs and the user's playlists, asked as it opens. */
+async function openMusic() {
+  shut();
+  musicOpen = true;
+  library = null;
+  touchedMusic();
+  draw();
+  const asked = ++libraryAsks;
+  const answer = await askLibrary();
+  if (asked === libraryAsks && musicOpen) {
+    library = answer;
+    draw();
+  }
+}
+
+function shutMusic() {
+  musicOpen = false;
+  later("music", null);
+}
+
+function closeMusic() {
+  shutMusic();
+  draw();
+}
+
+async function chooseMusic(button) {
+  touchedMusic();
+  button.classList.add("busy");
+  const answer = await ask(button.dataset.action, null, showMusicError);
+  button.classList.remove("busy");
+  if (answer) closeMusic();
+}
+
 async function choose(button) {
   const action = button.dataset.action;
   const step = button.dataset.step ?? null;
+  if (action === "music") {
+    openMusic();
+    return;
+  }
   touched();
   const item = menu(state).find((i) => i.id === action);
   if (item?.confirm && armed !== action) {
@@ -649,8 +770,25 @@ els["card-buttons"].addEventListener("click", (e) => {
   const button = e.target.closest("button[data-action]");
   if (button) ask(button.dataset.action, null, showCardError);
 });
+// The music: its buttons, and choosing what plays.
+els["open-music"].innerHTML = icon("list");
+els["music-down"].innerHTML = icon("volume-down");
+els["music-up"].innerHTML = icon("volume-up");
+els["close-music"].innerHTML = icon("close");
+els["open-music"].addEventListener("click", openMusic);
+els.player.addEventListener("click", (e) => {
+  const button = e.target.closest("button[data-action]");
+  if (button) ask(button.dataset.action, null, showPlayerError);
+});
+els["close-music"].addEventListener("click", closeMusic);
+els["music-sheet"].addEventListener("scroll", () => musicOpen && touchedMusic(), { passive: true });
+els["music-items"].addEventListener("click", (e) => {
+  const button = e.target.closest("button[data-action]");
+  if (button) chooseMusic(button);
+});
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && sheetOpen) closeSheet();
+  if (e.key === "Escape" && musicOpen) closeMusic();
 });
 els["card-qr"].addEventListener("load", () => {
   els["card-qr"].hidden = false;

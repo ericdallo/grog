@@ -412,6 +412,23 @@ NixOS, grog's music also goes through an echo canceller, which keeps it
 out of grog-voice's mic ([body/](../body/README.md#music)); elsewhere,
 grog-voice still hears it, and over loud music grog may hear its name less.
 
+### On its screen
+
+Even so, on a laptop's speaker grog can't hear its name over its own music
+([plans/voice.md](../plans/voice.md#music)): while it plays, it's
+controlled at grog's screen. The same checks tell whoever watches grog
+(`/v1/events`, `music`) what its player plays: `{"state", "title",
+"artist", "album", "positionS", "durationS", "volume", "ducked", "index",
+"count", "provider", "at"}`, `state` being `playing`, `paused` or `idle`
+(without a song then), `positionS` where the song was `at`; `null` without
+a player, or while it doesn't answer. It's sent when anything but the
+position changes, and while it plays every 5 s or so: the skin moves the
+clock itself in between. Titles aren't what anyone said, so they go
+without captions, but grog never logs them. The skin's buttons go through
+`POST /v1/music`, and it lists what to play with `GET /v1/music/library`:
+the user's playlists (or liked songs) through what plays, with their
+account, then plays one by its `id`.
+
 ### A Google client for grog
 
 Given to grog, a client lets whoever connects YouTube Music do it with just
@@ -523,10 +540,11 @@ JSON keys are lowerCamelCase.
 | `GET /v1/connections/<id>/tools` | An MCP server's tools: `{"tools": [{"name", "title", "description", "mode", "defaultMode", "shown", "defaultShown", "readOnly", "destructive", "openWorld"}]}`, `mode` being `allow`, `ask` or `deny`. A 404 when it isn't one |
 | `PUT /v1/connections/<id>/tools/<name>` `{"mode", "show"}` | Sets either or both (null: back to the default), kept in `tools.json`: the tool, as above |
 | `GET /v1/qr?text=...` | Its QR code, as SVG, for the skin |
-| `GET /v1/events` | What it's up to, as server-sent events: a `snapshot`, then each change ([`events.clj`](src/grog/events.clj)) |
+| `GET /v1/events` | What it's up to, as server-sent events: a `snapshot`, then each change ([`events.clj`](src/grog/events.clj)), what its player plays included (`music`, [on its screen](#on-its-screen)) |
 | `POST /v1/voice` `{"state", "conversationId", "heard"}` | grog-voice saying what it's doing, and with captions what it heard. Answers `{"captions", "name"}` |
 | `GET /v1/voice/commands` | What grog-voice is asked, as server-sent events: a `snapshot` with whether its `mic` is `"on"` or `"off"` and whether grog's `music` plays (`true` or `false`), then `mic` or `music` when one changes, `listen` (now, without its name) and `stop` (answering) |
-| `POST /v1/music` `{"action", "query", "kind", "shuffle", "level", "change"}` | Does it through what plays [music](#music), as the `music` tool takes them: `{"provider", "text"}`, `text` saying what it did. A 400 without a known `action`, or saying why it can't |
+| `POST /v1/music` `{"action", "query", "kind", "shuffle", "level", "change", "id"}` | Does it through what plays [music](#music), as the `music` tool takes them: `{"provider", "text"}`, `text` saying what it did. `id`, with its `kind` (`song`, `album`, `playlist` or `my-playlist`), plays exactly that, like one from the library. A 400 without a known `action`, with a bad `id`, or saying why it can't |
+| `GET /v1/music/library?kind=playlists` | The user's playlists (or `kind=liked`, their liked songs) through what plays [music](#music), with their account: `{"items": [{"kind", "id", "title", "artist", "count"}]}`. A 409 without it (`{"error", "connect": "youtube-music"}`), or without a player; a 502 when YouTube doesn't answer |
 | `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice; `stop` also pauses the music), `mic` `{"on"}`, `volume` (`{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `new-conversation` (forgets them all), `connect` `{"integration", "way"}` (opens a session, like `POST /v1/integrations/<id>/connect`), `update` (starts [updating](#updating), unless it is: `{"started"}`), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
 | `GET /` | The skin, with `skin.dir` |
 | `GET /health` | `ok` |

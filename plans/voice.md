@@ -729,17 +729,37 @@ partials, none past 2.5 s. A 4 s window every 3 s costs the main Parakeet
 3), so it's busy ~7% of the time, about a quarter of a core. That's an
 estimate, and it only applies while music plays and the VAD hears speech.
 
-What's left to measure on the station:
+Measured on the station (October 22, 2026), with the user calling grog
+from where they talk to it (1 to 2 m), the speaker at 100%, the mic at its
+0.68, levels in 0.5 s blocks (recordings deleted once measured):
 
-- How much of the music the canceller takes out at listening volumes, and
-  whether the VAD then still takes what's left for speech. If it doesn't,
-  utterances are short again and windows rarely come into play.
-- The wake rate over music, at listening volumes and from 1 and 3 m, and
-  false wakes from lyrics, now that the name counts anywhere in a window.
-- CPU with music playing (`top`): grog-voice, grog-music and the echo
-  canceller together.
-- Whether ducking is enough for the request to end at a pause, or whether
-  it runs to `maxUtteranceSeconds`.
+- **The canceller takes ~30 dB of the music out**: the raw mic got it at
+  -10 to -16 dBFS RMS, peaking near 0 dBFS; `grog-mic`, at -45 to -50.
+  The VAD stopped taking the music for speech: no utterance at all while
+  it played.
+- **With grog-music at 100 the mic saturates**, and what's left of the
+  music rose to -27 dBFS in loud passages: nothing cancels clipping.
+  Turning the mic down to 0.45 got it back to -50, but lowers everyone.
+- **A voice played on the speaker beside the music** (not in the
+  canceller's reference) came through 20 to 30 dB above what was left of
+  the music with grog-music at 70, 15 at 85. It's much louder at the mic
+  than someone 2 m away, though.
+- **The user's own voice didn't**: with grog-music at 80 and at 60,
+  `grog-mic` stayed flat through three calls, and grog-voice heard nothing.
+  The music reaches the mic ~20 dB louder than their voice from there, and
+  WebRTC's suppressor took their voice out with the music. At 40 (cubic in
+  mpv: ~-24 dB), their voice came through, but the name was only heard
+  once in four calls. The lighter canceller (`webrtc.mobile_mode`, AECM)
+  wasn't measured with them.
+- So on a laptop, with its speaker beside its mics, grog can't hear its
+  name over its own music at listening volumes: it takes a mic array and a
+  speaker apart from it, as Alexa has. The music is controlled on grog's
+  screen meanwhile (the skin's now-playing bar), and touching its face
+  makes it listen without its name, the music ducked at once. With a
+  speaker away from the mics (Bluetooth, across the room), the canceller
+  and the windows should do much better: to measure then, with the wake
+  rate from 1 and 3 m, false wakes from lyrics, and CPU (`top`: grog-voice,
+  grog-music and the canceller together).
 
 ## Where to go from here
 

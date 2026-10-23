@@ -34,6 +34,10 @@ let
       serviceConfig.ExecStart = "${pkgs.babashka-unwrapped}/bin/bb ${./fake-llm.clj}";
     };
   };
+  # A song for grog-music to play offline, for the skin to show: a quiet tone.
+  song = pkgs.runCommand "song.flac" { nativeBuildInputs = [ pkgs.sox ]; } ''
+    sox -n -r 44100 -c 2 -t flac $out synth 600 sine 440 vol 0.1
+  '';
 in
 pkgs.testers.runNixOSTest {
   name = "grognix";
@@ -62,6 +66,9 @@ pkgs.testers.runNixOSTest {
   };
 
   testScript = ''
+    import json
+    import shlex
+
     start_all()
     machine.wait_for_unit("multi-user.target")
     machine.wait_for_unit("fake-llm.service")
@@ -168,6 +175,14 @@ pkgs.testers.runNixOSTest {
         # tesseract many minutes.
         machine.sleep(2)
         machine.wait_for_text("key=test-key", timeout=60)
+
+    with subtest("grog's skin shows what grog's player plays, with its controls"):
+        play = {"command": "play", "items": [{"url": "file://${song}", "title": "Tone", "artist": "Sox"}]}
+        command = "grog-music --socket /run/grog-music/music.sock send " + shlex.quote(json.dumps(play))
+        machine.succeed(f"su - grog -c {shlex.quote(command)}")
+        # grog looks at once, when asked what plays.
+        machine.wait_until_succeeds("su - grog -c 'grog music' | grep -q '^Playing Tone by Sox'")
+        machine.wait_for_text("Tone", timeout=60)
         # To look at, in the test's output.
         machine.screenshot("skin")
 
@@ -181,7 +196,8 @@ pkgs.testers.runNixOSTest {
 
     with subtest("headless: grog's skin is served, for a screen elsewhere"):
         headless.wait_for_open_port(8484)
-        headless.succeed("curl -sf http://127.0.0.1:8484/ | grep -q skin.js")
+        # Whole, first: grep -q stops reading at the first match, failing curl.
+        headless.succeed("curl -sf -o /tmp/index.html http://127.0.0.1:8484/ && grep -q skin.js /tmp/index.html")
         headless.fail("systemctl --user -M grog@ is-active grog-skin.service")
   '';
 }

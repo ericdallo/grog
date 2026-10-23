@@ -5,7 +5,7 @@
 # models, which whoever watches grog sees go; its skin, served; its hands: a
 # shell, the volume, root, and restarting grog when asked; its music
 # (grog-music, playing a local file offline): paused, resumed, turned down,
-# going through its echo canceller, out of what grog-voice records, which grog
+# shown to whoever watches grog, as its skin's controls ask, going through its echo canceller, out of what grog-voice records, which grog
 # tells when it plays, going down while someone talks to grog, through its
 # tool; what grog asks of
 # grog-voice: its mic off, listening without its name; a computer pairing
@@ -462,6 +462,40 @@ pkgs.testers.runNixOSTest {
         assert (out := grog("music volume 40")) == "Volume 40.", out
         assert (out := grog("music")).startswith("Playing Tone") and out.endswith(", volume 40."), out
         assert (s := player({"command": "status"}))["volume"] == 40 and not s["ducked"], s
+
+    def seen_state():
+        """What whoever watches grog gets first: its state's snapshot."""
+        out = machine.succeed("curl -sN --max-time 2 http://127.0.0.1:8484/v1/events || true")
+        return json.loads(out.split("data: ", 1)[1].splitlines()[0])["state"]
+
+    def music_shown(check):
+        """A command succeeding once the music in what's watched passes `check`, for retry."""
+        def go(_):
+            return check(seen_state().get("music") or {})
+        return go
+
+    with subtest("whoever watches grog sees what it plays, for its screen to control it"):
+        retry(music_shown(lambda m: m.get("state") == "playing"))
+        m = seen_state()["music"]
+        assert (m["title"], m["artist"], m["volume"], m["provider"]) == ("Tone", "Sox", 40, "youtube-music"), m
+        assert round(m["durationS"]) == 120 and m["positionS"] > 0 and m["at"] > 0, m
+        assert (out := grog("music pause")) == "Paused.", out
+        retry(music_shown(lambda m: m.get("state") == "paused" and m.get("title") == "Tone"))
+        # As the skin's buttons ask.
+        machine.succeed(
+            "curl -sf -X POST -H 'Content-Type: application/json' -d '{\"action\": \"resume\"}'"
+            " http://127.0.0.1:8484/v1/music"
+        )
+        retry(music_shown(lambda m: m.get("state") == "playing"))
+        # The user's playlists need their account.
+        status = machine.succeed(
+            "curl -s -o /tmp/library.json -w '%{http_code}' 'http://127.0.0.1:8484/v1/music/library?kind=playlists'"
+        )
+        library = json.loads(machine.succeed("cat /tmp/library.json"))
+        assert status == "409" and library == {
+            "error": "connect YouTube Music to see your playlists",
+            "connect": "youtube-music",
+        }, (status, library)
 
     def pipewire():
         """PipeWire's nodes in grog's session ({id: props}), its links ([(from props,

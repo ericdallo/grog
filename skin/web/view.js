@@ -32,6 +32,8 @@ export const GOING_MS = 3 * 60_000;
 export const CONFIRM_MS = 4_000;
 // How much a tap on the volume's buttons changes it, in points.
 export const VOLUME_STEP = 10;
+// How much a tap on the music's volume buttons changes it, in points.
+export const MUSIC_STEP = 10;
 // An update says how it goes as it goes: silent this long, it's gone.
 export const UPDATE_MS = 30 * 60_000;
 // How long how it went shows, once it's over; failing, longer.
@@ -565,6 +567,8 @@ export function menu(state, armed = null) {
   if (can("new-conversation")) {
     everyday({ id: "new-conversation", kind: "button", label: "New conversation", icon: "answering", detail: "what was said is forgotten" });
   }
+  // grog's player answers: what it plays can be chosen (musicSheet()).
+  if (state?.music) everyday({ id: "music", kind: "button", label: "Music", icon: "music", detail: "your liked songs and playlists" });
   if (can("connect")) items.push(...integrationItems(state.integrations).map((item) => ({ group: "integrations", ...item })));
   if (can("update")) {
     const label = state.name ? `Update ${state.name}` : "Update";
@@ -609,6 +613,11 @@ export function request(action, state, step = null) {
   if (action.startsWith("disconnect:")) {
     return { method: "DELETE", path: `/v1/connections/${action.slice("disconnect:".length)}`, body: {} };
   }
+  if (action.startsWith("music-play:")) {
+    const [kind, ...id] = action.slice("music-play:".length).split(":");
+    return { method: "POST", path: "/v1/music", body: { action: "play", kind, id: id.join(":") } };
+  }
+  if (MUSIC[action]) return { method: "POST", path: "/v1/music", body: MUSIC[action] };
   switch (action) {
     case "volume": {
       const body = step === "mute" ? { mute: !state?.volume?.muted } : step ? { change: step * VOLUME_STEP } : {};
@@ -630,6 +639,108 @@ export function request(action, state, step = null) {
 /** Whether `action` (an item of menu()) closes the sheet once grog took it. */
 export function closes(action) {
   return !["volume", "mic"].includes(action);
+}
+
+// What the music's buttons ask of grog (POST /v1/music, see
+// brain/src/grog/music.clj); playing one of the user's playlists is
+// music-play:<kind>:<id>.
+const MUSIC = {
+  "music-previous": { action: "previous" },
+  "music-pause": { action: "pause" },
+  "music-resume": { action: "resume" },
+  "music-next": { action: "next" },
+  "music-down": { action: "volume", change: -MUSIC_STEP },
+  "music-up": { action: "volume", change: MUSIC_STEP },
+  "music-liked": { action: "play", kind: "liked" },
+  "music-shuffle": { action: "play", kind: "liked", shuffle: true },
+};
+
+/** `s` seconds as a song's time: 3:05, or 1:02:03. */
+export function songTime(s) {
+  const total = Math.max(0, Math.floor(s));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = String(total % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+}
+
+/** `s` without spaces around it, or "" when it isn't a string. */
+function trimmed(s) {
+  return typeof s === "string" ? s.trim() : "";
+}
+
+/**
+ * What grog's player plays (state.music, see brain/src/grog/events.clj),
+ * for the bar under what was said and done, while it plays or is paused:
+ * {title, artist, time, playing, volume, buttons: [{action, icon, label}]}.
+ * Its time goes on from where the song was when grog last said (its `at`)
+ * while it plays, and stays while it's paused. null while nothing plays,
+ * without a player, or grog isn't there to say.
+ */
+export function nowPlaying(state, now, offline = false) {
+  const m = state?.music;
+  if (offline || !m || !["playing", "paused"].includes(m.state)) return null;
+  const playing = m.state === "playing";
+  const duration = Number.isFinite(m.durationS) && m.durationS > 0 ? m.durationS : null;
+  let position = Number.isFinite(m.positionS) ? m.positionS : null;
+  if (position !== null && playing && Number.isFinite(m.at)) position += Math.max(0, now - m.at) / 1000;
+  if (position !== null && duration !== null) position = Math.min(position, duration);
+  const time =
+    position === null ? "" : duration === null ? songTime(position) : `${songTime(position)} / ${songTime(duration)}`;
+  return {
+    title: trimmed(m.title) || trimmed(m.album) || "Untitled",
+    artist: trimmed(m.artist),
+    time,
+    playing,
+    volume: Number.isFinite(m.volume) ? Math.round(m.volume) : null,
+    buttons: [
+      { action: "music-previous", icon: "previous", label: "Previous" },
+      playing
+        ? { action: "music-pause", icon: "pause", label: "Pause" }
+        : { action: "music-resume", icon: "play", label: "Play" },
+      { action: "music-next", icon: "next", label: "Next" },
+    ],
+  };
+}
+
+/** How many songs a playlist has, in words, or "" when it isn't known. */
+function songs(count) {
+  if (!Number.isFinite(count)) return "";
+  return count === 1 ? "1 song" : `${count} songs`;
+}
+
+/**
+ * What to play, for the music sheet, out of what grog answered `GET
+ * /v1/music/library?kind=playlists` (`library`: {items}, or {error,
+ * connect} when it couldn't; null while it's on its way), and what can be
+ * connected to it (`state`'s integrations): {loading, items: [{id, label,
+ * icon, detail}], message, error}. Liked songs first, then the user's
+ * playlists, each a request() (music-play:my-playlist:<id>: played with
+ * their account, as they may be private). Without the account, why, and
+ * connecting it instead.
+ */
+export function musicSheet(library, state = null) {
+  const sheet = { loading: false, items: [], message: "", error: "" };
+  if (!library) return { ...sheet, loading: true, message: "Loading…" };
+  if (library.connect) {
+    const integration = (state?.integrations ?? []).find((i) => i.id === library.connect);
+    const item = {
+      id: `connect:${library.connect}`,
+      label: integration?.heading ?? integration?.title ?? "Connect it",
+      icon: integration?.icon ?? "music",
+      detail: integration?.about ?? "",
+    };
+    return { ...sheet, items: [item], message: capitalize(library.error ?? "") };
+  }
+  const liked = [
+    { id: "music-liked", label: "Liked songs", icon: "heart", detail: "" },
+    { id: "music-shuffle", label: "Liked songs, shuffled", icon: "shuffle", detail: "" },
+  ];
+  if (library.error) return { ...sheet, items: liked, error: library.error };
+  const playlists = (library.items ?? [])
+    .filter((p) => p?.id && p.title)
+    .map((p) => ({ id: `music-play:my-playlist:${p.id}`, label: p.title, icon: "list", detail: songs(p.count) }));
+  return { ...sheet, items: [...liked, ...playlists], message: playlists.length ? "" : "No playlists of your own yet" };
 }
 
 /**

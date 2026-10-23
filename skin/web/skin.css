@@ -688,6 +688,117 @@ ol {
   color: var(--red);
 }
 
+/* What grog's player plays (view.js nowPlaying), under the rest: choosing
+   what plays, the song and its time, and its buttons, big enough for a
+   finger. Out of the way of a card, under the sheets. Nothing in it moves:
+   its time changes once a second. */
+.player {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.6vmin 2vmin;
+  margin-top: 2.4vmin;
+  padding: 1.4vmin 1.8vmin;
+  border-radius: 1.4vmin;
+  background: var(--card);
+}
+
+.connecting .player {
+  display: none;
+}
+
+.player .round {
+  background: var(--bg);
+}
+
+/* Play or pause: the one to find first, the ink's color. */
+.player .round.main {
+  width: 10vmin;
+  height: 10vmin;
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.player .round.main svg {
+  width: 4.2vmin;
+  height: 4.2vmin;
+}
+
+.playing {
+  flex: 1 1 30vmin;
+  min-width: 0;
+}
+
+/* The volume, then previous, play or pause and next: on the song's row
+   when there's room, else together on a row of their own. */
+.buttons {
+  display: flex;
+  flex: 1 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3vmin;
+}
+
+.player .song,
+.player .artist,
+.player-error {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player .song {
+  font: 700 3vmin/1.2 var(--text);
+}
+
+.player .line {
+  display: flex;
+  align-items: baseline;
+  gap: 1.6vmin;
+  margin-top: 0.6vmin;
+  color: var(--muted);
+  font-size: 2.3vmin;
+}
+
+.player .artist {
+  min-width: 0;
+}
+
+.player .at {
+  flex: none;
+  font: 400 2.1vmin var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.player-error {
+  margin-top: 0.6vmin;
+  color: var(--red);
+  font-size: 2.2vmin;
+}
+
+.player .artist:empty,
+.player .at:empty,
+.player-error:empty,
+.player.failed .line {
+  display: none;
+}
+
+.controls,
+.loudness {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 1.2vmin;
+}
+
+.loudness .level {
+  min-width: 4.6vmin;
+  color: var(--muted);
+  font: 400 2.2vmin var(--mono);
+  text-align: center;
+}
+
 /* What it consumed, in the actions, under them. */
 .sheet .usage {
   margin-top: 3vmin;
@@ -967,6 +1078,22 @@ ol {
   width: 7vmin;
   font: 400 2.3vmin var(--mono);
   text-align: right;
+}
+
+/* Waiting for grog to play what was chosen. */
+.item .row.busy {
+  opacity: 0.5;
+}
+
+/* Why the music sheet lists what it lists (loading, nothing to connect). */
+.sheet-note {
+  margin-top: 3vmin;
+  color: var(--muted);
+  font-size: 2.6vmin;
+}
+
+.sheet-note:empty {
+  display: none;
 }
 
 .sheet-error {

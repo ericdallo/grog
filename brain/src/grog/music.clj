@@ -15,6 +15,10 @@
     :note         optional, (fn [config]): what the model should know of
                   it, or nil
     :run!         (fn [ctx action args]): does `action`, what to answer
+    :by-id?       optional: whether it plays exactly what an :id (with
+                  its :kind) names, from its library
+    :library!     optional, (fn [ctx kind]): the user's playlists or liked
+                  songs (`library-lists`), for screens to choose from
 
   Two kinds: grog's own, playing through its player (grog.player):
   YouTube Music (grog.youtube-music), which plays without an account and
@@ -29,11 +33,14 @@
   While someone talks to grog (grog-voice heard its name, and until it
   waits for it again), its player's music goes down (`watch-voice!`).
   grog-voice is told whether its player plays (`check-playing!`), as it
-  listens for its name differently over music: after each action, and
-  now and then (`keep-up!`). Never logged: what's asked or played."
+  listens for its name differently over music, and whoever watches grog
+  what it plays (grog.events' :music, for its skin's controls): after
+  each action, and now and then (`keep-up!`). Never logged: what's asked
+  or played."
   (:require [clojure.string :as str]
             [grog.capabilities :as capabilities]
             [grog.catalog :as catalog]
+            [grog.events :as events]
             [grog.log :as log]
             [grog.player :as player]
             [grog.voice :as voice]
@@ -49,6 +56,15 @@
 
 ;; What only plays with the user's account.
 (def ^:private library-kinds #{"my-playlist" "liked"})
+
+(def id-kinds
+  "What an id can name, to play exactly that: a song, an album, a playlist,
+  or one of the user's playlists."
+  #{"song" "album" "playlist" "my-playlist"})
+
+(def library-lists
+  "What of the user's library screens can list."
+  ["playlists" "liked"])
 
 ;; How long ducking, pausing and asking whether it plays wait for the
 ;; player: they're for now.
@@ -148,20 +164,42 @@
          (catch clojure.lang.ExceptionInfo _ nil))))
 
 (defn ^:private play-youtube-music!
-  "Plays what `args` say on YouTube Music: what to answer."
-  [config {:keys [query kind shuffle] :as args}]
+  "Plays what `args` say on YouTube Music, a query or exactly what an id
+  names: what to answer."
+  [config {:keys [query kind shuffle id] :as args}]
   (let [library? (contains? library-kinds kind)
-        query (when-not (blank? query) (str/trim query))]
+        query (when-not (or id (blank? query)) (str/trim query))]
     (cond
-      (and (nil? query) (not library?)) (run-player! config "resume" args)
-      (and (nil? query) (= "my-playlist" kind)) (throw (ex-info "say which of the user's playlists" {:type ::bad-args}))
+      (and id (not (contains? id-kinds kind)))
+      (throw (ex-info "an id plays a song, an album, a playlist or one of the user's playlists: say which (kind)"
+                      {:type ::bad-args}))
+
+      (and (nil? id) (nil? query) (not library?)) (run-player! config "resume" args)
+      (and (nil? id) (nil? query) (= "my-playlist" kind)) (throw (ex-info "say which of the user's playlists"
+                                                                          {:type ::bad-args}))
       :else (let [token (auth config library?)]
               (said "play" (player/request! config "youtube-music.play"
                                             (cond-> {}
+                                              id (assoc :id id)
                                               query (assoc :query query)
                                               (contains? (set kinds) kind) (assoc :kind kind)
                                               (boolean? shuffle) (assoc :shuffle shuffle)
                                               token (assoc :auth token))))))))
+
+(defn ^:private library-youtube-music!
+  "The user's `kind` of `library-lists` on YouTube Music, through grog's
+  player, with their account: [{:kind :id :title :artist :count}]."
+  [config kind]
+  (let [token (try (youtube-music/auth! config)
+                   (catch clojure.lang.ExceptionInfo e
+                     (if (= :grog.youtube-music/signed-out (:type (ex-data e)))
+                       nil
+                       (throw e))))]
+    (when-not token
+      (throw (ex-info "connect YouTube Music to see your playlists"
+                      {:type ::not-connected :connect youtube-music/id})))
+    (mapv #(select-keys % [:kind :id :title :artist :count])
+          (:items (player/request! config "youtube-music.library" {:kind kind :auth token})))))
 
 (def youtube-music
   "YouTube Music, through grog's player: anonymous, or with the user's
@@ -180,7 +218,9 @@
            (let [config @(:config ctx)]
              (if (= "play" action)
                (play-youtube-music! config args)
-               (run-player! config action args))))})
+               (run-player! config action args))))
+   :by-id? true
+   :library! (fn [ctx kind] (library-youtube-music! @(:config ctx) kind))})
 
 (defn ^:private catalog-provider
   "The provider an MCP server mapping `music` is (`source`, see
@@ -221,9 +261,10 @@
 
 (defn ^:private normalize
   "The tool's (or the API's) `args`, as providers take them."
-  [{:keys [action query kind shuffle level change]}]
+  [{:keys [action query kind shuffle level change id]}]
   (cond-> {:action (some-> action str)}
     (string? query) (assoc :query query)
+    (and (string? id) (not (str/blank? id))) (assoc :id (str/trim id))
     (string? kind) (assoc :kind kind)
     (boolean? shuffle) (assoc :shuffle shuffle)
     (number? level) (assoc :level (long level))
@@ -234,17 +275,48 @@
   [status]
   (= "playing" (:state status)))
 
+(def ^:private song-keys
+  [:state :title :artist :album :position-s :duration-s :volume :ducked :index :count])
+
+(defn slice
+  "What whoever watches grog sees of its player's `status`, asked `at`
+  (grog.events' :music): nil without one; no song while it's idle."
+  [status at]
+  (when (map? status)
+    (assoc (select-keys status (if (= "idle" (:state status)) [:state :volume :ducked] song-keys))
+           :provider youtube-music/id
+           :at at)))
+
+(defn publish?
+  "Whether whoever watches grog is told of the player's `slice`, `shown`
+  being what they were last told: when anything but where the song is
+  changed, and while it plays, at most every 5 s (they move its clock
+  themselves in between)."
+  [shown slice]
+  (let [without #(dissoc % :position-s :at)]
+    (boolean
+     (or (not= (some-> shown without) (some-> slice without))
+         (and (playing? slice)
+              (not= (:position-s shown) (:position-s slice))
+              (>= (- (:at slice) (:at shown)) playing-check-ms))))))
+
 (defn check-playing!
-  "Asks grog's player whether it plays, and tells grog-voice when that
-  changed (grog.voice): whether it plays. It doesn't without a player, or
-  when the player doesn't answer soon."
+  "Asks grog's player what it plays, tells grog-voice whether it plays when
+  that changed (grog.voice), and whoever watches grog what it plays when
+  they should know (`publish?`): whether it plays. It doesn't without a
+  player, or when the player doesn't answer soon."
   [ctx]
   (locking checking
     (let [config @(:config ctx)
-          playing (and (player/there? config)
-                       (try (playing? (player/request! config "status" nil quick-timeout-ms))
-                            (catch Exception _ false)))]
+          at (events/now-ms)
+          status (when (player/there? config)
+                   (try (player/request! config "status" nil quick-timeout-ms)
+                        (catch Exception _ nil)))
+          music (slice status at)
+          playing (playing? status)]
       (voice/set-music! (:voice ctx) playing)
+      (when (publish? (some-> (:events ctx) :state deref :music) music)
+        (events/publish! (:events ctx) {:type :music :music music}))
       playing)))
 
 (defn ^:private check-soon!
@@ -271,20 +343,38 @@
     (reset! last-checked now-ms)
     (check-playing! ctx)))
 
-(defn perform!
-  "Does what `args` ask ({:action :query :kind :shuffle :level :change})
-  through the provider chosen: what to answer. Throws ex-info saying why
-  it can't. Then, in the background, whether grog's player plays."
-  [ctx args]
-  (let [{:keys [action] :as args} (normalize args)
-        {:keys [title run!] :as provider} (chosen @(:config ctx))]
-    (when-not provider
+(defn ^:private provider!
+  "The provider chosen with `config`, or ex-info when there's none."
+  [config]
+  (or (chosen config)
       (throw (ex-info "nothing plays music here: grog has no player (music.socket), and nothing connected plays it"
-                      {:type ::none})))
+                      {:type ::none}))))
+
+(defn perform!
+  "Does what `args` ask ({:action :query :kind :shuffle :level :change
+  :id}) through the provider chosen: what to answer. Throws ex-info saying
+  why it can't. Then, in the background, whether grog's player plays."
+  [ctx args]
+  (let [{:keys [action id] :as args} (normalize args)
+        {:keys [title run! by-id?] :as provider} (provider! @(:config ctx))]
     (when-not (contains? (:actions provider) action)
       (throw (ex-info (str "music can't " (or action "do that") " through " title) {:type ::unsupported})))
+    (when (and id (not by-id?))
+      (throw (ex-info (str title " doesn't play by id") {:type ::unsupported})))
     (try (run! ctx action args)
          (finally (check-soon! ctx)))))
+
+(defn library!
+  "The user's `kind` of `library-lists` (their playlists, or liked songs)
+  through the provider chosen: [{:kind :id :title :artist :count}]. Throws
+  ex-info saying why it can't: its :type ::none without a provider,
+  ::unsupported when it has no library, ::not-connected (with the
+  integration to :connect) without the user's account, or the player's."
+  [ctx kind]
+  (let [{:keys [title library!]} (provider! @(:config ctx))]
+    (when-not library!
+      (throw (ex-info (str "grog can't show " title "'s library") {:type ::unsupported})))
+    (library! ctx kind)))
 
 (defn detail
   "What a `music` call does, in a few words, never what was asked for:

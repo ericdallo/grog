@@ -228,18 +228,59 @@
       :else
       (api-call #(actions/perform! ctx name (or args {}))))))
 
+(defn ^:private query-param
+  "What the query of `req` says `k` is, or nil."
+  [{:keys [query-string]} k]
+  (try (get (oauth/form-decode query-string) k)
+       (catch IllegalArgumentException _ nil)))
+
+(defn ^:private music-id?
+  "Whether `body` names nothing by id, or something that can be played by
+  it: an id from the library, with its kind."
+  [{:keys [id kind] :as body}]
+  (or (not (contains? body :id))
+      (and (string? id)
+           (re-matches #"[A-Za-z0-9_-]{1,200}" id)
+           (contains? music/id-kinds kind))))
+
 (defn ^:private music
   "Does what the body asks of grog's music, {\"action\": play, pause,
   resume, stop, next, previous, volume or status, and \"query\", \"kind\",
-  \"shuffle\", \"level\", \"change\" as the `music` tool takes them}
-  (grog.music): {\"provider\", \"text\"}, what it says it did."
+  \"shuffle\", \"level\", \"change\" as the `music` tool takes them, or
+  \"id\", with its kind, to play exactly that} (grog.music): {\"provider\",
+  \"text\"}, what it says it did."
   [ctx req]
   (let [body (read-json req)]
-    (if-not (and (map? body) (some #{(:action body)} music/actions))
+    (if-not (and (map? body) (some #{(:action body)} music/actions) (music-id? body))
       (json-response 400 {:error (str "Send {\"action\": one of " (str/join ", " music/actions)
-                                      ", and maybe \"query\", \"kind\", \"shuffle\", \"level\" or \"change\"}.")})
+                                      ", and maybe \"query\", \"kind\", \"shuffle\", \"level\" or \"change\"; or"
+                                      " \"id\", with its \"kind\": one of " (str/join ", " (sort music/id-kinds))
+                                      "}.")})
       (api-call #(let [text (music/perform! ctx body)]
                    {:provider (:id (music/chosen @(:config ctx))) :text text})))))
+
+;; Why grog can't list the user's library, that someone can do something
+;; about: there's no player, or no account connected.
+(def ^:private library-conflicts
+  #{:grog.music/none :grog.music/unsupported :grog.music/not-connected :grog.player/none :grog.player/unreachable})
+
+(defn ^:private music-library
+  "The user's playlists or liked songs, as the query's `kind` says, through
+  the provider chosen (grog.music/library!): {\"items\": [{kind id title
+  artist count}]}. Without a player, or the account, a 409 saying so (and
+  the integration to connect, as \"connect\")."
+  [ctx req]
+  (let [kind (query-param req :kind)]
+    (if-not (some #{kind} music/library-lists)
+      (json-response 400 {:error (str "Say which: /v1/music/library?kind=" (str/join " or " music/library-lists))})
+      (try
+        (json-response 200 {:items (music/library! ctx kind)})
+        (catch clojure.lang.ExceptionInfo e
+          (let [{:keys [type connect]} (ex-data e)]
+            (json-response (if (library-conflicts type) 409 502)
+                           (cond-> {:error (ex-message e)} connect (assoc :connect connect)))))
+        (catch Exception e
+          (json-response 502 {:error (or (ex-message e) (str e))}))))))
 
 (def ^:private registry-trouble
   "What the MCP Registry not answering, or answering nonsense, is called."
@@ -277,12 +318,6 @@
   (api-call #(let [result (mcp-connect/remove! ctx id)]
                (assistant/publish-status! ctx)
                result)))
-
-(defn ^:private query-param
-  "What the query of `req` says `k` is, or nil."
-  [{:keys [query-string]} k]
-  (try (get (oauth/form-decode query-string) k)
-       (catch IllegalArgumentException _ nil)))
 
 (defn ^:private search-registry
   "Servers of the MCP Registry whose name holds the query's `q`."
@@ -457,6 +492,9 @@
 
        (= [:post "/v1/music"] [request-method uri])
        (music ctx req)
+
+       (= [:get "/v1/music/library"] [request-method uri])
+       (music-library ctx req)
 
        :else
        (or (when (= :get request-method)
