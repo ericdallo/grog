@@ -1085,6 +1085,25 @@ ol {
   opacity: 0.5;
 }
 
+/* The speaker playing, of those in a group: a check at its end. */
+.item .row .chosen {
+  flex: none;
+  width: 3.4vmin;
+  height: 3.4vmin;
+  color: var(--accent);
+}
+
+.item .row .chosen svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* A speaker picked that isn't there now: nothing to pick until it's back. */
+.item .row:disabled {
+  opacity: 0.6;
+}
+
 /* Why the music sheet lists what it lists (loading, nothing to connect). */
 .sheet-note {
   margin-top: 3vmin;

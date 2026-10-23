@@ -18,7 +18,10 @@
                :rolled-back}; nil without any
     :mic       \"on\" or \"off\": whether grog-voice's mic is on, as asked
                (grog.voice)
-    :volume    the speaker's volume, once known: {:level :muted}
+    :speaker   the speaker grog-voice speaks on, as picked: {:name :label},
+               nil for its own (grog.voice)
+    :volume    the volume of the speaker it speaks on, once known: {:level
+               :muted}
     :started-at  when grog started: until grog-voice says anything, it may
                be on its way
     :voice     grog-voice's state: {:state :since :seen :conversation
@@ -246,8 +249,9 @@
     :stop (on-stop state)
     :forgot (assoc state :turn nil :heard nil :history [])
     :status (merge state (select-keys event [:name :provider :model :auth :revision :timezone :actions :mic
-                                             :integrations]))
+                                             :speaker :integrations]))
     :mic (assoc state :mic (:mic event))
+    :speaker (assoc state :speaker (:speaker event))
     :volume (assoc state :volume (select-keys event [:level :muted]))
     ;; Without an action, it stays after all.
     :restarting (assoc state :restarting (when (:action event) (select-keys event [:action :at])))

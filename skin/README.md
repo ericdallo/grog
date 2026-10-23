@@ -42,8 +42,9 @@ On a touch screen, or with a mouse:
 - Touching grog's face talks to it, no name needed. While it answers, it
   stops it, and pauses the music. With its mic off, it turns it on and
   listens.
-- The button by the clock opens its actions: the volume, the mic, a new
-  conversation, its integrations (signing in to ChatGPT or out of it,
+- The button by the clock opens its actions: the volume (of the speaker
+  grog speaks on), the mic, its speakers, a new conversation, its
+  integrations (signing in to ChatGPT or out of it,
   adding a computer, forgetting one, connecting YouTube Music with a code
   entered at Google's page, connecting an MCP server, with how
   many tools it has, whether you added it, which grog didn't check, and
@@ -59,6 +60,13 @@ On a touch screen, or with a mouse:
   as it opens (`GET /v1/music/library`). Without your YouTube Music
   account, it says so, with the entry connecting it. Tapping one plays it
   and closes it. What fails shows in red, for a moment.
+- Speakers, in the actions, opens which ones the music and grog's voice
+  play on, asked of grog as it opens (`POST /v1/actions/speakers`): the
+  music on one (the session's default), grog's voice with it, or on
+  another (a Bluetooth speaker for the music, say, and the machine's own
+  for grog). Picking one, it stays open, showing it picked. A speaker
+  picked for grog's voice that isn't there now shows, greyed out: grog
+  speaks with the music meanwhile.
 - Adding a computer, it shows what to run on it (`curl ... | bash`: nothing
   to install there), then the code of the one asking, to allow it if it's
   the same as on the computer, or not.

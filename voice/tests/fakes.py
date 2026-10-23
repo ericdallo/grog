@@ -190,15 +190,16 @@ class Players:
     def __init__(self, failing=False):
         self.made, self.failing, self.one_closed = [], failing, threading.Event()
 
-    def __call__(self, rate):
-        player = FakePlayer(rate, self.failing, self.one_closed)
+    def __call__(self, rate, speaker=None):
+        player = FakePlayer(rate, self.failing, self.one_closed, speaker)
         self.made.append(player)
         return player
 
 
 class FakePlayer:
-    def __init__(self, rate, failing=False, on_close=None):
+    def __init__(self, rate, failing=False, on_close=None, speaker=None):
         self.rate, self.written, self.closed, self.failing = rate, [], False, failing
+        self.speaker = speaker
         self.stopped = False
         self.on_close = on_close or threading.Event()
 

@@ -99,8 +99,8 @@ pkgs.testers.runNixOSTest {
       enable = true;
       user = null;
     };
-    # The VM has no sound card: a virtual mic, recording silence, and a virtual
-    # speaker, playing to nowhere.
+    # The VM has no sound card: a virtual mic, recording silence, and two
+    # virtual speakers, playing to nowhere, the first one the default.
     services.pipewire = {
       enable = true;
       extraConfig.pipewire."90-null-devices"."context.objects" = [
@@ -118,8 +118,21 @@ pkgs.testers.runNixOSTest {
           args = {
             "factory.name" = "support.null-audio-sink";
             "node.name" = "null-speaker";
+            "node.description" = "Speaker";
             "media.class" = "Audio/Sink";
             "audio.position" = "FL,FR";
+            "priority.session" = 1000;
+          };
+        }
+        {
+          factory = "adapter";
+          args = {
+            "factory.name" = "support.null-audio-sink";
+            "node.name" = "null-other";
+            "node.description" = "Other speaker";
+            "media.class" = "Audio/Sink";
+            "audio.position" = "FL,FR";
+            "priority.session" = 500;
           };
         }
       ];
@@ -587,6 +600,51 @@ pkgs.testers.runNixOSTest {
         assert out.startswith("Feito: Paused: Tone by Sox (") and out.endswith(", volume 40."), out
         assert (out := grog("music stop")) == "Stopped.", out
         assert player({"command": "status"})["state"] == "idle"
+
+    def speakers(body):
+        """What grog answers its screen asking for its speakers with `body`."""
+        return json.loads(machine.succeed(
+            "curl -sf -X POST -H 'Content-Type: application/json' -d " + shlex.quote(json.dumps(body))
+            + " http://127.0.0.1:8484/v1/actions/speakers"
+        ))
+
+    def volume_of(name):
+        """The volume of the speaker called `name`, as wpctl says it."""
+        sink = next(i for i, p in pipewire()[0].items() if p.get("node.name") == name)
+        return machine.succeed(f"su - grog -c 'XDG_RUNTIME_DIR=/run/user/$(id -u) wpctl get-volume {sink}'").strip()
+
+    with subtest("its screen picks the speakers of the music and of its voice, kept"):
+        listed = speakers({})
+        assert [(s["name"], s["label"], s["default"]) for s in listed["speakers"]] == [
+            ("null-speaker", "Speaker", True),
+            ("null-other", "Other speaker", False),
+        ], listed
+        assert listed["voice"] is None, listed
+        # Its voice on the other one, and the volume that one's.
+        assert speakers({"voice": "null-other"})["voice"] == {"name": "null-other", "label": "Other speaker"}
+        assert voice_told()["speaker"] == "null-other"
+        machine.wait_until_succeeds(
+            "journalctl -o cat _SYSTEMD_USER_UNIT=grog-voice.service | grep -qx 'INFO speaking on null-other'"
+        )
+        machine.succeed(
+            "curl -sf -X POST -H 'Content-Type: application/json' -d '{\"level\": 25}'"
+            " http://127.0.0.1:8484/v1/actions/volume"
+        )
+        assert (volume_of("null-other"), volume_of("null-speaker")) == ("Volume: 0.25", "Volume: 0.30")
+        # The music on the other one: the session's default, the echo canceller playing on it.
+        moved = speakers({"music": "null-other"})
+        assert [s["name"] for s in moved["speakers"] if s["default"]] == ["null-other"], moved
+        assert pipewire()[2].get("default.configured.audio.sink") == "null-other"
+        retry(linked(lambda a, b: a.get("node.name") == "grog-echo-cancel-playback" and b.get("node.name") == "null-other"))
+        # Its voice's, kept across a restart.
+        machine.succeed("systemctl restart grog")
+        machine.wait_for_open_port(8484)
+        assert voice_told()["speaker"] == "null-other"
+        assert seen_state()["speaker"] == {"name": "null-other", "label": "Other speaker"}
+        # Back as they were.
+        speakers({"music": "null-speaker"})
+        assert speakers({"voice": None})["voice"] is None
+        assert voice_told()["speaker"] is None
 
     with subtest("its hands' user may do anything: sudo without a password, and what polkit guards"):
         def like_hands(command):

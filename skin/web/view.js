@@ -564,6 +564,12 @@ export function menu(state, armed = null) {
     everyday({ id: "volume", kind: "volume", label: "Volume", level: volume.level ?? null, muted: Boolean(volume.muted) });
   }
   if (can("mic")) everyday({ id: "mic", kind: "toggle", label: "Microphone", icon: "voice", on: state.mic !== "off" });
+  // Which ones the music and its voice play on (speakersSheet()).
+  if (can("speakers")) {
+    const picked = state.speaker?.label;
+    const detail = picked ? `${voiceOf(state)} on ${picked}` : "where the music and the voice play";
+    everyday({ id: "speakers", kind: "button", label: "Speakers", icon: "speaker", detail });
+  }
   if (can("new-conversation")) {
     everyday({ id: "new-conversation", kind: "button", label: "New conversation", icon: "answering", detail: "what was said is forgotten" });
   }
@@ -616,6 +622,12 @@ export function request(action, state, step = null) {
   if (action.startsWith("music-play:")) {
     const [kind, ...id] = action.slice("music-play:".length).split(":");
     return { method: "POST", path: "/v1/music", body: { action: "play", kind, id: id.join(":") } };
+  }
+  if (action.startsWith("speaker-music:")) {
+    return { method: "POST", path: "/v1/actions/speakers", body: { music: action.slice("speaker-music:".length) } };
+  }
+  if (action.startsWith("speaker-voice:")) {
+    return { method: "POST", path: "/v1/actions/speakers", body: { voice: action.slice("speaker-voice:".length) || null } };
   }
   if (MUSIC[action]) return { method: "POST", path: "/v1/music", body: MUSIC[action] };
   switch (action) {
@@ -741,6 +753,61 @@ export function musicSheet(library, state = null) {
     .filter((p) => p?.id && p.title)
     .map((p) => ({ id: `music-play:my-playlist:${p.id}`, label: p.title, icon: "list", detail: songs(p.count) }));
   return { ...sheet, items: [...liked, ...playlists], message: playlists.length ? "" : "No playlists of your own yet" };
+}
+
+// Each kind of speaker grog-voice tells (voice/grog_voice/speakers.py): its
+// icon, and what it is.
+const SPEAKER_KINDS = {
+  bluetooth: { icon: "bluetooth", detail: "Bluetooth" },
+  usb: { icon: "speaker", detail: "USB" },
+  hdmi: { icon: "screen", detail: "HDMI" },
+  headphones: { icon: "headphones", detail: "Headphones" },
+  speaker: { icon: "speaker", detail: "Built in" },
+};
+
+/** "Grog's voice", by grog's name, or "Its voice". */
+function voiceOf(state) {
+  return state?.name ? `${state.name}'s voice` : "Its voice";
+}
+
+/**
+ * Which speakers the music and grog's voice play on, out of what grog
+ * answered `POST /v1/actions/speakers` (`answer`: {speakers, voice}, or
+ * {error} when it couldn't; null while it's on its way): {loading, groups:
+ * [{title, items: [{id, label, icon, detail, chosen, disabled}]}], message,
+ * error}. The music's: each speaker, the default one chosen. The voice's:
+ * with the music (its own), then each speaker, the one picked chosen,
+ * shown even while it isn't there. Each a request().
+ */
+export function speakersSheet(answer, state = null) {
+  const sheet = { loading: false, groups: [], message: "", error: "" };
+  if (!answer) return { ...sheet, loading: true, message: "Looking for speakers…" };
+  if (!answer.speakers) return { ...sheet, error: capitalize(answer.error ?? "") };
+  const speakers = answer.speakers.filter((s) => s?.name && s.label);
+  const picked = answer.voice ?? null;
+  const item = (prefix, s, chosen) => ({
+    id: `${prefix}:${s.name}`,
+    label: s.label,
+    icon: SPEAKER_KINDS[s.kind]?.icon ?? "speaker",
+    detail: SPEAKER_KINDS[s.kind]?.detail ?? "",
+    chosen,
+    disabled: false,
+  });
+  const voice = [
+    { id: "speaker-voice:", label: "With the music", icon: "music", detail: "on the same speaker", chosen: !picked, disabled: false },
+    ...speakers.map((s) => item("speaker-voice", s, picked?.name === s.name)),
+  ];
+  if (picked && !speakers.some((s) => s.name === picked.name)) {
+    voice.push({ ...item("speaker-voice", picked, true), detail: "not there now: with the music meanwhile", disabled: true });
+  }
+  return {
+    ...sheet,
+    groups: [
+      { title: "Music", items: speakers.map((s) => item("speaker-music", s, Boolean(s.default))) },
+      { title: voiceOf(state), items: voice },
+    ],
+    message: speakers.length ? "" : "No speakers found",
+  };
 }
 
 /**

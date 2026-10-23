@@ -40,8 +40,9 @@ class Result:
 
 
 class Voice:
-    """Wires the mic, the models and grog together. `player` makes a Player
-    for a sample rate, `ask(text, said)` yields grog's answer to a text as it
+    """Wires the mic, the models and grog together. `player(rate, speaker)`
+    makes a Player for a sample rate, on the speaker grog picked (a name, or
+    None: its own), `ask(text, said)` yields grog's answer to a text as it
     streams (("text", text) and ("tool", name)), `wake` gives the WakeWords to
     answer to (None: answers anything), `report` tells grog what it's doing,
     `report_heard(text, final)` what it heard for grog (see reporter.py), and
@@ -74,9 +75,16 @@ class Voice:
         self.no_mic = False
         self.muted = False  # its mic is switched off (see set_mic)
         self.music = False  # grog plays music (see set_music)
+        self.speaker = None  # the speaker grog picked for it (see set_speaker)
         self._telling = threading.Lock()
         self._back_at = None  # when its sound last said grog is back
-        self.mouth = Mouth(tts=tts, player=player, ask=ask, tell=self.tell, captions=captions)
+        self.mouth = Mouth(
+            tts=tts,
+            player=lambda rate: player(rate, self.speaker),
+            ask=ask,
+            tell=self.tell,
+            captions=captions,
+        )
         self.ears = Ears(
             settings,
             mic=mic,
@@ -218,6 +226,15 @@ class Voice:
             return
         self.music = playing
         log.info("music %s", "on" if playing else "off")
+
+    def set_speaker(self, name):
+        """What it says from now on plays on speaker `name`, grog's pick, or
+        on its own (its speaker setting, or the default) with None. Gone,
+        PipeWire plays it on the default meanwhile."""
+        if self.speaker == name:
+            return
+        self.speaker = name
+        log.info("speaking on %s", name or "its own speaker")
 
     def tell(self, state):
         """Tells grog what it's doing, when that changed: muted, while the

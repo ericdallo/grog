@@ -760,6 +760,12 @@ from where they talk to it (1 to 2 m), the speaker at 100%, the mic at its
   and the windows should do much better: to measure then, with the wake
   rate from 1 and 3 m, false wakes from lyrics, and CPU (`top`: grog-voice,
   grog-music and the canceller together).
+- **With a Bluetooth speaker paired**, the session's default, grog spoke
+  there too, and the user wanted it for the music only: the skin's Speakers
+  pick them apart (the music's is the default; grog's voice's, kept by the
+  brain), across restarts (brain/README.md, "Speakers"). Its voice on the
+  laptop's speaker isn't in the canceller's reference, but grog-voice
+  doesn't listen while it speaks.
 
 ## Where to go from here
 

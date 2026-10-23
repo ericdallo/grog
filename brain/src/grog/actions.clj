@@ -1,8 +1,9 @@
 (ns grog.actions
   "What can be asked of grog, beyond answering: to listen now, without its
   name, or to stop answering, and its music (grog-voice, see grog.voice;
-  grog.music); to turn its mic
-  on or off; to change the speaker's volume; to forget its conversations;
+  grog.music); to turn its mic on or off; which speakers there are, and
+  which ones the music and its voice play on (grog-voice's); to change
+  the volume of the speaker it speaks on; to forget its conversations;
   to connect something to it (grog.integrations); to update itself
   (grog.update); and to go away: restart itself (its voice, then its
   brain), restart the machine, or turn it off. Someone at its skin asks
@@ -40,7 +41,8 @@
    "power-off" {:verb "poweroff" :can "CanPowerOff"}})
 
 ;; What can be asked of grog, on some machines only (see `available`).
-(def known #{"listen" "stop" "mic" "volume" "new-conversation" "connect" "update" "restart" "reboot" "power-off"})
+(def known
+  #{"listen" "stop" "mic" "speakers" "volume" "new-conversation" "connect" "update" "restart" "reboot" "power-off"})
 
 (defn exit!
   "Ends grog with `code` (tests redefine it)."
@@ -67,12 +69,12 @@
     (hands? config) (into ["reboot" "power-off"])))
 
 (defn available
-  "What can be asked of grog with `config`: to listen or stop (when
-  grog-voice is there to ask), its mic, forgetting its conversations,
-  connecting something, the volume with hands, updating itself with the
-  update service and hands, and going away (`going-away`)."
+  "What can be asked of grog with `config`: to listen or stop, its mic and
+  its speakers (when grog-voice is there to ask), forgetting its
+  conversations, connecting something, the volume with hands, updating
+  itself with the update service and hands, and going away (`going-away`)."
   [config]
-  (into (cond-> ["listen" "stop" "mic" "new-conversation" "connect"]
+  (into (cond-> ["listen" "stop" "mic" "speakers" "new-conversation" "connect"]
           (hands? config) (conj "volume")
           (update/available? config) (conj "update"))
         (going-away config)))
@@ -101,7 +103,7 @@
                         "update" "it can't update itself here: no update service, or no hands to start it"
                         (str "there's no action called " name))
                       {:type ::unavailable})))
-    (when (and (or (= "listen" name)
+    (when (and (or (#{"listen" "speakers"} name)
                    (and (= "stop" name) (not (player/there? config))))
                (not (voice/there? (:voice ctx))))
       (throw (ex-info "its voice isn't there to ask" {:type ::unavailable})))
@@ -165,6 +167,25 @@
     (throw (ex-info "say whether it's on: {\"on\": true or false}" {:type ::bad-args})))
   (voice/set-mic! ctx on))
 
+(defn ^:private speakers!
+  "Which speakers grog-voice's session has, as it says, making the one
+  `music` names the session's default first (the music plays there), and
+  the one `voice` names (nil: its own) the one it speaks on, when given:
+  {:speakers [{:name :label :kind :default}] :voice {:name :label}}."
+  [{:keys [voice] :as ctx} {:keys [music] :as args}]
+  (let [pick (:voice args)]
+    (when-not (and (or (nil? music) (voice/name? music))
+                   (or (nil? pick) (voice/name? pick)))
+      (throw (ex-info "say which speaker: {\"music\": its name}, or {\"voice\": its name, or null}"
+                      {:type ::bad-args})))
+    (let [speakers (voice/speakers! voice music)]
+      (when (contains? args :voice)
+        (let [found (some #(when (= pick (:name %)) %) speakers)]
+          (when (and pick (not found))
+            (throw (ex-info "there's no such speaker now" {:type ::bad-args})))
+          (voice/set-speaker! ctx (some-> found (select-keys [:name :label])))))
+      {:speakers speakers :voice (voice/speaker voice)})))
+
 (defn ^:private forget!
   "Forgets every conversation: what's said next starts a new one."
   [{:keys [store events]}]
@@ -182,8 +203,8 @@
 
 (defn perform!
   "Takes action `name`, with `args` (the volume's, see grog.machine; the
-  mic's, {:on}; connect's, {:integration :way}), once `check!` says it can:
-  what to answer."
+  mic's, {:on}; the speakers', {:music :voice}; connect's, {:integration
+  :way}), once `check!` says it can: what to answer."
   ([ctx name]
    (perform! ctx name {}))
   ([ctx name args]
@@ -193,6 +214,7 @@
      "listen" (listen! ctx)
      "stop" (stop! ctx)
      "mic" (mic! ctx args)
+     "speakers" (speakers! ctx args)
      "volume" (machine/set-volume! ctx args)
      "new-conversation" (forget! ctx)
      "connect" (connect! ctx args)

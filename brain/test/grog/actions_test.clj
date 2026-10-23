@@ -53,7 +53,7 @@
 (def ^:private refused (constantly {:exit 1 :output ""}))
 
 (deftest what-it-can-do
-  (let [voice ["listen" "stop" "mic" "new-conversation" "connect"]]
+  (let [voice ["listen" "stop" "mic" "speakers" "new-conversation" "connect"]]
     (with-redefs [actions/service? (constantly false)]
       (is (= voice (actions/available config/defaults)))
       (is (= (into voice ["volume" "reboot" "power-off"])
@@ -160,7 +160,7 @@
         (events/publish! (:events ctx) {:type :turn :conversation "voice" :n 1})
         (actions/perform! ctx "stop")
         (is (true? (get-in (state ctx) [:turn :stopping]))))
-      (is (= [["snapshot" {:mic "on" :music false}] ["listen" {}] ["stop" {}]] @got)))))
+      (is (= [["snapshot" {:mic "on" :music false :speaker nil}] ["listen" {}] ["stop" {}]] @got)))))
 
 (deftest turns-the-mic-on-or-off
   (let [ctx (context false)
@@ -169,9 +169,61 @@
     (is (= "off" (:mic (state ctx))))
     (testing "asked to listen, it's turned on first"
       (actions/perform! ctx "listen")
-      (is (= [["snapshot" {:mic "on" :music false}] ["mic" {:mic "off"}] ["mic" {:mic "on"}] ["listen" {}]] @got)))
+      (is (= [["snapshot" {:mic "on" :music false :speaker nil}] ["mic" {:mic "off"}] ["mic" {:mic "on"}] ["listen" {}]] @got)))
     (testing "only on or off"
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"whether it's on" (actions/perform! ctx "mic" {:on "yes"}))))))
+
+(def ^:private speakers
+  [{:name "bluez_output.1" :label "EDIFIER" :kind "bluetooth" :default true}
+   {:name "alsa_output.speaker" :label "Speaker" :kind "speaker" :default false}])
+
+(defn ^:private grog-voice
+  "A grog-voice watching for what `ctx` asks of it (what it got, as [type
+  data], in the atom returned), saying `speakers` are there when asked, the
+  one asked for the music the default."
+  [ctx]
+  (let [got (atom [])]
+    (voice/watch! (:voice ctx) :voice
+                  (fn [text]
+                    (let [[_ type data] (re-find #"event: (\S+)\ndata: (.*)\n" text)
+                          {:keys [id music] :as data} (json/parse-string data true)]
+                      (swap! got conj [type data])
+                      (when (= "speakers" type)
+                        (future (voice/speakers-said! (:voice ctx)
+                                                      {:id id
+                                                       :speakers (cond->> speakers
+                                                                   music (mapv #(assoc % :default (= music (:name %)))))}))))
+                    true))
+    got))
+
+(deftest picks-the-speakers
+  (let [ctx (context false)]
+    (testing "only when grog-voice is there"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"voice isn't there" (actions/perform! ctx "speakers" {}))))
+    (let [got (grog-voice ctx)
+          builtin {:name "alsa_output.speaker" :label "Speaker"}]
+      (with-out-str
+        (testing "which there are"
+          (is (= {:speakers speakers :voice nil} (actions/perform! ctx "speakers" {}))))
+        (testing "one the music's: the default"
+          (let [{listed :speakers} (actions/perform! ctx "speakers" {:music "alsa_output.speaker"})]
+            (is (= ["alsa_output.speaker"] (map :name (filter :default listed)))))
+          (is (= ["speakers" {:id 2 :music "alsa_output.speaker"}] (last @got))))
+        (testing "one its voice's, for good"
+          (is (= builtin (:voice (actions/perform! ctx "speakers" {:voice "alsa_output.speaker"}))))
+          (is (= ["speaker" {:speaker "alsa_output.speaker"}] (last @got)))
+          (is (= builtin (:speaker (state ctx))))
+          (is (= builtin (voice/load-speaker @(:config ctx)))))
+        (testing "and back to its own"
+          (is (nil? (:voice (actions/perform! ctx "speakers" {:voice nil}))))
+          (is (= ["speaker" {:speaker nil}] (last @got))))
+        (testing "only speakers there are, by their names"
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no such speaker"
+                                (actions/perform! ctx "speakers" {:voice "gone"})))
+          (is (nil? (voice/speaker (:voice ctx))))
+          (doseq [args [{:music 5} {:voice ""} {:music (apply str (repeat 201 "x"))}]]
+            (is (thrown-with-msg? clojure.lang.ExceptionInfo #"say which speaker"
+                                  (actions/perform! ctx "speakers" args)))))))))
 
 (deftest changes-the-volume
   (with-machine (constantly {:exit 0 :output "Volume: 0.40 [MUTED]\n"}) false
@@ -180,7 +232,12 @@
         (is (= {:level 40 :muted true} (actions/perform! ctx "volume" {:change -10 :mute true})))
         (is (str/starts-with? (first @ran) "wpctl set-mute @DEFAULT_AUDIO_SINK@ 1"))
         (testing "whoever watches knows it then"
-          (is (= {:level 40 :muted true} (:volume (state ctx))))))))
+          (is (= {:level 40 :muted true} (:volume (state ctx)))))
+        (testing "of the speaker grog speaks on, once picked"
+          (with-out-str (voice/set-speaker! ctx {:name "alsa_output.speaker" :label "Speaker"}))
+          (actions/perform! ctx "volume" {})
+          (is (str/starts-with? (last @ran) "sink=$(pw-dump -N 'alsa_output.speaker' "))
+          (is (str/ends-with? (last @ran) "; wpctl get-volume \"$sink\""))))))
   (testing "with hands only"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no hands" (actions/perform! (context false) "volume" {})))))
 

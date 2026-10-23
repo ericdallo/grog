@@ -235,18 +235,21 @@ it's there. `journalctl --user -u grog-echo-cancel` as grog shows its
 logs, `wpctl status` its nodes.
 
 To play on a Bluetooth speaker, pair it with the machine (GNOME's
-Bluetooth settings, or `bluetoothctl` over SSH) and make it the default
-sink, if it isn't (`wpctl set-default <id>` as grog): grog plays there.
-grog-voice speaks there too, unless `services.grog.voice.settings.speaker`
-pins another.
+Bluetooth settings, or `bluetoothctl` over SSH), then pick it for the
+music in Speakers, in the skin's actions (it becomes the session's
+default sink, as with `wpctl set-default <id>` as grog): grog plays there.
+grog-voice speaks there too, unless another speaker is picked there for
+its voice (the machine's own, say), or `services.grog.voice.settings.speaker`
+pins one. Both picks stay across restarts.
 
 ## Audio
 
 grog-voice uses the default mic and speaker of grog's session. USB audio
 comes first when plugged in, then Bluetooth and the built-in audio. Pick
-another in GNOME's sound settings, or with `wpctl set-default <id>` as grog.
-To pin one by name, set `services.grog.voice.settings.mic` or `.speaker` in
-`machine.nix`.
+another in Speakers, in the skin's actions (one for the music, the
+default, and maybe another for grog's voice), in GNOME's sound settings, or
+with `wpctl set-default <id>` as grog. To pin one by name, set
+`services.grog.voice.settings.mic` or `.speaker` in `machine.nix`.
 
 `grog-voice listen`, as grog, shows what the mic hears and how loud. From
 where you usually talk, speech should peak between -30 and -10 dBFS, and

@@ -145,7 +145,7 @@ def build(settings, open_mic, play, report=None, name=lambda: None, partials=Tru
         vad=vad,
         stt=stt,
         tts=tts,
-        player=lambda rate: make_player(rate, settings["speaker"]),
+        player=lambda rate, speaker: make_player(rate, speaker or settings["speaker"]),
         ask=lambda text, said=None, on_connect=None: grog.ask(
             settings["grogUrl"], settings["conversationId"], text, said, on_connect=on_connect
         ),
@@ -157,6 +157,17 @@ def build(settings, open_mic, play, report=None, name=lambda: None, partials=Tru
     )
 
 
+def tell_speakers(settings, request):
+    """Answers grog's `request` for the speakers of the session (see
+    speakers.py), through its POST /v1/voice/speakers."""
+    from . import grog, speakers
+
+    try:
+        grog.report_speakers(settings["grogUrl"], speakers.answer(request))
+    except grog.GrogError as e:
+        log.warning("couldn't tell grog its speakers (%s)", e)
+
+
 def run(settings):
     from . import grog
     from .audio import Mic
@@ -165,7 +176,9 @@ def run(settings):
     report = reporter(settings)
     report("loading")
     # Whether the mic is on comes before it's opened: models take a while.
-    commands = Commands(lambda: grog.commands(settings["grogUrl"]))
+    commands = Commands(
+        lambda: grog.commands(settings["grogUrl"]), speakers=lambda request: tell_speakers(settings, request)
+    )
     voice = build(
         settings, lambda: Mic(settings["mic"], on=commands.mic_on is not False), play=True, report=report
     )

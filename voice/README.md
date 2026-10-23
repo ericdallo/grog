@@ -55,6 +55,14 @@ screen: to listen now, without its name (touching its face), to stop
 answering, or to switch its mic off. Off, it records nothing at all until
 it's switched on again, even after restarts: the brain keeps that.
 
+And which speakers its session has: it reads them with `pw-dump` (PipeWire's
+sinks, without its echo canceller's nor HDMI ports with no screen) and
+tells the brain (`POST /v1/voice/speakers`), for its screen to pick from
+([`speakers.py`](grog_voice/speakers.py)). It speaks on the one picked for
+its voice (the brain keeps it), or else on its `speaker` setting, or the
+default; a speaker picked for the music becomes the session's default (as
+`wpctl set-default` does: WirePlumber keeps it).
+
 On a Core Ultra 7 155H, Pocket TTS takes 0.5 s per second of speech, and
 its first sound comes 0.1 s after the answer's first sentence. On grognix,
 a Celeron N5095, grog speaks with Supertonic, which takes ~0.5 s per second
@@ -129,7 +137,7 @@ or `$GROG_VOICE_CONFIG`), merged over the defaults in
 | `grogUrl` | `"http://127.0.0.1:8484"` | The brain |
 | `conversationId` | `"voice"` | The brain's conversation its turns go to |
 | `wakeWord` | `null` | Like `"Ok computer"`, or a list of spellings. `null`: grog's name. `false`: none, everything gets an answer |
-| `mic`, `speaker` | `null` | PipeWire node names (`wpctl status -n`). `null`: the session's defaults |
+| `mic`, `speaker` | `null` | PipeWire node names (`wpctl status -n`). `null`: the session's defaults. A speaker picked on grog's screen comes before `speaker` |
 | `stt.model` | `null` | A Parakeet TDT model for sherpa-onnx, int8 or fp32. On NixOS: `sttModel`, or `sttPrecision` |
 | `stt.threads` | `2` | 3 is slower on grognix's 4 cores. fp32 with 4 is as fast as int8 with 2, given AVX2 |
 | `tts.engine` | `"pocket"` | Or `"supertonic"`: 31 languages, ~8 times as fast, a sentence at a time. Or `"piper"`: ~1 GB lighter than Supertonic and quicker to start speaking, but flatter. On NixOS: `ttsEngine` |

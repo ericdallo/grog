@@ -17,6 +17,9 @@ class FakeVoice:
     def set_music(self, playing):
         self.did.append(("music", playing))
 
+    def set_speaker(self, name):
+        self.did.append(("speaker", name))
+
     def listen_now(self):
         self.did.append("listen")
 
@@ -162,6 +165,61 @@ class CommandsTest(unittest.TestCase):
             v.did,
         )
         self.assertIs(True, c.music, "as grog last said")
+
+    def test_the_speaker_grog_picked_waits_for_the_voice(self):
+        connect = grog([("snapshot", {"mic": "on", "music": False, "speaker": "bt"})])
+        c = self.commands(connect)
+        self.assertTrue(connect.said_all.wait(5))
+        self.assertEqual("bt", c.speaker)
+        v = FakeVoice()
+        c.attach(v)
+        self.assertEqual([("mic", True), ("music", False), ("speaker", "bt"), "back"], v.did)
+
+    def test_the_speaker_as_it_changes(self):
+        attached = threading.Event()
+        connect = grog(
+            [
+                ("snapshot", {"mic": "on", "speaker": None}),
+                ("speaker", {"speaker": "hdmi"}),
+                ("speaker", {"speaker": 5}),
+                ("speaker", {"speaker": " "}),
+                ("speaker", {}),
+                ("speaker", {"speaker": None}),
+            ],
+            gate=attached,
+        )
+        c = self.commands(connect)
+        v = FakeVoice()
+        c.attach(v)
+        attached.set()
+        self.assertTrue(connect.said_all.wait(5))
+        self.assertEqual(
+            [("mic", True), ("speaker", None), "back", ("speaker", "hdmi"), ("speaker", None)],
+            v.did,
+            "what makes sense",
+        )
+        self.assertIsNone(c.speaker)
+
+    def test_which_speakers_there_are_on_a_thread_of_its_own(self):
+        asked, threads = [], []
+
+        def speakers(request):
+            asked.append(request)
+            threads.append(threading.current_thread().name)
+
+        connect = grog(
+            [("snapshot", {"mic": "on"}), ("speakers", {"id": 3}), ("speakers", {"id": 4, "music": "bt"})]
+        )
+        c = Commands(connect, speakers=speakers, retry_min_s=0.01, retry_max_s=0.02)
+        self.addCleanup(connect.over.set)
+        self.addCleanup(c.close)
+        self.assertTrue(connect.said_all.wait(5))
+        for _ in range(100):
+            if len(asked) == 2:
+                break
+            threading.Event().wait(0.01)
+        self.assertEqual([{"id": 3}, {"id": 4, "music": "bt"}], sorted(asked, key=lambda r: r["id"]))
+        self.assertEqual(["speakers", "speakers"], threads)
 
 
 if __name__ == "__main__":

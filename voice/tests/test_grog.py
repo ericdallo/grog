@@ -6,7 +6,7 @@ import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from grog_voice.grog import GrogError, ask, commands, report, status
+from grog_voice.grog import GrogError, ask, commands, report, report_speakers, status
 
 
 def event(kind, data):
@@ -278,6 +278,34 @@ class ReportTest(unittest.TestCase):
             port = s.getsockname()[1]
         with self.assertRaisesRegex(GrogError, "Couldn't reach grog"):
             report(f"http://127.0.0.1:{port}", "listening", "voice")
+
+
+class ReportSpeakersTest(unittest.TestCase):
+    def test_tells_grog_which_speakers_there_are(self):
+        url, requests = fake_grog(self)
+        speakers = [{"name": "bt", "label": "EDIFIER", "kind": "bluetooth", "default": True}]
+        report_speakers(url, {"id": 3, "speakers": speakers})
+        self.assertEqual(
+            [
+                {
+                    "path": "/v1/voice/speakers",
+                    "content_type": "application/json",
+                    "accept": None,
+                    "body": {"id": 3, "speakers": speakers},
+                }
+            ],
+            requests,
+        )
+
+    def test_refused(self):
+        url, _ = fake_grog(self, status=400, error='Send {"id": ...}')
+        with self.assertRaisesRegex(GrogError, "^Send"):
+            report_speakers(url, {"id": "x"})
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        with self.assertRaisesRegex(GrogError, "Couldn't reach grog"):
+            report_speakers(f"http://127.0.0.1:{port}", {"id": 1, "error": "pw-dump exited with 1"})
 
 
 if __name__ == "__main__":

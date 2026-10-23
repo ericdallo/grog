@@ -50,6 +50,16 @@
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"couldn't be changed: Error: no default sink"
                               (run machine/volume-tool ctx {} {})))))))
 
+(deftest volume-of-a-speaker-by-its-name
+  (testing "its id found at run time, or the default one while it isn't there"
+    (is (= (str "sink=$(pw-dump -N 'bluez_output.1' 2>/dev/null | grep -m 1 -o '\"id\": *[0-9]*' | grep -o '[0-9]*$'); "
+                "sink=${sink:-@DEFAULT_AUDIO_SINK@}; "
+                "wpctl set-volume -l 1 \"$sink\" 50% && wpctl get-volume \"$sink\"")
+           (machine/volume-command {:level 50} "bluez_output.1"))))
+  (testing "a name as one word, whatever it holds"
+    (is (str/starts-with? (machine/volume-command {} "it's; reboot")
+                          "sink=$(pw-dump -N 'it'\\''s; reboot' "))))
+
 (deftest system-status
   (let [ran (atom [])]
     (with-redefs [hands/ask! (fn [_ command]

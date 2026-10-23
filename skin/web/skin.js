@@ -1,8 +1,8 @@
 // grog's skin: watches what grog is up to (GET /v1/events, server-sent
 // events, each with the whole state) and shows it. What to show comes from
 // view.js; this only draws it, and asks grog what someone touched: its face
-// (to talk to it, or stop it), its actions (POST /v1/actions/<name>), and
-// its music (POST /v1/music, and what to play from GET
+// (to talk to it, or stop it), its actions (POST /v1/actions/<name>, its
+// speakers too), and its music (POST /v1/music, and what to play from GET
 // /v1/music/library). With ?kiosk (the fullscreen window), there's no
 // mouse pointer.
 
@@ -25,6 +25,7 @@ import {
   nowPlaying,
   pipeline,
   request,
+  speakersSheet,
   stale,
   tap,
   timeFormats,
@@ -39,6 +40,7 @@ const EVENTS = ["snapshot", "voice", "turn", "tool", "tool-detail", "text", "don
   "usage",
   "restarting",
   "mic",
+  "speaker",
   "volume",
   "stop",
   "forgot",
@@ -68,6 +70,7 @@ const els = Object.fromEntries(
     .concat(["player", "open-music", "player-title", "player-artist", "player-time", "player-error"])
     .concat(["player-controls", "player-volume", "music-down", "music-up"])
     .concat(["music-sheet", "close-music", "music-note", "music-items", "music-error"])
+    .concat(["speakers-sheet", "close-speakers", "speakers-note", "speakers-items", "speakers-error"])
     .map((id) => [id, $(id)]),
 );
 // grog's face, in its block.
@@ -103,6 +106,12 @@ const timers = {};
 let musicOpen = false;
 let library = null;
 let libraryAsks = 0;
+// The speakers sheet: whether it shows, what grog last answered for it
+// (null while it's on its way), and how many times it was asked, the last
+// answer winning.
+let speakersOpen = false;
+let speakers = null;
+let speakersAsks = 0;
 
 const now = () => Date.now() + skew;
 
@@ -452,6 +461,17 @@ function actionItem(item) {
     button.setAttribute("aria-checked", String(item.on));
     button.append(el("span", `switch${item.on ? " on" : ""}`));
   }
+  // One of a group, which plays (speakers).
+  if (item.chosen !== undefined) {
+    button.setAttribute("role", "radio");
+    button.setAttribute("aria-checked", String(item.chosen));
+    if (item.chosen) {
+      const mark = el("span", "chosen");
+      mark.innerHTML = icon("done");
+      button.append(mark);
+    }
+  }
+  button.disabled = Boolean(item.disabled);
   li.append(button);
   return li;
 }
@@ -515,6 +535,26 @@ function drawMusic() {
   });
 }
 
+/** Which speakers the music and grog's voice play on (view.js speakersSheet), when it shows. */
+function drawSpeakers() {
+  if (speakersOpen && offline) shutSpeakers();
+  els["speakers-sheet"].classList.toggle("open", speakersOpen);
+  if (els["speakers-sheet"].inert === speakersOpen) els["speakers-sheet"].inert = !speakersOpen;
+  once("speakers", speakersSheet(speakers, state), (v) => {
+    setText(els["speakers-note"], v.message);
+    if (v.error) showSpeakersError(v.error);
+    els["speakers-items"].replaceChildren(
+      ...v.groups.flatMap((g) => {
+        const ul = el("ul", "group");
+        ul.setAttribute("role", "radiogroup");
+        ul.setAttribute("aria-label", g.title);
+        ul.append(...g.items.map((item) => actionItem({ ...item, kind: "button" })));
+        return [el("h3", "group-title", g.title), ul];
+      }),
+    );
+  });
+}
+
 function draw() {
   const t = now();
   drawMode(t);
@@ -527,6 +567,7 @@ function draw() {
   drawUsage(t);
   drawSheet();
   drawMusic();
+  drawSpeakers();
   tick();
 }
 
@@ -574,6 +615,7 @@ function touched() {
 
 function openSheet() {
   shutMusic();
+  shutSpeakers();
   sheetOpen = true;
   armed = null;
   touched();
@@ -639,6 +681,7 @@ function touchedMusic() {
 /** What to play: liked songs and the user's playlists, asked as it opens. */
 async function openMusic() {
   shut();
+  shutSpeakers();
   musicOpen = true;
   library = null;
   touchedMusic();
@@ -669,11 +712,70 @@ async function chooseMusic(button) {
   if (answer) closeMusic();
 }
 
+function showSpeakersError(message) {
+  setText(els["speakers-error"], message);
+  later("speakers-error", SHEET_ERROR_MS, () => setText(els["speakers-error"], ""));
+}
+
+/** The speakers sheet stays open while touched. */
+function touchedSpeakers() {
+  later("speakers", SHEET_MS, closeSpeakers);
+}
+
+/**
+ * Asks grog for `action` (speakers, or picking one: see view.js request),
+ * which answers which speakers there are: the sheet shows them, or why
+ * grog couldn't say.
+ */
+async function askSpeakers(action) {
+  const asked = ++speakersAsks;
+  let failed = "";
+  const answer = await ask(action, null, (message) => (failed = message));
+  if (asked !== speakersAsks || !speakersOpen) return;
+  if (answer) speakers = answer;
+  else if (!speakers?.speakers) speakers = { error: failed };
+  else showSpeakersError(failed);
+  draw();
+}
+
+/** Which speakers there are, asked as it opens. */
+function openSpeakers() {
+  shut();
+  shutMusic();
+  speakersOpen = true;
+  speakers = null;
+  touchedSpeakers();
+  draw();
+  askSpeakers("speakers");
+}
+
+function shutSpeakers() {
+  speakersOpen = false;
+  later("speakers", null);
+}
+
+function closeSpeakers() {
+  shutSpeakers();
+  draw();
+}
+
+/** Picks a speaker: the sheet stays, showing it picked once grog did. */
+async function chooseSpeaker(button) {
+  touchedSpeakers();
+  button.classList.add("busy");
+  await askSpeakers(button.dataset.action);
+  button.classList.remove("busy");
+}
+
 async function choose(button) {
   const action = button.dataset.action;
   const step = button.dataset.step ?? null;
   if (action === "music") {
     openMusic();
+    return;
+  }
+  if (action === "speakers") {
+    openSpeakers();
     return;
   }
   touched();
@@ -786,9 +888,18 @@ els["music-items"].addEventListener("click", (e) => {
   const button = e.target.closest("button[data-action]");
   if (button) chooseMusic(button);
 });
+// The speakers: which the music and grog's voice play on.
+els["close-speakers"].innerHTML = icon("close");
+els["close-speakers"].addEventListener("click", closeSpeakers);
+els["speakers-sheet"].addEventListener("scroll", () => speakersOpen && touchedSpeakers(), { passive: true });
+els["speakers-items"].addEventListener("click", (e) => {
+  const button = e.target.closest("button[data-action]");
+  if (button && !button.disabled) chooseSpeaker(button);
+});
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && sheetOpen) closeSheet();
   if (e.key === "Escape" && musicOpen) closeMusic();
+  if (e.key === "Escape" && speakersOpen) closeSpeakers();
 });
 els["card-qr"].addEventListener("load", () => {
   els["card-qr"].hidden = false;

@@ -349,6 +349,28 @@ class MusicTest(unittest.TestCase):
         self.assertFalse(v.ears.music())
 
 
+class SpeakerTest(unittest.TestCase):
+    def test_it_speaks_on_the_speaker_grog_picked(self):
+        v = voice(mic=slow_mic(("S", 1.0), (".", 1.0), ("S", 1.0), (".", 1.0)))
+        v.turn()
+        self.assertEqual({None}, {p.speaker for p in v.players.made}, "its own, until grog picks one")
+        with self.assertLogs("grog_voice", "INFO") as logs:
+            v.set_speaker("bluez_output.1")
+            v.set_speaker("bluez_output.1")
+        made = len(v.players.made)
+        v.turn()
+        self.assertEqual(
+            {"bluez_output.1"}, {p.speaker for p in v.players.made[made:]}, "its sounds and its answer"
+        )
+        with self.assertLogs("grog_voice", "INFO") as more:
+            v.set_speaker(None)
+        self.assertEqual(
+            ["INFO:grog_voice:speaking on bluez_output.1", "INFO:grog_voice:speaking on its own speaker"],
+            logs.output + more.output,
+            "once each",
+        )
+
+
 class AskedByGrogTest(unittest.TestCase):
     def test_its_mic_off_and_on_again(self):
         v = voice()

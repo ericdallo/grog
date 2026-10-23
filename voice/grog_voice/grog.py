@@ -1,6 +1,7 @@
 """Client of grog's HTTP API: GET /v1/status, POST /v1/chat, whose answer
 streams as server-sent events, POST /v1/voice, what grog-voice is doing,
-and GET /v1/voice/commands, what grog asks of it."""
+GET /v1/voice/commands, what grog asks of it, and POST /v1/voice/speakers,
+the speakers it asked for."""
 
 import http.client
 import json
@@ -69,6 +70,25 @@ def report(url, state, conversation_id, heard=None, timeout=2):
         conn.close()
 
 
+def report_speakers(url, answer, timeout=5):
+    """Tells grog which speakers there are, as it asked (`answer`: {"id",
+    "speakers"} or {"id", "error"}, see speakers.py). Raises GrogError when
+    it can't."""
+    conn, path = _connect(url, timeout)
+    try:
+        conn.request(
+            "POST", path + "/v1/voice/speakers", json.dumps(answer), {"Content-Type": "application/json"}
+        )
+        resp = conn.getresponse()
+        if resp.status != 200:
+            raise GrogError(_error(resp))
+        resp.read()
+    except _UNREACHABLE as e:
+        raise GrogError(f"Couldn't reach grog at {url}: {e}") from e
+    finally:
+        conn.close()
+
+
 def _events(resp):
     """The server-sent events of `resp`, as (type, data). Comments (pings)
     aren't events."""
@@ -127,10 +147,11 @@ def ask(url, conversation_id, message, said=None, timeout=90, on_connect=None):
 
 def commands(url, timeout=60):
     """Yields what grog asks of grog-voice as it comes: ("snapshot", {"mic":
-    "on" or "off"}) first, then ("mic", {"mic"}) when that changes,
-    ("listen", {}) and ("stop", {}). grog pings every 15 s: past `timeout`
-    without a word from it, it's gone. Raises GrogError when grog can't be
-    reached, or goes away."""
+    "on" or "off", "music", "speaker"}) first, then ("mic", {"mic"}),
+    ("music", {"music"}) or ("speaker", {"speaker"}) when one changes,
+    ("listen", {}), ("stop", {}) and ("speakers", {"id", "music"?}). grog
+    pings every 15 s: past `timeout` without a word from it, it's gone.
+    Raises GrogError when grog can't be reached, or goes away."""
     conn, path = _connect(url, timeout)
     try:
         try:

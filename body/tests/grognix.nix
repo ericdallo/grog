@@ -182,6 +182,9 @@ pkgs.testers.runNixOSTest {
         machine.succeed(f"su - grog -c {shlex.quote(command)}")
         # grog looks at once, when asked what plays.
         machine.wait_until_succeeds("su - grog -c 'grog music' | grep -q '^Playing Tone by Sox'")
+        # Once the skin drew its bar: OCR of a frame mid-change can take
+        # tesseract many minutes too.
+        machine.sleep(3)
         machine.wait_for_text("Tone", timeout=60)
         # To look at, in the test's output.
         machine.screenshot("skin")

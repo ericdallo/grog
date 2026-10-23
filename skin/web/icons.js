@@ -44,4 +44,9 @@ export const ICONS = {
   shuffle: '<path d="M4 7h3c4.5 0 5.5 10 10 10h3M4 17h3c1.5 0 2.6-1.2 3.4-2.8M13.6 9.8C14.4 8.2 15.5 7 17 7h3M17.5 4.5L20 7l-2.5 2.5M17.5 14.5L20 17l-2.5 2.5"/>',
   "volume-down": '<path d="M3.5 9.5H7l4.5-4v13l-4.5-4H3.5z"/><path d="M15 12h5.5"/>',
   "volume-up": '<path d="M3.5 9.5H7l4.5-4v13l-4.5-4H3.5z"/><path d="M15 12h5.5M17.75 9.25v5.5"/>',
+  speaker: '<rect x="6" y="3.5" width="12" height="17" rx="2"/><circle cx="12" cy="14" r="3.5"/><path d="M12 7.5h.01"/>',
+  bluetooth: '<path d="M7 7.5l10 9-5 4.5V3l5 4.5-10 9"/>',
+  screen: '<rect x="3" y="4.5" width="18" height="12" rx="1.5"/><path d="M8.5 20h7M12 16.5V20"/>',
+  headphones:
+    '<path d="M4.5 15v-3a7.5 7.5 0 0 1 15 0v3"/><rect x="3.5" y="14" width="4" height="6.5" rx="1.5"/><rect x="16.5" y="14" width="4" height="6.5" rx="1.5"/>',
 };

@@ -103,7 +103,7 @@ The brain is sandboxed and can't touch the machine. Its hands can. They're
 (`services.grog.hands` on NixOS), taking commands from the brain over a unix
 socket (`hands.socket`). With them, the model can:
 
-- set the speaker's volume
+- set the volume of the speaker it speaks on
 - tell how the machine is doing: load, memory, disk, temperature, network,
   audio and Bluetooth devices, services, last deploy
 - run shell commands. It only asks first when a command could lose data or
@@ -430,6 +430,19 @@ without captions, but grog never logs them. The skin's buttons go through
 the user's playlists (or liked songs) through what plays, with their
 account, then plays one by its `id`.
 
+### Speakers
+
+At its skin (Speakers, in its actions), the music and grog's voice can play
+on different speakers: the music on a Bluetooth speaker, say, and grog on
+the machine's own. grog-voice says which there are, as its session's
+PipeWire has them ([voice/](../voice/README.md)). The music plays on the
+session's default speaker, and picking one for it makes it the default
+(WirePlumber keeps it, and goes back to it when it's back). grog's voice
+plays with the music, or on the one picked for it, kept in `voice.json`
+(PipeWire plays it on the default while that one isn't there). The volume
+grog changes, through its hands, is the one of the speaker it speaks on;
+the music has its own.
+
 ### A Google client for grog
 
 Given to grog, a client lets whoever connects YouTube Music do it with just
@@ -543,10 +556,11 @@ JSON keys are lowerCamelCase.
 | `GET /v1/qr?text=...` | Its QR code, as SVG, for the skin |
 | `GET /v1/events` | What it's up to, as server-sent events: a `snapshot`, then each change ([`events.clj`](src/grog/events.clj)), what its player plays included (`music`, [on its screen](#on-its-screen)) |
 | `POST /v1/voice` `{"state", "conversationId", "heard"}` | grog-voice saying what it's doing, and with captions what it heard. Answers `{"captions", "name"}` |
-| `GET /v1/voice/commands` | What grog-voice is asked, as server-sent events: a `snapshot` with whether its `mic` is `"on"` or `"off"` and whether grog's `music` plays (`true` or `false`), then `mic` or `music` when one changes, `listen` (now, without its name) and `stop` (answering) |
+| `GET /v1/voice/commands` | What grog-voice is asked, as server-sent events: a `snapshot` with whether its `mic` is `"on"` or `"off"`, whether grog's `music` plays (`true` or `false`) and the `speaker` it speaks on (a name, or `null`: its own), then `mic`, `music` or `speaker` when one changes, `listen` (now, without its name), `stop` (answering) and `speakers` `{"id", "music"}` (which there are, making `music` the default first, if given) |
+| `POST /v1/voice/speakers` `{"id", "speakers"}` or `{"id", "error"}` | grog-voice saying which [speakers](#speakers) there are, as asked: `[{"name", "label", "kind", "default"}]`, `kind` being `bluetooth`, `usb`, `hdmi`, `headphones` or `speaker` |
 | `POST /v1/music` `{"action", "query", "kind", "shuffle", "level", "change", "id"}` | Does it through what plays [music](#music), as the `music` tool takes them: `{"provider", "text"}`, `text` saying what it did. `id`, with its `kind` (`song`, `album`, `playlist` or `my-playlist`), plays exactly that, like one from the library. A 400 without a known `action`, with a bad `id`, or saying why it can't |
 | `GET /v1/music/library?kind=playlists` | The user's playlists (or `kind=liked`, their liked songs) through what plays [music](#music), with their account: `{"items": [{"kind", "id", "title", "artist", "count"}]}`. A 409 without it (`{"error", "connect": "youtube-music"}`), or without a player; a 502 when YouTube doesn't answer |
-| `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice; `stop` also pauses the music), `mic` `{"on"}`, `volume` (`{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `new-conversation` (forgets them all), `connect` `{"integration", "way"}` (opens a session, like `POST /v1/integrations/<id>/connect`), `update` (starts [updating](#updating), unless it is: `{"started"}`), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
+| `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice; `stop` also pauses the music), `mic` `{"on"}`, `speakers` (`{}` tells which there are, `{"music": name}` plays the music on one, `{"voice": name}` grog's voice, `null` back with the music: `{"speakers", "voice"}`, see [Speakers](#speakers)), `volume` (of the speaker grog speaks on: `{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `new-conversation` (forgets them all), `connect` `{"integration", "way"}` (opens a session, like `POST /v1/integrations/<id>/connect`), `update` (starts [updating](#updating), unless it is: `{"started"}`), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
 | `GET /` | The skin, with `skin.dir` |
 | `GET /health` | `ok` |
 

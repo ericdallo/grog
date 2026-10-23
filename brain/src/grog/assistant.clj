@@ -48,8 +48,9 @@
 
 (defn publish-status!
   "Tells whoever watches (grog.events) who grog is (its revision too), how
-  it's paid, its time zone, what can be asked of it, whether its mic is on,
-  what's connected to it, and what it consumed, now."
+  it's paid, its time zone, what can be asked of it, whether its mic is on
+  and the speaker it speaks on, what's connected to it, and what it
+  consumed, now."
   [ctx]
   (let [config @(:config ctx)]
     (events/publish! (:events ctx) (merge {:type :status
@@ -58,6 +59,7 @@
                                            :timezone (config/timezone config)
                                            :actions (actions/available config)
                                            :mic (voice/mic (:voice ctx))
+                                           :speaker (voice/speaker (:voice ctx))
                                            :integrations (integrations/summary config)}
                                           (select-keys (provider/describe-quietly config) [:provider :model :auth])))
     (usage/publish! ctx)))

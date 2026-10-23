@@ -1,19 +1,33 @@
 (ns grog.machine
   "Tools that act on the machine grog runs on, through its hands (grog.hands,
-  the `hands.socket` setting): the speaker's volume, how the machine is
-  doing, and a shell, which runs what the model asks right away. Restarting
-  is grog.actions'."
+  the `hands.socket` setting): the volume of the speaker grog speaks on, how
+  the machine is doing, and a shell, which runs what the model asks right
+  away. Restarting is grog.actions'."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [grog.events :as events]
-            [grog.hands :as hands]))
+            [grog.hands :as hands]
+            [grog.voice :as voice]))
 
 (defn ^:private on-machine!
   "Runs `command` through the hands: {:exit :output :timed-out :truncated}."
   [config command]
   (hands/ask! (get-in config [:hands :socket]) command))
 
-(def ^:private sink "@DEFAULT_AUDIO_SINK@")
+(def ^:private default-sink "@DEFAULT_AUDIO_SINK@")
+
+(defn ^:private quoted
+  "`s` as a single word for bash."
+  [s]
+  (str "'" (str/replace s "'" "'\\''") "'"))
+
+(defn ^:private find-sink
+  "Bash setting `sink` to the id of the speaker named `speaker`, found with
+  pw-dump, or to the default one while it isn't there (grog-voice speaks on
+  that one then)."
+  [speaker]
+  (str "sink=$(pw-dump -N " (quoted speaker) " 2>/dev/null | grep -m 1 -o '\"id\": *[0-9]*' | grep -o '[0-9]*$'); "
+       "sink=${sink:-" default-sink "}; "))
 
 (defn ^:private whole
   "`args`'s `k`, a number from `lo` to `hi`, rounded; nil when absent."
@@ -26,20 +40,25 @@
 
 (defn volume-command
   "The wpctl commands doing what the `volume` tool's `args` say, then telling
-  the volume."
-  [args]
-  (let [level (whole args :level 0 100)
-        change (whole args :change -100 100)
-        mute (:mute args)]
-    (when-not (or (nil? mute) (boolean? mute))
-      (throw (ex-info "mute must be true or false" {})))
-    (str/join " && " (concat (when (some? mute)
-                               [(str "wpctl set-mute " sink " " (if mute 1 0))])
-                             (when level
-                               [(str "wpctl set-volume -l 1 " sink " " level "%")])
-                             (when change
-                               [(str "wpctl set-volume -l 1 " sink " " (abs change) "%" (if (neg? change) "-" "+"))])
-                             [(str "wpctl get-volume " sink)]))))
+  the volume, on the speaker named `speaker` (the one picked for
+  grog-voice), or the default one."
+  ([args]
+   (volume-command args nil))
+  ([args speaker]
+   (let [level (whole args :level 0 100)
+         change (whole args :change -100 100)
+         mute (:mute args)
+         sink (if speaker "\"$sink\"" default-sink)]
+     (when-not (or (nil? mute) (boolean? mute))
+       (throw (ex-info "mute must be true or false" {})))
+     (str (when speaker (find-sink speaker))
+          (str/join " && " (concat (when (some? mute)
+                                     [(str "wpctl set-mute " sink " " (if mute 1 0))])
+                                   (when level
+                                     [(str "wpctl set-volume -l 1 " sink " " level "%")])
+                                   (when change
+                                     [(str "wpctl set-volume -l 1 " sink " " (abs change) "%" (if (neg? change) "-" "+"))])
+                                   [(str "wpctl get-volume " sink)]))))))
 
 (defn volume-of
   "The volume `volume-command` told, from what it printed: {:level :muted},
@@ -49,11 +68,12 @@
     {:level (Math/round (* 100 (Double/parseDouble level))) :muted (some? muted)}))
 
 (defn set-volume!
-  "Tells the speaker's volume, or changes it as `args` say (see
-  `volume-command`), telling whoever watches grog (grog.events): {:level
-  :muted}."
-  [{:keys [config events]} args]
-  (let [{:keys [exit output]} (on-machine! @config (volume-command args))
+  "Tells the volume of the speaker grog speaks on, or changes it as `args`
+  say (see `volume-command`), telling whoever watches grog (grog.events):
+  {:level :muted}."
+  [{:keys [config events] :as ctx} args]
+  (let [speaker (some-> (:voice ctx) voice/speaker :name)
+        {:keys [exit output]} (on-machine! @config (volume-command args speaker))
         volume (volume-of output)]
     (if (and (zero? exit) volume)
       (do (events/publish! events (assoc volume :type :volume))
@@ -71,7 +91,8 @@
 (def volume-tool
   {:name "volume"
    :detail volume-detail
-   :description "The speaker's volume: tells it, or changes it when the user asks (louder, quieter, to a level, mute, unmute)."
+   :description (str "The volume of the speaker you speak on: tells it, or changes it when the user asks (louder, "
+                     "quieter, to a level, mute, unmute).")
    :parameters {:type "object"
                 :properties {:level {:type "integer" :minimum 0 :maximum 100
                                      :description "Set it to this percentage."}

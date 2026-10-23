@@ -194,6 +194,38 @@
                                               " and maybe \"heard\": {\"text\", \"final\": true or false}}.")
                                          (str/join ", " (sort events/voice-states)))}))))
 
+;; What a speaker can be (voice/grog_voice/speakers.py), and how many.
+(def ^:private speaker-kinds #{"bluetooth" "usb" "hdmi" "headphones" "speaker"})
+(def ^:private max-speakers 64)
+
+(defn ^:private speaker?
+  "Whether `s` is a speaker as grog-voice tells them: {:name :label :kind
+  :default}."
+  [s]
+  (and (map? s)
+       (voice/name? (:name s))
+       (voice/name? (:label s))
+       (contains? speaker-kinds (:kind s))
+       (boolean? (:default s))))
+
+(defn ^:private voice-speakers
+  "grog-voice saying which speakers its session has, as it was asked
+  (grog.voice/speakers!), or why it can't."
+  [ctx req]
+  (let [body (read-json req)
+        {:keys [id speakers error]} (when (map? body) body)]
+    (if (and (int? id)
+             (if (some? error)
+               (and (string? error) (<= (count error) 500) (nil? speakers))
+               (and (sequential? speakers) (<= (count speakers) max-speakers) (every? speaker? speakers))))
+      (do (voice/speakers-said! (:voice ctx) (if error
+                                               {:id id :error error}
+                                               {:id id :speakers (mapv #(select-keys % [:name :label :kind :default])
+                                                                       speakers)}))
+          (json-response 200 {}))
+      (json-response 400 {:error (str "Send {\"id\": what was asked, and \"speakers\": [{\"name\", \"label\", "
+                                      "\"kind\", \"default\"}], or \"error\"}.")}))))
+
 (defn ^:private way
   "How a connect request's `body` asks to connect: its way, or nil for the
   usual one."
@@ -486,6 +518,9 @@
 
        (= [:get "/v1/voice/commands"] [request-method uri])
        (voice-commands ctx req)
+
+       (= [:post "/v1/voice/speakers"] [request-method uri])
+       (voice-speakers ctx req)
 
        (and action-name (= :post request-method))
        (action ctx action-name req)

@@ -34,6 +34,7 @@ import {
   shortRevision,
   songTime,
   spacedCode,
+  speakersSheet,
   STALE_MS,
   stale,
   STILL_MS,
@@ -1213,6 +1214,99 @@ describe("the music", () => {
     });
     assert.deepEqual(request(sheet.items[0].id, state()).body, { integration: "youtube-music" });
     assert.equal(musicSheet({ error: "x", connect: "youtube-music" }).items[0].label, "Connect it");
+  });
+});
+
+describe("the speakers", () => {
+  const bt = { name: "bluez_output.1", label: "EDIFIER", kind: "bluetooth", default: true };
+  const builtIn = { name: "alsa_output.speaker", label: "Speaker", kind: "speaker", default: false };
+  const hdmi = { name: "alsa_output.hdmi", label: "HDMI / DisplayPort 1 Output", kind: "hdmi", default: false };
+
+  it("in the actions, saying where grog's voice is when it was picked", () => {
+    const [item] = menu(state({ actions: ["speakers"] }));
+    assert.deepEqual([item.id, item.kind, item.group, item.label, item.icon, item.detail], [
+      "speakers",
+      "button",
+      "everyday",
+      "Speakers",
+      "speaker",
+      "where the music and the voice play",
+    ]);
+    const picked = menu(state({ actions: ["speakers"], speaker: { name: builtIn.name, label: "Speaker" } }));
+    assert.equal(picked[0].detail, "Grog's voice on Speaker");
+    assert.ok(!menu(state({ actions: ["mic"] })).some((i) => i.id === "speakers"));
+  });
+
+  it("its sheet: the music on the default one, grog's voice with it until another is picked", () => {
+    const sheet = speakersSheet({ speakers: [bt, builtIn, hdmi], voice: null }, state());
+    assert.deepEqual([sheet.loading, sheet.message, sheet.error], [false, "", ""]);
+    assert.deepEqual(
+      sheet.groups.map((g) => [g.title, g.items.map((i) => [i.id, i.label, i.detail, i.chosen])]),
+      [
+        [
+          "Music",
+          [
+            ["speaker-music:bluez_output.1", "EDIFIER", "Bluetooth", true],
+            ["speaker-music:alsa_output.speaker", "Speaker", "Built in", false],
+            ["speaker-music:alsa_output.hdmi", "HDMI / DisplayPort 1 Output", "HDMI", false],
+          ],
+        ],
+        [
+          "Grog's voice",
+          [
+            ["speaker-voice:", "With the music", "on the same speaker", true],
+            ["speaker-voice:bluez_output.1", "EDIFIER", "Bluetooth", false],
+            ["speaker-voice:alsa_output.speaker", "Speaker", "Built in", false],
+            ["speaker-voice:alsa_output.hdmi", "HDMI / DisplayPort 1 Output", "HDMI", false],
+          ],
+        ],
+      ],
+    );
+    for (const item of sheet.groups.flatMap((g) => g.items)) assert.ok(ICONS[item.icon], item.icon);
+    const picked = speakersSheet({ speakers: [bt, builtIn], voice: { name: builtIn.name, label: "Speaker" } });
+    assert.deepEqual(
+      picked.groups[1].items.map((i) => [i.label, i.chosen]),
+      [
+        ["With the music", false],
+        ["EDIFIER", false],
+        ["Speaker", true],
+      ],
+    );
+    assert.equal(picked.groups[1].title, "Its voice", "without grog's name");
+  });
+
+  it("a speaker picked for grog's voice that isn't there now", () => {
+    const sheet = speakersSheet({ speakers: [builtIn], voice: { name: bt.name, label: "EDIFIER" } });
+    const gone = sheet.groups[1].items.at(-1);
+    assert.deepEqual([gone.label, gone.chosen, gone.disabled, gone.detail], [
+      "EDIFIER",
+      true,
+      true,
+      "not there now: with the music meanwhile",
+    ]);
+    assert.equal(sheet.groups[1].items.filter((i) => i.chosen).length, 1);
+  });
+
+  it("its sheet while grog looks, and when it can't", () => {
+    assert.deepEqual(speakersSheet(null), { loading: true, groups: [], message: "Looking for speakers…", error: "" });
+    assert.deepEqual(speakersSheet({ error: "its voice isn't there to ask" }), {
+      loading: false,
+      groups: [],
+      message: "",
+      error: "Its voice isn't there to ask",
+    });
+    assert.equal(speakersSheet({ speakers: [], voice: null }).message, "No speakers found");
+  });
+
+  it("what picking one asks of grog", () => {
+    assert.deepEqual(request("speakers", state()), { method: "POST", path: "/v1/actions/speakers", body: {} });
+    assert.deepEqual(request("speaker-music:bluez_output.1", state()), {
+      method: "POST",
+      path: "/v1/actions/speakers",
+      body: { music: "bluez_output.1" },
+    });
+    assert.deepEqual(request("speaker-voice:alsa_output.speaker", state()).body, { voice: "alsa_output.speaker" });
+    assert.deepEqual(request("speaker-voice:", state()).body, { voice: null });
   });
 });
 

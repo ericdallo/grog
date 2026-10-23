@@ -372,7 +372,7 @@
       (let [[got close!] (watch-events url "/v1/voice/commands")]
         (try
           (testing "it's told first whether its mic is on"
-            (is (eventually #(= [["snapshot" {:mic "on" :music false}]] @got))))
+            (is (eventually #(= [["snapshot" {:mic "on" :music false :speaker nil}]] @got))))
           (testing "then to listen, or to stop"
             (is (= 200 (:status (post "listen" ""))))
             (is (= 200 (:status (post "stop" "{}"))))
@@ -397,10 +397,41 @@
             url (str "http://127.0.0.1:" (:port srv))
             [got close!] (watch-events url "/v1/voice/commands")]
         (try
-          (is (eventually #(= [["snapshot" {:mic "off" :music false}]] @got)))
+          (is (eventually #(= [["snapshot" {:mic "off" :music false :speaker nil}]] @got)))
           (finally
             (close!)
             (server/stop! srv)))))))
+
+(deftest grog-voice-says-which-speakers-there-are
+  (let [srv (start-server-at "http://127.0.0.1:1" (h/temp-dir))
+        url (str "http://127.0.0.1:" (:port srv))
+        post (fn [path body]
+               (let [resp (http-client/post (str url path) {:headers {"content-type" "application/json"}
+                                                            :body (json/generate-string body)
+                                                            :throw false})]
+                 [(:status resp) (json/parse-string (:body resp) true)]))
+        speakers [{:name "bluez_output.1" :label "EDIFIER" :kind "bluetooth" :default true}]
+        [got close!] (watch-events url "/v1/voice/commands")]
+    (try
+      (is (eventually #(= "snapshot" (ffirst @got))))
+      (testing "as grog asks it, for whoever's at its screen"
+        (let [answer (future (post "/v1/actions/speakers" {}))]
+          (is (eventually #(= "speakers" (first (last @got)))))
+          (let [{:keys [id]} (second (last @got))]
+            (testing "only speakers"
+              (is (= 400 (first (post "/v1/voice/speakers" {:id id :speakers [{:name "bluez_output.1"}]}))))
+              (is (= 400 (first (post "/v1/voice/speakers" {:id "1" :speakers speakers}))))
+              (is (= 400 (first (post "/v1/voice/speakers" {:id id :speakers speakers :error "both"})))))
+            (is (= [200 {}] (post "/v1/voice/speakers" {:id id :speakers speakers}))))
+          (is (= [200 {:speakers speakers :voice nil}] (deref answer 5000 :not-yet)))))
+      (testing "or why it can't"
+        (let [answer (future (post "/v1/actions/speakers" {:music "bluez_output.1"}))]
+          (is (eventually #(= "bluez_output.1" (:music (second (last @got))))))
+          (post "/v1/voice/speakers" {:id (:id (second (last @got))) :error "pw-dump exited with 1"})
+          (is (= [400 {:error "pw-dump exited with 1"}] (deref answer 5000 :not-yet)))))
+      (finally
+        (close!)
+        (server/stop! srv)))))
 
 (deftest grog-voice-learns-whether-what-it-hears-is-shown-and-the-name
   (doseq [captions [false true]]
@@ -430,6 +461,9 @@
             (is (= 200 (report-voice url {:state "hearing" :conversationId "voice"} "application/json")))
             (is (eventually #(= ["voice" "hearing"] ((juxt first (comp :state :event second)) (last @got))))))
           (testing "and what it heard for grog, which only goes out with captions"
+            ;; Without what it heard, the same report in the same millisecond
+            ;; would change nothing, and go to no one.
+            (Thread/sleep 2)
             (is (= 200 (report-voice url {:state "hearing" :conversationId "voice"
                                           :heard {:text "Grog, sunny tomorrow?" :final false}}
                                      "application/json")))
