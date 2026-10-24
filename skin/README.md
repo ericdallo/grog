@@ -2,11 +2,12 @@
 
 grog's skin: a page showing what grog is up to, for a screen next to it.
 
-- A third of the screen takes a color, and grog's face, for what it's doing:
-  listening, hearing you, thinking, using a tool, speaking, its mic off,
-  restarting, or something wrong. Big enough to read from across the room. It looks pleased when a
-  turn went well, dozes when nobody talked to it for a while, and gets
-  sleepy at night, when the screen goes dark.
+- Nearly a third of the screen takes a color, and grog's face, for what
+  it's doing: listening, hearing you, thinking, using a tool, speaking, its
+  mic off, restarting, or something wrong. Big enough to read from across
+  the room. It looks pleased when a turn went well, dozes when nobody
+  talked to it for a while, and gets sleepy at night, when the screen goes
+  dark.
 - The time, and the steps of the last turn with how long each took.
 - Under the time, how an update goes while it does, and how it went.
 - The last turns, as a chat: with captions, what you say as you say it,
@@ -14,9 +15,10 @@ grog's skin: a page showing what grog is up to, for a screen next to it.
   search, a command); without, only which tools it used, and how long each
   turn took. It keeps to the latest, but you can scroll back, and a button
   (or leaving it alone a while) brings it back.
-- While grog's player plays, or is paused, a bar under the rest: the song
-  and its artist, its time (counted on by the skin between grog's updates),
-  and its buttons. Hidden while a card shows, under the sheets.
+- While grog's player plays, or is paused, a bar under the rest, in place
+  of the steps of the last turn: the song and its artist, its time (counted
+  on by the skin between grog's updates), and its buttons. Hidden while a
+  card shows, under the sheets.
 - In its actions, what it costs: how much of the subscription's limits is
   used, or what the API key spent.
 - Connecting something (signing in to ChatGPT, adding a computer), a card:
@@ -107,6 +109,10 @@ grog is its only user, and whoever is in the room hears it anyway.
 Plain HTML, CSS and JS in `web/`, with no build and no dependencies.
 `view.js` decides what to show and is tested with `node --test`, `skin.js`
 draws it, and `face.js` draws grog's face and makes it move.
+
+Sizes go by the screen (vmin), but on a small one, like a 7" one at
+800x480, the smallest text and the buttons keep to a least size in px
+(`--tiny`, `--small` and `--finger`, in `skin.css`).
 
 Point a local grog's `skin.dir` at `skin/web` and open
 `http://localhost:8484/`. The fonts come with the Nix package; without them

@@ -4,7 +4,9 @@
    gradients. Whatever moves animates
    transform and opacity only, and only while something happens: each frame
    costs CPU, and grog-voice needs it. Colors change at once, never through a
-   transition (a repaint per frame). Sizes in vmin: it fills any screen. */
+   transition (a repaint per frame). Sizes in vmin: it fills any screen. On a
+   small one (a 7" one, 800x480), the smallest text and buttons keep to a
+   least size, in px (--tiny, --small, --finger). */
 
 @font-face {
   font-family: "Inter";
@@ -37,6 +39,12 @@
   --amber: #ffa502;
   --text: "Inter", "Cantarell", system-ui, sans-serif;
   --mono: "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  /* The least text can be, however small the screen: what's only there to
+     glance at (times, steps, titles in capitals), and what's to be read. */
+  --tiny: 10px;
+  --small: 11px;
+  /* The least a button can be, for a finger. */
+  --finger: 44px;
 }
 
 /* What grog does, by color (--mode): red when it went wrong just now, which
@@ -136,16 +144,16 @@ button,
   display: grid;
   flex: none;
   place-items: center;
-  width: 8vmin;
-  height: 8vmin;
+  width: max(8vmin, var(--finger));
+  height: max(8vmin, var(--finger));
   border-radius: 50%;
   background: var(--card);
   color: var(--ink);
 }
 
 .round svg {
-  width: 3.6vmin;
-  height: 3.6vmin;
+  width: max(3.6vmin, 20px);
+  height: max(3.6vmin, 20px);
 }
 
 [hidden] {
@@ -166,9 +174,11 @@ ol {
   list-style: none;
 }
 
+/* Its block, nearly a third of the screen, and the rest, wide enough for the
+   music's bar on a row even on a 7" screen (800x480). */
 .app {
   display: grid;
-  grid-template-columns: 36% 1fr;
+  grid-template-columns: 30% 1fr;
   grid-template-rows: minmax(0, 1fr);
   height: 100vh;
 }
@@ -214,12 +224,13 @@ ol {
   display: none;
 }
 
-/* grog's face (face.js), as big as the block lets it be. */
+/* grog's face (face.js), as big as the block lets it be, across its padding
+   too: its drawing has room enough around the eye. */
 .avatar {
   position: relative;
   flex: 1;
   min-height: 0;
-  margin: 2vmin 0;
+  margin: 2vmin -5.5vmin;
 }
 
 .avatar > svg {
@@ -253,7 +264,7 @@ ol {
 .timer {
   min-height: 2.8vmin;
   margin-top: 1vmin;
-  font: 400 2vmin var(--mono);
+  font: 400 max(2vmin, var(--tiny)) var(--mono);
   opacity: 0.75;
 }
 
@@ -302,7 +313,7 @@ ol {
   gap: 1.2vmin;
   margin-top: 1.6vmin;
   color: var(--muted);
-  font-size: 2.2vmin;
+  font-size: max(2.2vmin, var(--small));
 }
 
 .notice[hidden] {
@@ -431,7 +442,7 @@ ol {
 
 .card-error {
   margin-top: 1vmin;
-  font-size: 2.2vmin;
+  font-size: max(2.2vmin, var(--small));
 }
 
 .card-help {
@@ -447,14 +458,14 @@ ol {
 .card-help .first {
   margin-bottom: 0.8vmin;
   color: var(--amber);
-  font: 700 1.8vmin/1 var(--text);
+  font: 700 max(1.8vmin, var(--tiny))/1 var(--text);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
 .card-help .url {
   margin: 0.8vmin 0 0;
-  font-size: 2.2vmin;
+  font-size: max(2.2vmin, var(--small));
 }
 
 .card-buttons {
@@ -465,6 +476,7 @@ ol {
 
 .card .choice {
   min-width: 22vmin;
+  min-height: var(--finger);
   padding: 2.2vmin 4vmin;
   border-radius: 1.4vmin;
   background: var(--card);
@@ -516,7 +528,7 @@ ol {
 
 .chat:empty::after {
   color: var(--muted);
-  font-size: 2.2vmin;
+  font-size: max(2.2vmin, var(--small));
   content: "Nothing yet";
 }
 
@@ -590,14 +602,14 @@ ol {
 
 .reply .tool .what {
   flex: none;
-  font-size: 2vmin;
+  font-size: max(2vmin, var(--small));
   font-weight: 600;
 }
 
 .reply .tool .with {
   overflow: hidden;
   color: var(--muted);
-  font: 400 1.8vmin var(--mono);
+  font: 400 max(1.8vmin, var(--tiny)) var(--mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -612,7 +624,7 @@ ol {
   gap: 1.4vmin;
   margin-top: 1vmin;
   color: var(--muted);
-  font: 400 1.6vmin var(--mono);
+  font: 400 max(1.6vmin, var(--tiny)) var(--mono);
 }
 
 .reply .end.failed .how {
@@ -660,13 +672,13 @@ ol {
 }
 
 .step .name {
-  font-size: 1.7vmin;
+  font-size: max(1.7vmin, var(--tiny));
   font-weight: 600;
 }
 
 .step .offset {
   color: var(--muted);
-  font: 400 1.5vmin var(--mono);
+  font: 400 max(1.5vmin, var(--tiny)) var(--mono);
 }
 
 /* The block's color by day, dimmed at night. */
@@ -688,23 +700,25 @@ ol {
   color: var(--red);
 }
 
-/* What grog's player plays (view.js nowPlaying), under the rest: choosing
-   what plays, the song and its time, and its buttons, big enough for a
-   finger. Out of the way of a card, under the sheets. Nothing in it moves:
-   its time changes once a second. */
+/* What grog's player plays (view.js nowPlaying), under the rest, in place
+   of the steps of the last turn (body.music): choosing what plays, the song
+   and its time, and its buttons, big enough for a finger. Out of the way of
+   a card, under the sheets. Nothing in it moves: its time changes once a
+   second. */
 .player {
   display: flex;
   flex: none;
   flex-wrap: wrap;
   align-items: center;
-  gap: 1.6vmin 2vmin;
+  gap: 1.6vmin;
   margin-top: 2.4vmin;
-  padding: 1.4vmin 1.8vmin;
+  padding: 1.4vmin 1.6vmin;
   border-radius: 1.4vmin;
   background: var(--card);
 }
 
-.connecting .player {
+.connecting .player,
+.music .pipeline {
   display: none;
 }
 
@@ -712,10 +726,10 @@ ol {
   background: var(--bg);
 }
 
-/* Play or pause: the one to find first, the ink's color. */
+/* Play or pause: the one to find first, the ink's color, a little bigger. */
 .player .round.main {
-  width: 10vmin;
-  height: 10vmin;
+  width: max(10vmin, calc(var(--finger) + 4px));
+  height: max(10vmin, calc(var(--finger) + 4px));
   background: var(--ink);
   color: var(--bg);
 }
@@ -725,8 +739,10 @@ ol {
   height: 4.2vmin;
 }
 
+/* The song: on the buttons' row once it has 26vmin there, taking what room
+   the row has to spare. */
 .playing {
-  flex: 1 1 30vmin;
+  flex: 10 1 26vmin;
   min-width: 0;
 }
 
@@ -737,10 +753,9 @@ ol {
   flex: 1 0 auto;
   align-items: center;
   justify-content: space-between;
-  gap: 3vmin;
+  gap: 2.4vmin;
 }
 
-.player .song,
 .player .artist,
 .player-error {
   overflow: hidden;
@@ -748,8 +763,14 @@ ol {
   white-space: nowrap;
 }
 
+/* Two lines at most: most of a long title shows, even on a small screen. */
 .player .song {
+  display: -webkit-box;
+  overflow: hidden;
   font: 700 3vmin/1.2 var(--text);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .player .line {
@@ -758,7 +779,7 @@ ol {
   gap: 1.6vmin;
   margin-top: 0.6vmin;
   color: var(--muted);
-  font-size: 2.3vmin;
+  font-size: max(2.3vmin, var(--small));
 }
 
 .player .artist {
@@ -767,14 +788,14 @@ ol {
 
 .player .at {
   flex: none;
-  font: 400 2.1vmin var(--mono);
+  font: 400 max(2.1vmin, var(--tiny)) var(--mono);
   font-variant-numeric: tabular-nums;
 }
 
 .player-error {
   margin-top: 0.6vmin;
   color: var(--red);
-  font-size: 2.2vmin;
+  font-size: max(2.2vmin, var(--small));
 }
 
 .player .artist:empty,
@@ -789,13 +810,13 @@ ol {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 1.2vmin;
+  gap: 1vmin;
 }
 
 .loudness .level {
   min-width: 4.6vmin;
   color: var(--muted);
-  font: 400 2.2vmin var(--mono);
+  font: 400 max(2.2vmin, var(--small)) var(--mono);
   text-align: center;
 }
 
@@ -814,7 +835,7 @@ ol {
 .panel h2 {
   margin: 0 0 1vmin;
   color: var(--muted);
-  font: 700 1.6vmin/1 var(--text);
+  font: 700 max(1.6vmin, var(--tiny))/1 var(--text);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -829,7 +850,7 @@ ol {
 
 .meter .key {
   color: var(--muted);
-  font: 400 2vmin var(--mono);
+  font: 400 max(2vmin, var(--tiny)) var(--mono);
 }
 
 .meter .track {
@@ -854,14 +875,14 @@ ol {
 }
 
 .meter .value {
-  font: 400 2.3vmin var(--mono);
+  font: 400 max(2.3vmin, var(--small)) var(--mono);
 }
 
 .meter .reset {
   grid-column: 2 / 4;
   margin-top: -0.5vmin;
   color: var(--muted);
-  font: 400 1.6vmin var(--mono);
+  font: 400 max(1.6vmin, var(--tiny)) var(--mono);
 }
 
 .spent {
@@ -872,7 +893,7 @@ ol {
 .usage .note {
   margin-top: 1vmin;
   color: var(--muted);
-  font-size: 1.8vmin;
+  font-size: max(1.8vmin, var(--small));
 }
 
 .chart {
@@ -961,7 +982,7 @@ ol {
 .items .group-title {
   margin: 0 0 -1.6vmin;
   color: var(--muted);
-  font: 700 1.6vmin/1 var(--text);
+  font: 700 max(1.6vmin, var(--tiny))/1 var(--text);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -973,7 +994,7 @@ ol {
   gap: 2vmin;
   box-sizing: border-box;
   width: 100%;
-  min-height: 8.5vmin;
+  min-height: max(8.5vmin, var(--finger));
   padding: 1.2vmin 2.8vmin;
   border-radius: 1.4vmin;
   background: var(--card);
@@ -997,7 +1018,7 @@ ol {
   display: block;
   margin-top: 0.4vmin;
   color: var(--muted);
-  font-size: 1.9vmin;
+  font-size: max(1.9vmin, var(--small));
   font-weight: 400;
 }
 
@@ -1046,8 +1067,8 @@ ol {
 }
 
 .item.volume .round {
-  width: 6.5vmin;
-  height: 6.5vmin;
+  width: max(6.5vmin, var(--finger));
+  height: max(6.5vmin, var(--finger));
   background: var(--bg);
 }
 
@@ -1076,7 +1097,7 @@ ol {
 
 .item.volume .value {
   width: 7vmin;
-  font: 400 2.3vmin var(--mono);
+  font: 400 max(2.3vmin, var(--small)) var(--mono);
   text-align: right;
 }
 
@@ -1106,6 +1127,7 @@ ol {
 
 /* A button of words, under a list (looking again for networks). */
 .text-button {
+  min-height: var(--finger);
   padding: 1.8vmin 3.6vmin;
   border-radius: 1.4vmin;
   background: var(--card);
@@ -1193,7 +1215,7 @@ ol {
 .password-note {
   min-height: 2.6vmin;
   color: var(--muted);
-  font-size: 2.2vmin;
+  font-size: max(2.2vmin, var(--small));
 }
 
 .password-note.failed {
@@ -1216,7 +1238,7 @@ ol {
   display: grid;
   flex: 1 1 0;
   place-items: center;
-  max-width: 9vmin;
+  max-width: max(9vmin, var(--finger));
   height: 11vmin;
   border-radius: 1.2vmin;
   background: var(--card);
@@ -1284,14 +1306,14 @@ ol {
   min-height: 3vmin;
   margin-top: 2vmin;
   color: var(--red);
-  font-size: 2.2vmin;
+  font-size: max(2.2vmin, var(--small));
 }
 
 /* Which version of grog this is, at the bottom. */
 .sheet-version {
   margin-top: auto;
   color: var(--muted);
-  font: 400 1.9vmin var(--mono);
+  font: 400 max(1.9vmin, var(--tiny)) var(--mono);
 }
 
 /* grog's face (face.js): Lid, drawn in the block's ink (--on) on its color

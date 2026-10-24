@@ -519,12 +519,14 @@ function drawSheet() {
 }
 
 /**
- * What grog's player plays (view.js nowPlaying), in a bar under the rest:
- * the song, its time, and its buttons. Its time changes once a second
- * while it plays, and nothing else moves.
+ * What grog's player plays (view.js nowPlaying), in a bar under the rest,
+ * in place of the steps of the last turn: the song, its time, and its
+ * buttons. Its time changes once a second while it plays, and nothing else
+ * moves.
  */
 function drawPlayer(t) {
   const p = nowPlaying(state, t, offline);
+  document.body.classList.toggle("music", Boolean(p));
   if (els.player.hidden === Boolean(p)) els.player.hidden = !p;
   if (!p) return;
   setText(els["player-title"], p.title);
@@ -1064,10 +1066,16 @@ els.chat.addEventListener("scroll", () => {
   els["chat-end"].hidden = following;
   later("follow", following ? null : FOLLOW_MS, follow);
 });
-// Words take more room once their fonts are in.
-document.fonts.ready.then(() => {
+// Words take more room once their fonts are in, each loading once something
+// first needs it (a turn's times, say).
+document.fonts.addEventListener("loadingdone", () => {
   if (following) els.chat.scrollTop = els.chat.scrollHeight;
 });
+// What shows under or over the chat comes and goes (the music's bar, the
+// steps, a card): it keeps to its end, its box smaller or bigger.
+new ResizeObserver(() => {
+  if (following) els.chat.scrollTop = els.chat.scrollHeight;
+}).observe(els.chat);
 els["chat-end"].innerHTML = icon("down");
 els["chat-end"].addEventListener("click", follow);
 // Touching grog's face talks to it, or stops it.
