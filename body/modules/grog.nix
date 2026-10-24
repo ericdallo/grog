@@ -36,6 +36,11 @@ let
   # PipeWire's filter-chain service: a client of the user's PipeWire. JSON is
   # PipeWire's config language too.
   echoCancelConf = json.generate "grog-echo-cancel.conf" {
+    # Denormal floats flushed to zero on its processing thread: once the
+    # music stops, WebRTC's filters decay into them, which the CPU crawls
+    # through, and the canceller fell behind for minutes, what grog-voice
+    # hears in pieces (plans/voice.md).
+    "context.properties" = { "cpu.zero.denormals" = true; };
     "context.spa-libs" = {
       "audio.convert.*" = "audioconvert/libspa-audioconvert";
       "support.*" = "support/libspa-support";

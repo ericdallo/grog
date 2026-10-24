@@ -768,6 +768,20 @@ from where they talk to it (1 to 2 m), the speaker at 100%, the mic at its
   brain), across restarts (brain/README.md, "Speakers"). Its voice on the
   laptop's speaker isn't in the canceller's reference, but grog-voice
   doesn't listen while it speaks.
+- **Pausing the music left grog deaf for minutes** (October 24, 2026):
+  every "Grog" after a pause came out "not for grog". `pw-top` showed the
+  canceller missing ~70 of its 100 cycles a second, `grog-mic` with them,
+  from the pause on: what grog-voice heard came in pieces. Restarting the
+  canceller cured it until the next pause. Reproduced inaudibly: an mpv
+  playing pink noise at -70 dBFS into `grog-music-out`, paused, and 10 s
+  later hundreds of xruns, none with silence played instead. Once the
+  reference goes from sound to zeros, WebRTC's filters decay into denormal
+  floats, which the CPU crawls through, until they reach zero minutes
+  later (it once came back by itself after ~7). With `cpu.zero.denormals`
+  on the canceller's PipeWire (flush to zero, on its data thread), the
+  same pause leaves no xrun. The module's VM test can't catch it: its
+  virtual mic records exact zeros, and the same pause there never fell
+  behind.
 
 ## Where to go from here
 

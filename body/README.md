@@ -229,7 +229,10 @@ talking over grog ([plans/voice.md](../plans/voice.md)), so grog-voice
 stays half duplex. Both nodes rank below any real device, so they never
 become the session's defaults (don't pick them in GNOME's sound settings).
 grog also tells grog-voice when its music plays, to listen for its name in
-short windows over it, and ducks the music once it heard it.
+short windows over it, and ducks the music once it heard it. The
+canceller's thread flushes denormal floats to zero: once the music paused,
+WebRTC's filters decayed into them, the canceller fell behind for minutes,
+and grog-voice heard in pieces, missing grog's name.
 
 If the canceller isn't running (restarting, or failed), WirePlumber plays
 and records through the defaults instead, and moves both streams back once
