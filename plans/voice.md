@@ -18,9 +18,10 @@ said otherwise.
   (`voice/tools/export_pocket.py`), its speech playing 80 ms at a time as
   it's made, without torch: see "Pocket TTS on OpenVINO" below. On the
   station, 6 threads (`tts.threads`).
-- The station itself speaks in a carioca friend's voice, cloned with his OK
-  from his recordings, the file kept on it (`ttsVoice`, in its own config):
-  see "Accents" below. deep-calm stays the default.
+- The station spoke for a while in a carioca friend's voice, cloned with his
+  OK from his recordings, then went back to deep-calm, the user not happy
+  with it: see "Accents" below. Its answers kept their carioca words (the
+  `instructions` setting, in its own config).
 - grognix speaks with **Supertonic 3** (Supertone, May 2026), voice **M1**,
   in Portuguese (`pt`), on OpenVINO too: the official fp32 ONNX graphs from
   `Supertone/supertonic-3`, pinned at revision
@@ -623,8 +624,9 @@ station:
     clone spoke as hot: 5 to 10 dB louder than deep-calm, clipping, until
     the export lowered voices too, not only raised them (-4.7 dB for his;
     deep-calm's +2.6 stays).
-  - The station speaks in it since: the voice file stays there, in no
-    repository (`ttsVoice` in its own config).
+  - The station spoke in it (`ttsVoice` in its own config; the voice file
+    stays there, in no repository), until the user, not happy with it,
+    went back to deep-calm.
 
 ## Breathy short answers
 
@@ -796,7 +798,8 @@ from where they talk to it (1 to 2 m), the speaker at 100%, the mic at its
   round 3), would make it steadier, and distilling it to 6 layers would make
   it 3 times as fast for slower CPUs. Measure the ONNX path on grognix
   before it speaks that way there.
-- **The carioca voice, steadier** (see "Accents"):
+- **The carioca voice, steadier**, should the user want it back (see
+  "Accents"):
   - Fine-tune the 24-layer model on an hour or more of his sentences.
     Kyutai's training code (open since August 2026) wants an NVIDIA GPU (16
     GB with a batch of 16 times 4). Minervus00/ft_pocket_tts tuned a voice
