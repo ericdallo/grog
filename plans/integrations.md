@@ -198,18 +198,24 @@ phases land.
     none). `lights` goes through the first connected entry, in catalog
     order, mapping it whose cached tools include its `on` and `off`;
     `state` reads `GetLiveContext`.
-  - `lights` is grog's own: it never asks, though it doesn't run after a
-    web search, but for `state`. Home Assistant's own `HassTurnOn` and
-    `HassTurnOff` act on any domain, locks included, so the entry doesn't
-    allow them: they ask first by default, unless Home Assistant marks them
-    non-destructive (its annotations count, as the entry is shipped).
-    `GetLiveContext`, `HassLightSet` and `HassClimateSetTemperature` are
-    allowed.
+  - `lights` is grog's own: it never asks. It tells the model to pass
+    names and areas in the user's words, which Home Assistant matches
+    against its own and their aliases, and colors by their English names,
+    the only ones Home Assistant knows. Home Assistant's own `HassTurnOn`
+    and `HassTurnOff` act on any domain, locks included, so the entry
+    doesn't allow them: they ask first by default, unless Home Assistant
+    marks them non-destructive (its annotations count, as the entry is
+    shipped). `GetLiveContext`, `HassLightSet` and
+    `HassClimateSetTemperature` are allowed.
   - The entry has no `show`: the model sees the first 40 of Home
     Assistant's tools, next to `lights`.
   - No switches or climate capabilities yet.
   - It was tested against a fake Home Assistant (unit and VM tests), not
-    a real one yet.
+    a real one yet. The VM's (`body/tests/fake-ha.py`) keeps connections
+    open over HTTP/1.1, as Home Assistant's aiohttp does: answering over
+    HTTP/1.0, it closed each one under grog's client, which sent its next
+    request on it now and then, and a tool call, never sent twice, failed
+    ("The connection to the MCP server broke").
 - Music is built (October 2026), YouTube Music first: the user chose it
   ahead of Spotify.
   - grog-music (`music/`, `services.grog.music`, on in grognix): a Python
@@ -832,11 +838,24 @@ just the brain too.
 - Home Assistant, from its source (phase 3): `/api/mcp` takes any of its
   access tokens, those of its OAuth included, not only long-lived ones; and
   an `http` client id on the private network is accepted, the redirect on
-  its host and port. Still to check on a real one: the whole sign-in, its
-  tool names and annotations (whether `HassTurnOn` and `HassTurnOff` ask
-  first), what `GetLiveContext` makes of the arguments `lights` sends it,
-  `/api/mcp`'s admin-only setting, and the TXT discovery reads
-  (`internal_url`, `location_name`).
+  its host and port. Read again on October 24, 2026 (its dev branch, MCP
+  library 2.3.0):
+  - `/api/mcp/<API id>` serves one LLM API, admins only but for Assist
+    (`/api/mcp/assist`); `/api/mcp` serves all of them, admins only by
+    default for new entries (`require_admin`). Methods its MCP library
+    doesn't know get -32601.
+  - Its tools: `intent__HassTurnOn` and `intent__HassTurnOff`, destructive
+    (so they ask first; turning on also presses buttons and locks locks),
+    `light__HassLightSet` (only once a light is exposed), and
+    `homeassistant__GetLiveContext`, read-only, which filters by `name`,
+    `domain` and `area`, as `lights` sends them.
+  - Colors only by their English names (`color_name_to_rgb`, CSS's), so
+    `lights` asks the model for those.
+  - The sign-in takes PKCE now, and still a client id on the private
+    network.
+  - Still to check on a real one: the whole sign-in, the TXT discovery
+    reads (`internal_url`, `location_name`), and how it matches the names
+    and areas said (its own, and their aliases).
 - Tuya: Brazilian brands' apps, and an MCP server on the sharing SDK.
 - Music on grognix: transcription's CPU, false wakes.
 - mDNS from grog's sandbox (phase 3): avahi, through grognix's daemon, as

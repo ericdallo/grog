@@ -5,7 +5,9 @@ its MCP server (/api/mcp/assist, and /api/mcp: stateless JSON-RPC over
 POST, the 2025-06-18 handshake), whose tools are named and annotated like
 the real ones. Everything under /api wants a token it gave, or the
 long-lived one (LONG_LIVED). Each tool call is noted in calls.log, and each
-revoked token in revoked.log, in STATE_DIR, for the tests to see."""
+revoked token in revoked.log, in STATE_DIR, for the tests to see. It keeps
+connections open between requests, over HTTP/1.1, as Home Assistant's
+aiohttp does."""
 
 import base64
 import hashlib
@@ -100,6 +102,11 @@ def s256(verifier):
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
 
 
+def form_fields(body):
+    """A form-encoded body as a dict, the first value of each field."""
+    return {k: v[0] for k, v in parse_qs(body.decode()).items()}
+
+
 def call(name, arguments):
     note("calls.log", f"{name} {json.dumps(arguments, sort_keys=True)}")
     if name == "homeassistant__GetLiveContext":
@@ -135,6 +142,11 @@ def result(method, params):
 
 
 class Handler(BaseHTTPRequestHandler):
+    # HTTP/1.0 would close each connection after its answer without saying
+    # so, and grog's client, keeping it, could send its next request on it:
+    # a tool call, which grog never sends twice, then fails.
+    protocol_version = "HTTP/1.1"
+
     def send(self, status, body=b"", content_type="application/json", headers=()):
         if isinstance(body, (dict, list)):
             body = json.dumps(body).encode()
@@ -147,9 +159,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def form(self):
-        body = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode()
-        return {k: v[0] for k, v in parse_qs(body).items()}
+    def read_body(self):
+        """The request's body, read whole, so that the connection's next request starts after it."""
+        return self.rfile.read(int(self.headers.get("Content-Length") or 0))
 
     def authorized(self):
         """Whether it carries a token this Home Assistant gave, else answers 401."""
@@ -197,14 +209,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlsplit(self.path).path
+        body = self.read_body()
         if path == "/auth/token":
-            self.token(self.form())
+            self.token(form_fields(body))
         elif path == "/auth/revoke":
-            note("revoked.log", self.form().get("token", ""))
+            note("revoked.log", form_fields(body).get("token", ""))
             self.send(200)
         elif path in ("/api/mcp/assist", "/api/mcp"):
             if self.authorized():
-                self.mcp()
+                self.mcp(body)
         else:
             self.send(404)
 
@@ -231,12 +244,12 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send(400, {"error": "invalid_grant"})
 
-    def mcp(self):
+    def mcp(self, body):
         if "application/json" not in (self.headers.get("Accept") or ""):
             self.send(406, {"message": "Accept application/json"})
             return
         try:
-            msg = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+            msg = json.loads(body)
         except ValueError:
             self.send(400)
             return
@@ -252,6 +265,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200, out)
 
     def do_DELETE(self):
+        self.read_body()
         self.send(405)
 
 

@@ -25,11 +25,13 @@
   ["on" "off" "set" "state"])
 
 (def ^:private properties
-  "What the model can say with `lights`, by template parameter, in order."
-  [["name" {"type" "string" "description" "The light, as the user calls it."}]
-   ["area" {"type" "string" "description" "The room or area."}]
+  "What the model can say with `lights`, by template parameter, in order.
+  Names and areas go as the user says them, which is what Home Assistant
+  matches; colors by their English names, the only ones it knows."
+  [["name" {"type" "string" "description" "The light, in the user's words."}]
+   ["area" {"type" "string" "description" "The room or area, in the user's words."}]
    ["brightness" {"type" "integer" "minimum" 0 "maximum" 100 "description" "Brightness, 0 to 100."}]
-   ["color" {"type" "string" "description" "A color name."}]
+   ["color" {"type" "string" "description" "A color, by its English name (red, blue, orange)."}]
    ["temperature" {"type" "integer" "description" "Color temperature, in kelvin."}]])
 
 (defn ^:private param

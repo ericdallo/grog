@@ -337,8 +337,10 @@ The model has one tool for lights, `lights`
 it turns them on or off, sets their brightness, color or color temperature,
 and tells how they are. It goes through the first connected integration
 that comes with grog and maps lights (Home Assistant, for now). It's grog's
-own, so it never asks first, though like any tool that changes things it
-doesn't run after a web search.
+own, so it never asks first. Home Assistant matches the names and areas
+said against its own and their aliases (add some there for the names you
+use), and knows colors only by their English names, which the model
+passes.
 
 Next to it are Home Assistant's own tools, `ha__...`, for the rest of the
 home, under the rules [above](#what-the-model-sees): those that change
@@ -373,8 +375,7 @@ whatever plays it: `play`, `pause`, `resume`, `stop`, `next`, `previous`,
 What to play comes as you said it, with its `kind` when the model knows it:
 `song`, `album`, `playlist`, `artist`, `my-playlist` (one of yours, by its
 name) or `liked` (your liked songs), maybe shuffled. Like `lights`, it's
-grog's own: it never asks first, though it doesn't change anything after a
-web search.
+grog's own: it never asks first.
 
 What plays it, its providers, are integrations:
 
