@@ -32,7 +32,8 @@ up to it.
    [Supertonic 3](https://huggingface.co/Supertone/supertonic-3) (31
    languages, ~8 times as fast) or
    [Piper](https://github.com/OHF-Voice/piper1-gpl) (lighter, but flatter)
-   can speak instead (`tts.engine`).
+   can speak instead (`tts.engine`). Whichever speaks reads "!" as ".":
+   exclamations made grog sound too cheerful.
 
 While grog plays music, the VAD takes the music for speech, so what you
 say never ends, and its name gets lost in the lyrics. The brain tells it

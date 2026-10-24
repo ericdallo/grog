@@ -25,7 +25,7 @@ from fakes import (
 from grog_voice.audio import Silence
 from grog_voice.ears import Heard
 from grog_voice.grog import GrogError
-from grog_voice.mouth import Mouth, Pauses, Turn
+from grog_voice.mouth import Mouth, Pauses, Turn, calmed
 
 
 def heard(text=HEARD, **more):
@@ -71,6 +71,23 @@ class TurnTest(unittest.TestCase):
             " done 5.00 s",
             str(turn),
         )
+
+
+class CalmedTest(unittest.TestCase):
+    def test_exclamations_are_said_as_statements(self):
+        self.assertEqual("Claro. Coloquei um alarme.", calmed("Claro! Coloquei um alarme."))
+        self.assertEqual("Valeu. Até mais.", calmed("Valeu!!! Até mais!"))
+        self.assertEqual('Ele disse "oi." e foi embora.', calmed('Ele disse "oi!" e foi embora.'))
+        self.assertEqual("Hola.", calmed("¡Hola!"))
+
+    def test_next_to_another_sentence_mark_they_go(self):
+        self.assertEqual("Sério? Fala.", calmed("Sério?! Fala!"))
+        self.assertEqual("Sério?", calmed("Sério!?"))
+        self.assertEqual("Pronto.", calmed("Pronto!."))
+        self.assertEqual("Bom…", calmed("Bom…!"))
+
+    def test_the_rest_stays(self):
+        self.assertEqual("Quer mais alguma coisa? São 10h30.", calmed("Quer mais alguma coisa? São 10h30."))
 
 
 class PausesTest(unittest.TestCase):
@@ -136,7 +153,7 @@ class AnswerTest(unittest.TestCase):
 
         m = Mouth(tts=StreamingTts(started, done), player=Players(), ask=ask)
         m.answer(heard(), HEARD)
-        self.assertEqual(["Amanhã faz sol, com vento à tarde.", "Leve um casaco. Até mais!"], m.tts.texts)
+        self.assertEqual(["Amanhã faz sol, com vento à tarde.", "Leve um casaco. Até mais."], m.tts.texts)
         self.assertEqual([ACK] + [t.encode() for t in m.tts.texts], played(m.player))
 
     def test_text_to_speech_that_streams_gets_a_short_first_sentence_with_the_next(self):
@@ -147,7 +164,7 @@ class AnswerTest(unittest.TestCase):
         )
         m.tts.go.set()
         m.answer(heard(), HEARD)
-        self.assertEqual(["Claro! Coloquei um alarme."], m.tts.texts)
+        self.assertEqual(["Claro. Coloquei um alarme."], m.tts.texts, "calmed")
         self.assertEqual([ACK] + [t.encode() for t in m.tts.texts], played(m.player))
 
     def test_pauses_after_a_sentence_before_the_next_only(self):
