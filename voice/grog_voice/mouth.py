@@ -4,6 +4,7 @@ Asked to stop, it cuts the answer off."""
 
 import logging
 import queue
+import re
 import socket
 import threading
 import time
@@ -79,6 +80,18 @@ def gathered(text, chunks, ahead):
             ahead.append(item)
             return text
         text = f"{text} {item}"
+
+
+# Exclamation marks next to another sentence mark, which they only make
+# more excited ("Sério?!"), and Spanish's opening one.
+_EXCLAIMED = re.compile(r"(?<=[?.…])[!¡]+|[!¡]+(?=[?.…])|¡")
+
+
+def calmed(text):
+    """`text` with its exclamations said as statements, "Claro!" as "Claro."
+    and "Sério?!" as "Sério?": they make text to speech sound too cheerful
+    (the user, of every voice)."""
+    return re.sub(r"!+", ".", _EXCLAIMED.sub("", text))
 
 
 class Pauses:
@@ -257,9 +270,9 @@ class Mouth:
 
     def _speak(self, chunks, turn):
         """Plays the queue's earcons ((name, pcm)) and synthesizes its text
-        chunks as they come (None ends them), while a thread plays them, with
-        the pauses after their sentences in between (see Pauses). Once that
-        failed, or it's to stop, it only waits for the end."""
+        chunks as they come (None ends them), calmed, while a thread plays
+        them, with the pauses after their sentences in between (see Pauses).
+        Once that failed, or it's to stop, it only waits for the end."""
         audio, failed, pauses = queue.Queue(), threading.Event(), Pauses(self.sample_rate)
 
         def over():
@@ -302,7 +315,7 @@ class Mouth:
                     continue
                 if self.streams:
                     item = gathered(item, chunks, ahead)
-                for pcm in self.tts(item):
+                for pcm in self.tts(calmed(item)):
                     if over():
                         break
                     for sound in pauses(pcm):

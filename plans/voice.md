@@ -682,6 +682,15 @@ wait for grog's tools. Inside a piece, the carioca voice still sometimes
 runs sentences together (0.1 s), as he does himself (his pauses: 0.1 to
 0.4 s).
 
+## Exclamations
+
+The user always found the voice too cheerful where an answer had "!". So
+grog-voice reads them as periods, whichever voice speaks
+(`mouth.calmed`: "Claro!" as "Claro.", "Sério?!" as "Sério?"); what grog
+shows keeps them. Over 8 answers like "Pronto! Desliguei a luz da sala.",
+each said twice in deep-calm, its pitch went from 156 Hz to 126 Hz (the
+median, 3.7 semitones lower) and its voice 2.5 dB quieter.
+
 ## Music
 
 Once grog played music on its own speaker (the station: a laptop, its
