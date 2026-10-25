@@ -82,16 +82,50 @@
     (boolean (or (pos? (or (:web-searches usage) 0))
                  (some #(and (:open-world %) (used (:name %))) offered)))))
 
+;; What marks an answer cut off.
+(def ^:private cut-mark " …")
+
+(defn ^:private squeezed
+  "`s` with its whitespace as single spaces, trimmed."
+  [s]
+  (str/trim (str/replace (or s "") #"\s+" " ")))
+
+(defn cut
+  "`messages`, ending with grog's last answer, cut off after `said`, what
+  of it was said aloud (whitespace aside), as the user heard it: marked as
+  cut off, or dropped when none of it was said. As they are when all of it
+  was, or when they don't end with an answer starting with that."
+  [messages said]
+  (let [{:keys [role content] :as answer} (peek messages)
+        whole (squeezed content)
+        said (squeezed said)]
+    (cond
+      (or (not= "assistant" role) (= said whole) (not (str/starts-with? whole said))) messages
+      (str/blank? said) (pop messages)
+      :else (conj (pop messages) (assoc answer :content (str said cut-mark))))))
+
+(defn ^:private cut-short
+  "`messages` with what was answered so far (`answered`), marked as cut
+  off, when it's anything."
+  [messages answered read-others?]
+  (cond-> messages
+    (not (str/blank? answered)) (conj (cond-> {:role "assistant" :content (str (str/trimr answered) cut-mark)}
+                                        read-others? (assoc :read-others? true)))))
+
 (defn reply!
   "Answers `message` within conversation `id`, streaming the text through
   `on-text`, and telling `on-tool` ({:name}) when the model uses a tool.
   `new?` forgets the conversation first, even if answering fails. `said`:
-  what was said aloud for it, when it was, as grog-voice heard it. `later`:
-  an atom getting the actions the model asks for, for the caller to take
-  once the answer is out (grog.actions/after-answer!); without it, the
-  model can't. Returns the full answer; throws when there's none. Whoever
-  watches sees the turn go (grog.events)."
-  [{:keys [store memory turns] :as ctx} {:keys [id message new? said later]} on-text on-tool]
+  what was said aloud for it, when it was, as grog-voice heard it.
+  `cut-off`: how much of the conversation's last answer was said aloud
+  before it was cut off, when it was (see `cut`). `later`: an atom getting
+  the actions the model asks for, for the caller to take once the answer
+  is out (grog.actions/after-answer!); without it, the model can't.
+  `cancel`: a promise delivered once whoever asked went away: the turn
+  stops then, what was asked and what was answered so far kept, marked as
+  cut off. Returns the full answer; throws when there's none. Whoever
+  watches sees the turn go (grog.events), stopped when cancelled."
+  [{:keys [store memory turns] :as ctx} {:keys [id message new? said later cut-off cancel]} on-text on-tool]
   (let [lock (turn-lock id)]
     (locking lock
       (when new?
@@ -99,6 +133,9 @@
       (let [n (swap! turns inc)
             publish! #(events/publish! (:events ctx) (assoc % :conversation id :n n))
             used (volatile! [])
+            answered (StringBuilder.)
+            ;; What the turn keeps once cut off: [messages now-ms opts offered].
+            asked (volatile! nil)
             started (System/nanoTime)
             elapsed-ms #(quot (- (System/nanoTime) started) 1000000)]
         (publish! (cond-> {:type :turn :question message} said (assoc :said said)))
@@ -107,8 +144,9 @@
                 now-ms (System/currentTimeMillis)
                 opts {:ttl-ms (* 60 1000 (:conversation-ttl-minutes config))
                       :max-messages (:max-history-messages config)}
-                messages (conj (conversation/history store id now-ms (:ttl-ms opts))
-                               {:role "user" :content message})
+                history (conversation/history store id now-ms (:ttl-ms opts))
+                heard (cond-> history (some? cut-off) (cut cut-off))
+                messages (conj heard {:role "user" :content message})
                 offered (tools/available config)
                 on-tool (fn [{:keys [name detail] :as tool}]
                           (if (contains? tool :detail)
@@ -118,36 +156,49 @@
                                 (publish! {:type :tool :name name})
                                 (on-tool tool))))
                 on-text (fn [text]
+                          (.append answered ^String text)
                           (publish! {:type :text :text text})
                           (on-text text))
-                turn {:id id :n n :later later :detail! #(on-tool {:name %1 :detail %2})}
-                {:keys [text stop-reason usage quota]} (provider/stream-reply!
-                                                        config
-                                                        {:system (prompt/system-prompt
-                                                                  config (prompt/now config) {:memory @memory})
-                                                         :messages messages
-                                                         :location (:location config)
-                                                         :timezone (config/timezone config)
-                                                         :tools (tools/definitions offered)
-                                                         :call-tool (tools/runner ctx offered turn)}
-                                                        on-text
-                                                        on-tool)]
-            (log/info (format "chat conversation=%s provider=%s ms=%d usage=%s%s"
-                              id (:provider config) (elapsed-ms) (pr-str usage)
-                              (if (seq @used) (str " tools=" (str/join "," @used)) "")))
-            (usage/record! ctx usage)
-            (usage/update-quota! ctx quota)
-            (usage/publish! ctx)
-            (when (str/blank? text)
-              (throw (ex-info (format "The model gave no answer (%s)." (or stop-reason "no reason given"))
-                              {:type ::no-answer})))
-            ;; Marked, so that grog learns nothing from it (grog.learning).
-            (conversation/save! store id
-                                (conj messages (cond-> {:role "assistant" :content text}
-                                                 (read-others? usage offered @used) (assoc :read-others? true)))
-                                now-ms opts)
-            (publish! {:type :done :ms (elapsed-ms) :tools @used})
-            text)
+                turn {:id id :n n :later later :detail! #(on-tool {:name %1 :detail %2})}]
+            (when (not= history heard)
+              (conversation/save! store id heard now-ms opts))
+            (vreset! asked [messages now-ms opts offered])
+            (let [{:keys [text stop-reason usage quota]} (provider/stream-reply!
+                                                          config
+                                                          {:system (prompt/system-prompt
+                                                                    config (prompt/now config) {:memory @memory})
+                                                           :messages messages
+                                                           :location (:location config)
+                                                           :timezone (config/timezone config)
+                                                           :tools (tools/definitions offered)
+                                                           :call-tool (tools/runner ctx offered turn)
+                                                           :cancel cancel}
+                                                          on-text
+                                                          on-tool)]
+              (log/info (format "chat conversation=%s provider=%s ms=%d usage=%s%s"
+                                id (:provider config) (elapsed-ms) (pr-str usage)
+                                (if (seq @used) (str " tools=" (str/join "," @used)) "")))
+              (usage/record! ctx usage)
+              (usage/update-quota! ctx quota)
+              (usage/publish! ctx)
+              (when (str/blank? text)
+                (throw (ex-info (format "The model gave no answer (%s)." (or stop-reason "no reason given"))
+                                {:type ::no-answer})))
+              ;; Marked, so that grog learns nothing from it (grog.learning).
+              (conversation/save! store id
+                                  (conj messages (cond-> {:role "assistant" :content text}
+                                                   (read-others? usage offered @used) (assoc :read-others? true)))
+                                  now-ms opts)
+              (publish! {:type :done :ms (elapsed-ms) :tools @used})
+              text))
           (catch Throwable e
-            (publish! {:type :failed :ms (elapsed-ms) :tools @used :error (or (ex-message e) (str e))})
-            (throw e)))))))
+            (let [cancelled? (boolean (and cancel (realized? cancel)))]
+              (when-let [[messages now-ms opts offered] (when cancelled? @asked)]
+                (let [searches (count (filter #{"web_search"} @used))]
+                  (conversation/save! store id
+                                      (cut-short messages (str answered)
+                                                 (read-others? {:web-searches searches} offered @used))
+                                      now-ms opts)))
+              (publish! (cond-> {:type :failed :ms (elapsed-ms) :tools @used :error (or (ex-message e) (str e))}
+                          cancelled? (assoc :stopped true)))
+              (throw e))))))))

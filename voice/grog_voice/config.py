@@ -62,7 +62,8 @@ DEFAULTS = {
         # drops words.
         "steps": 5,
         # Pocket and Supertonic: CPU threads. On grognix's 4 cores, 4 are the
-        # fastest: it doesn't listen while it talks.
+        # fastest: nothing is transcribed while it talks, unless heard over it
+        # (see echo.py).
         "threads": 4,
     },
     # Silence after speech that ends an utterance.

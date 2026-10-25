@@ -261,6 +261,14 @@
                      [1600 {:type :stop}])]
       (is (= {:ok true} (select-keys (:turn state) [:ok :stopped :stopping]))))))
 
+(deftest a-turn-cut-off-by-whoever-asked-is-stopped-not-failed
+  ;; Someone called grog while it answered: grog-voice hung up on it.
+  (let [state (run [1000 {:type :turn :conversation "voice" :n 1}]
+                   [1400 {:type :text :conversation "voice" :n 1 :text "Amanhã"}]
+                   [1500 {:type :failed :conversation "voice" :n 1 :ms 500 :stopped true
+                          :error "The client went away."}])]
+    (is (= {:done-at 1500 :ok false :stopped true} (select-keys (:turn state) [:done-at :ok :stopped :error])))))
+
 (deftest the-mic-the-volume-and-forgetting
   (let [state (run [1000 {:type :status :name "grog" :mic "on"}]
                    [1100 {:type :turn :conversation "voice" :n 1}]

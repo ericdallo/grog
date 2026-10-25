@@ -46,8 +46,8 @@ bb chat
 
 ## Using it
 
-Talk to it ("Grog, ..."), touch its screen (its face, or its actions), or use
-the CLI:
+Talk to it ("Grog, ...", which also cuts off what it's answering), touch its
+screen (its face, or its actions), or use the CLI:
 
 ```sh
 grog chat

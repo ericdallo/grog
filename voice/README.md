@@ -47,9 +47,25 @@ brain ducks the music. From there it ends as usual. Its mic should record
 from an echo-cancelled node that removes grog's own music (`grog-mic`,
 see [body](../body/README.md#echo-cancellation)).
 
-It doesn't listen while it talks. A low sound means something went wrong,
-and the log says what. A rising one means the brain is there: at start, or
-back after it restarted (after an update, say).
+It listens while grog answers too, for its name. Said then, while grog
+thinks, searches the web or speaks, its name stops the answer at once,
+with the sound saying it listens: alone ("Grog!"), it waits for what you
+say next, which needs no name; with more ("Grog, what time is it?"), that's
+answered instead. grog hears how much of its answer was said before it was
+cut off, so you can ask it to go on. What isn't for grog is let be, and
+the answer goes on. Its mic hears grog's own voice too, which the VAD
+takes for speech, so while grog's sounds play, only what's louder than
+their echo is heard: 6 dB over its loudest, learned as grog speaks
+([`echo.py`](grog_voice/echo.py)). With the speaker right next to the
+mic, as on a laptop, grog's voice reaches the mic much louder than you,
+and nothing is heard over it: you can call it while it thinks or searches,
+not while it speaks. With the speaker farther away, or quieter, you can.
+Touching its face stops it too. Why not an echo canceller:
+[plans/voice.md](../plans/voice.md#interruptions).
+
+A low sound means something went wrong, and the log says what. A rising
+one means the brain is there: at start, or back after it restarted (after
+an update, say).
 
 The brain can also ask it (`GET /v1/voice/commands`), for someone at grog's
 screen: to listen now, without its name (touching its face), to stop
@@ -147,7 +163,7 @@ or `$GROG_VOICE_CONFIG`), merged over the defaults in
 | `tts.model` | `null` | Pocket's directory, as `tools/export_pocket.py` makes it. Supertonic's, as in Supertone/supertonic-3 (`onnx/`, `voice_styles/`). On NixOS: `ttsModel` |
 | `tts.language` | `"pt"` | What Supertonic reads, the language grog answers in: `en`, `es`, `fr` and 28 more. Pocket's model reads one, Portuguese |
 | `tts.steps` | `5` | Supertonic: fewer are faster, and worse (with 3 it drops words) |
-| `tts.threads` | `4` | Pocket and Supertonic: Supertonic's fastest on grognix's 4 cores, as it doesn't listen while it talks. On a Core Ultra 7 155H, 6, its performance cores: Supertonic's fastest there, and Pocket's faster than 2 or 4 |
+| `tts.threads` | `4` | Pocket and Supertonic: Supertonic's fastest on grognix's 4 cores, as nothing is transcribed while it talks, unless heard over it. On a Core Ultra 7 155H, 6, its performance cores: Supertonic's fastest there, and Pocket's faster than 2 or 4 |
 | `endSilenceMs` | `600` | Silence that ends what you said |
 | `speculateMs` | `250` | A pause this long starts transcribing, in case it's the end. `0`: wait for the end |
 | `partialMs` | `300` | How much more you have to say before what you've said so far is transcribed again. `0`: only at pauses, without the second model |

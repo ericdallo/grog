@@ -106,16 +106,20 @@ def _events(resp):
             yield event, json.loads(data) if data else {}
 
 
-def ask(url, conversation_id, message, said=None, timeout=90, on_connect=None):
+def ask(url, conversation_id, message, said=None, cut_off=None, timeout=90, on_connect=None):
     """Yields grog's answer to `message` as it streams in: ("text", text) and
     ("tool", name) when the model uses a tool, like "web_search". `said`:
     what was said aloud, as heard, the wake word included, if grog may see it.
-    Raises GrogError when grog can't answer, also midway. `on_connect` gets
-    the connection once it's asked: shutting its socket down, from another
-    thread, stops the answer (and grog's turn)."""
+    `cut_off`: how much of grog's last answer was said aloud before it was
+    cut off, if it was (it may be nothing). Raises GrogError when grog can't
+    answer, also midway. `on_connect` gets the connection once it's asked:
+    shutting its socket down, from another thread, stops the answer (and
+    grog's turn)."""
     conn, path = _connect(url, timeout)
     body = json.dumps(
-        {"message": message, "conversationId": conversation_id} | ({"said": said} if said is not None else {})
+        {"message": message, "conversationId": conversation_id}
+        | ({"said": said} if said is not None else {})
+        | ({"cutOff": cut_off} if cut_off is not None else {})
     )
     headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
     try:

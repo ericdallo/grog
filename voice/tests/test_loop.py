@@ -1,4 +1,5 @@
 import threading
+import time
 import unittest
 from unittest import mock
 
@@ -6,6 +7,7 @@ from fakes import (
     ACK,
     ANSWER,
     BACK,
+    ECHO,
     FRAME,
     FRAME_S,
     HEARD,
@@ -17,18 +19,24 @@ from fakes import (
     FakeTts,
     FakeVad,
     Held,
+    OneSecond,
     OverMusic,
     Players,
     Saying,
+    SimMic,
+    Speaking,
     answering,
+    answers,
     frames,
     hanging,
+    quiet,
     slow_mic,
     song,
 )
 
 from grog_voice import loop
 from grog_voice.audio import MicError
+from grog_voice.echo import Echo
 from grog_voice.loop import Voice
 from grog_voice.wake import WakeWords
 
@@ -36,18 +44,33 @@ GROG = WakeWords(["Grog"])
 
 
 def voice(
-    mic_frames=(), stt=None, ask=None, settings=SETTINGS, wake=None, mic=None, partials=None, captions=False
+    mic_frames=(),
+    stt=None,
+    ask=None,
+    settings=SETTINGS,
+    wake=None,
+    mic=None,
+    partials=None,
+    captions=False,
+    players=None,
+    turns=True,
 ):
     """A Voice with fakes, with partials by `partials` (a speech to text) when
     given; what it tells grog it's doing is in .reported, what it heard for
-    grog in .heard_reports ((text, final)), its players in .players."""
-    reported, heard, players = [], [], Players()
+    grog in .heard_reports ((text, final)), its players in .players. With
+    `turns`, what's said next comes once grog is done answering: the mic
+    holds its frames meanwhile. Without, grog's speech plays as it does
+    (Speaking), told apart from someone talking by an Echo."""
+    reported, heard = [], []
+    players = players or (Players() if turns else Speaking())
+    mic = mic or FakeMic(mic_frames)
+    clock = getattr(mic, "clock", time.monotonic)
     v = Voice(
         settings,
-        mic=mic or FakeMic(mic_frames),
+        mic=mic,
         vad=FakeVad(),
         stt=stt or FakeStt(HEARD),
-        tts=FakeTts(),
+        tts=FakeTts() if turns else OneSecond(),
         player=players,
         ask=ask or answering("São dez ", "e quinze. Mais ", "alguma coisa?"),
         wake=lambda: wake,
@@ -55,9 +78,13 @@ def voice(
         report_heard=lambda text, final: heard.append((text, final)),
         captions=lambda: captions,
         partial_stt=Held(partials) if partials is not None else None,
+        echo=None if turns else Echo(FRAME_S, clock=clock),
+        clock=clock,
         frame_bytes=FRAME,
         frame_s=FRAME_S,
     )
+    if turns:
+        v.ears.mic.hold = lambda: v.mouth.state is not None
     v.reported, v.heard_reports, v.players = reported, heard, players
     return v
 
@@ -179,22 +206,19 @@ class RunTest(unittest.TestCase):
         self.assertNotIn("Grog", "\n".join(logs.output))
 
     def test_after_its_name_alone_what_comes_next_is_kept(self):
-        # Its sound played at the pause, before the end: nothing is dropped.
-        v = voice(mic=slow_mic(("S", 0.5), (".", 1.5)), wake=GROG, stt=FakeStt("Grog."))
-        with self.assertLogs("grog_voice", "INFO"), self.assertRaises(MicError):
-            v.run()
-        self.assertEqual(([[LISTENING]], 0), (written(v), v.ears.mic.flushed))
-        # Its name only known at the end: its sound plays then, and what the
-        # mic heard over it is dropped.
-        v = voice(
-            frames(("S", 0.5), (".", 1.5)),
-            wake=GROG,
-            stt=FakeStt("Grog."),
-            settings={**SETTINGS, "speculateMs": 0},
-        )
-        with self.assertLogs("grog_voice", "INFO"), self.assertRaises(MicError):
-            v.run()
-        self.assertEqual(([[LISTENING]], 1), (written(v), v.ears.mic.flushed))
+        # Its sound played at the pause, before the end, or at the end, when
+        # its name was only known then: nothing is dropped, what the mic
+        # heard over it but its echo (see echo.py) is heard.
+        for mic in (
+            slow_mic(("S", 0.5), (".", 1.5)),
+            FakeMic(frames(("S", 0.5), (".", 1.5), ("S", 1.0), (".", 1.0))),
+        ):
+            settings = {**SETTINGS, "speculateMs": 0}
+            v = voice(mic=mic, wake=GROG, stt=FakeStt("Grog.", HEARD), settings=settings)
+            with self.assertLogs("grog_voice", "INFO"), self.assertRaises(MicError):
+                v.run()
+            self.assertEqual([LISTENING], written(v)[0])
+            self.assertEqual(0, v.ears.mic.flushed)
 
     def test_a_reply_without_its_name_is_shown(self):
         mic = slow_mic(("S", 0.5), (".", 1.5), ("S", 1.0), (".", 1.0))
@@ -236,7 +260,7 @@ class RunTest(unittest.TestCase):
         utterances = frames(*[part for _ in range(3) for part in (("S", 1.0), (".", 1.0))])
         answers = iter([["Vou limpar o lixo do Nix. Posso?"], ["Pronto."], ["Não era comigo."]])
 
-        def ask(text, said=None, on_connect=None):
+        def ask(text, said=None, cut_off=None, on_connect=None):
             ask.asked.append(text)
             yield from (("text", piece) for piece in next(answers))
 
@@ -277,7 +301,6 @@ class RunTest(unittest.TestCase):
         self.assertIn("the turn failed: RuntimeError at", text)
         for words in (HEARD, "quinze", "alguma"):
             self.assertNotIn(words, text)
-        self.assertEqual(2, v.ears.mic.flushed, "drops what it heard while answering")
         # The answer asked something: so it says, even after the failed turn.
         self.assertEqual(
             ["listening", "hearing", "answering", "speaking", "asked", "hearing", "error", "asked"],
@@ -305,6 +328,104 @@ class RunTest(unittest.TestCase):
         )
         self.assertEqual(["listening", "hearing", "answering", "speaking", "listening"], v.reported)
         self.assertEqual(0, v.ears.partial_stt.holds, "it went on once it listened again")
+
+
+def while_speaking(first, then, players):
+    """A mic hearing `first`, then `then` once grog speaks (see Speaking)."""
+    return SimMic(first + then, gate=players.speaking, gate_at=len(first))
+
+
+class InterruptTest(unittest.TestCase):
+    """Someone calling grog while it answers cuts it off: it listens then."""
+
+    def test_called_while_it_thinks_it_stops_and_answers_that(self):
+        first = hanging()  # grog thinks, and thinks
+        ask = answers(first, answering("Dez e quinze."))
+        stt = FakeStt("Grog, me conta uma história.", "Grog, que horas são?")
+        mic = SimMic(quiet(("S", 1.0), (".", 1.5), ("S", 1.0), (".", 1.5)))
+        v = voice(mic=mic, stt=stt, ask=ask, wake=GROG, turns=False)
+        with self.assertLogs("grog_voice", "INFO") as logs, self.assertRaises(MicError):
+            v.run()
+        self.assertEqual(["me conta uma história.", "que horas são?"], ask.asked)
+        self.assertTrue(first.conn.hung_up.is_set(), "its turn ends")
+        self.assertEqual([None, ""], ask.cut_offs, "none of it was said")
+        self.assertIn("INFO:grog_voice:called while answering: cutting it off", logs.output)
+        self.assertRegex("\n".join(logs.output), r"turn: .*; stopped\n")
+        self.assertEqual(
+            ["listening", "hearing", "answering", "hearing", "answering", "speaking"],
+            v.reported[:6],
+            "it heard them while thinking",
+        )
+
+    def test_called_over_its_voice_it_stops_and_listens(self):
+        players = Speaking()
+        first = quiet(("S", 1.0), (".", 1.0))
+        # While it speaks: its echo, someone calling it louder, then what
+        # they want, once it stopped.
+        then = [ECHO] * 40 + quiet(("S", 0.5), (".", 1.5), ("S", 1.0), (".", 1.0))
+        ask = answering("Amanhã faz sol. ", "Leve um casaco.")
+        stt = FakeStt("Grog, como vai ser amanhã?", "Grog.", "que horas são")
+        mic = while_speaking(first, then, players)
+        v = voice(mic=mic, stt=stt, ask=ask, wake=GROG, players=players, turns=False)
+        with self.assertLogs("grog_voice", "INFO") as logs, self.assertRaises(MicError):
+            v.run()
+        self.assertEqual(["como vai ser amanhã?", "que horas são"], ask.asked)
+        self.assertEqual([None, "Amanhã faz sol."], ask.cut_offs, "grog hears what it said of the first")
+        self.assertEqual(3, len(stt.calls), "never its echo")
+        self.assertIn("INFO:grog_voice:called while answering: cutting it off", logs.output)
+        self.assertEqual(1, sum(p.stopped for p in players.made), "its voice cut off")
+        self.assertIn([LISTENING], [p.written for p in players.made], "its sound says it listens")
+        i = v.reported.index("speaking")
+        self.assertEqual(["speaking", "hearing", "awake", "hearing", "answering"], v.reported[i : i + 5])
+
+    def test_its_own_voice_never_cuts_it_off(self):
+        players = Speaking()
+        mic = while_speaking(quiet(("S", 1.0), (".", 1.0)), [ECHO] * 100, players)
+        players.done = mic.drained
+        ask = answering("Amanhã faz sol. ", "Leve um casaco.")
+        stt = FakeStt("Grog, como vai ser amanhã?")
+        v = voice(mic=mic, stt=stt, ask=ask, wake=GROG, players=players, turns=False)
+        with self.assertLogs("grog_voice", "INFO") as logs, self.assertRaises(MicError):
+            v.run()
+        self.assertEqual(1, len(stt.calls))
+        self.assertEqual(["como vai ser amanhã?"], ask.asked)
+        turns = [line for line in logs.output if "turn:" in line]
+        self.assertEqual(1, len(turns))
+        self.assertNotIn("stopped", turns[0])
+        self.assertFalse(any(p.stopped for p in players.made))
+
+    def test_what_isnt_for_it_is_let_be(self):
+        players = Speaking()
+        then = [ECHO] * 40 + quiet(("S", 1.0), (".", 1.0))
+        mic = while_speaking(quiet(("S", 1.0), (".", 1.0)), then, players)
+        players.done = mic.drained
+        stt = FakeStt("Grog, como vai ser amanhã?", "Droga, esqueci a chave.")
+        ask = answering("Amanhã faz sol. ", "Leve um casaco.")
+        v = voice(mic=mic, stt=stt, ask=ask, wake=GROG, players=players, turns=False, captions=True)
+        with self.assertLogs("grog_voice", "INFO") as logs, self.assertRaises(MicError):
+            v.run()
+        self.assertEqual(["como vai ser amanhã?"], ask.asked)
+        self.assertTrue(any(line.startswith("INFO:grog_voice:not for grog: ") for line in logs.output))
+        self.assertNotIn("stopped", "\n".join(logs.output))
+        self.assertNotIn("Droga", str(v.heard_reports), "nor shown")
+
+    def test_a_reply_as_it_finishes_asking_needs_no_name(self):
+        players = Speaking()
+        then = [ECHO] * 40 + quiet(("S", 1.0), (".", 1.0))
+
+        class Finishing(SimMic):
+            def read(self, timeout=None):
+                if self.read_count == 31 + 31 + 40 + 40:  # as they pause
+                    players.done.set()
+                return super().read(timeout)
+
+        mic = Finishing(quiet(("S", 1.0), (".", 1.0)) + then, gate=players.speaking, gate_at=62)
+        ask = answers(answering("Vou desligar a luz. ", "Posso?"), answering("Pronto."))
+        stt = FakeStt("Grog, desliga a luz.", "Pode.")
+        v = voice(mic=mic, stt=stt, ask=ask, wake=GROG, players=players, turns=False)
+        with self.assertLogs("grog_voice", "INFO"), self.assertRaises(MicError):
+            v.run()
+        self.assertEqual(["desliga a luz.", "Pode."], ask.asked)
 
 
 class MusicTest(unittest.TestCase):
@@ -395,6 +516,26 @@ class AskedByGrogTest(unittest.TestCase):
         self.assertEqual(["speaking"], v.reported)
         v.tell("listening")
         self.assertEqual(["speaking", "muted"], v.reported)
+
+    def test_switched_off_while_it_answers_it_says_so_once_done(self):
+        # No frame comes once it's off: its answer being over is still told.
+        class Off(FakeMic):
+            def read(self, timeout=None):
+                if not v.muted:
+                    return super().read(timeout)
+                if timeout is None:
+                    raise MicError("it would wait for the mic to be on again")
+                time.sleep(timeout)
+                return None
+
+        def ask(text, said=None, cut_off=None, on_connect=None):
+            v.set_mic(False)
+            yield ("text", "Desliguei o microfone.")
+
+        v = voice(mic=Off(frames(("S", 1.0), (".", 1.0))), ask=ask)
+        with self.assertLogs("grog_voice", "INFO"), self.assertRaises(MicError):
+            v.run()
+        self.assertEqual(["listening", "hearing", "answering", "speaking", "muted"], v.reported)
 
     def test_switched_off_while_someone_talks_it_says_so_at_once(self):
         # It hears nothing more, so it wouldn't say anything else.

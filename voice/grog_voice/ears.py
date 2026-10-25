@@ -6,7 +6,11 @@ as they come. They decide whether it was for grog, never what to answer.
 While grog plays music, the VAD takes it for speech: an utterance would run
 on for as long as the song. So while it waits for its name over music, what
 it hears is cut into short overlapping windows, each looked through for its
-name (see _window)."""
+name (see _window).
+
+They listen while grog answers too, for someone calling it then: what the
+mic hears of grog's own sound, no louder than its echo, doesn't start an
+utterance (see echo.py)."""
 
 import threading
 import time
@@ -24,6 +28,9 @@ WAKE_WINDOW_S = 2.5
 # Over music, how much each window overlaps the one before: a name said
 # across a cut is whole in one of them.
 MUSIC_OVERLAP_S = 1.0
+# While grog answers, how long it waits for a frame at most before seeing
+# whether it's done.
+UNTIL_S = 0.1
 
 
 class Transcription:
@@ -129,7 +136,11 @@ class Ears:
     while `captions` says grog shows that (its skin.captions): only then is
     it reported, and are partials of what's for grog made to its end.
     `music` says whether grog plays music: while it does, it looks for its
-    name in windows of musicUtteranceSeconds (see _window)."""
+    name in windows of musicUtteranceSeconds (see _window). `echo` (an
+    Echo, or None) keeps grog's own sound from being taken for speech;
+    `busy` says what grog-voice does while grog answers (answering,
+    speaking), or None; `called` is told when someone turns out to talk to
+    grog, while they go on."""
 
     def __init__(
         self,
@@ -146,12 +157,16 @@ class Ears:
         report_heard=lambda text, final: None,
         captions=lambda: False,
         music=lambda: False,
+        echo=None,
+        busy=lambda: None,
+        called=lambda: None,
         frame_bytes=FRAME_BYTES,
         frame_s=FRAME_S,
     ):
         self.mic, self.vad, self.stt, self.partial_stt = mic, vad, stt, partial_stt
         self.wake, self.awake, self.tell, self.chime = wake, awake, tell, chime
         self.report_heard, self.captions, self.music = report_heard, captions, music
+        self.echo, self.busy, self.called = echo, busy, called
         self.frame_bytes, self.frame_s = frame_bytes, frame_s
         self.partial_s = settings["partialMs"] / 1000
         self.window_bytes = round(settings["musicUtteranceSeconds"] / frame_s) * frame_bytes
@@ -181,15 +196,18 @@ class Ears:
         command = wake.match(text, anywhere)
         return text if command is None and addressed else command
 
-    def listen(self):
+    def listen(self, until=None):
         """Waits for an utterance and transcribes it: at its last pause, in
         case that turns out to be the end, and while they talk, partials (see
         _partial), on partial_stt, which the other holds. Once a guess
         shows it's for grog, it hears it (see _guessed), and as it ends, says
         it got it (see _ended). Over music, while it waits for its name, it
         looks for it in windows (see _window), on stt, one transcription at a
-        time there. Tells grog when someone talks to it, and when it's no
-        longer awake: not when anyone else talks."""
+        time there. While grog's own sound plays, what's no louder than its
+        echo doesn't start one (see echo.py). Tells grog when someone talks
+        to it, and when it's no longer awake: not when anyone else talks.
+        While grog answers, `until` says when that's over: then, with nobody
+        talking, it returns None."""
         self.endpointer.reset()
         self.vad.reset()
         if self.held:
@@ -199,13 +217,22 @@ class Ears:
         partial = main = pause = utterance = window = None
         self.tell(self._idle())
         while True:
-            t, frame = self.mic.read()
+            if until is not None and utterance is None and until():
+                return None
+            # While grog answers, it can be over with no frame coming (the
+            # mic switched off, say).
+            if (read := self.mic.read(timeout=None if until is None else UNTIL_S)) is None:
+                continue
+            t, frame = read
             if self.forgetting:
                 self.forgetting = False
                 self.endpointer.reset()
                 self.vad.reset()
                 partial = main = pause = utterance = window = None
-            event = self.endpointer.push(frame, self.vad(frame))
+            prob = self.vad(frame)
+            if self.echo is not None and not self.endpointer.started:
+                prob = self.echo.gate(t, frame, prob)
+            event = self.endpointer.push(frame, prob)
             if isinstance(event, End):
                 return self._ended(t, event, utterance, main, partial, window)
             if not self.endpointer.started:
@@ -232,7 +259,12 @@ class Ears:
                 if free and (main is None or main.done()) and (cut := self._window(utterance)):
                     start, audio = cut
                     window = self._transcribe(audio, utterance, window=True, start=start)
-            self.tell("hearing" if utterance is not None and utterance.for_grog() else self._idle())
+            if utterance is not None and utterance.for_grog():
+                self.tell("hearing")
+            elif until is None or not until():
+                # Once grog's answer is over, what's next is said next: awake
+                # or asked, maybe.
+                self.tell(self._idle())
 
     def address(self, heard):
         """What `heard` asks grog (see command), or None when it wasn't meant
@@ -250,10 +282,6 @@ class Ears:
         what was said."""
         return f"{heard.seconds:.1f} s, {heard.speech_s:.1f} s of it speech, {sounded(heard.peak_db)}"
 
-    def flush(self):
-        """Drops what the mic heard so far."""
-        self.mic.flush()
-
     def forget(self):
         """Forgets what was being said, if anything, with the next frame:
         after the mic was switched off, what's heard starts afresh."""
@@ -266,9 +294,10 @@ class Ears:
             close()
 
     def _idle(self):
-        """What it does between utterances: listening, or awake or asked when
-        what's said next needs no wake word (see `awake`)."""
-        return self.awake() or "listening"
+        """What it does between utterances: answering or speaking while grog
+        answers (see `busy`), listening, or awake or asked when what's said
+        next needs no wake word (see `awake`)."""
+        return self.busy() or self.awake() or "listening"
 
     def _report(self, text, final):
         """Tells grog what it heard for it, only while grog shows it."""
@@ -381,9 +410,10 @@ class Ears:
 
     def _guessed(self, utterance, guess):
         """What a guess made of what was said so far. Once one shows it's for
-        grog (its name first, or none needed), it hears it: tells grog, and
-        its name gets a sound saying it listens, while they talk on (or when
-        it came alone, at a pause). What it hears is reported as it comes.
+        grog (its name first, or none needed), it hears it: says so
+        (`called`: what grog answers is cut off), tells grog, and its name
+        gets a sound saying it listens, while they talk on (or when it came
+        alone, at a pause). What it hears is reported as it comes.
         Its name counts at a pause, or with more after it: last, it may have
         been cut short and sound like another word ("Drog..." of "Droga"),
         but in a window over music, where people say its name and wait (the
@@ -399,6 +429,7 @@ class Ears:
             if command is None or last:
                 return
             utterance.addressed = True
+            self.called()
             self.tell("hearing")
             if utterance.needs_name and (self.endpointer.talking or not command):
                 self.chime("listening")

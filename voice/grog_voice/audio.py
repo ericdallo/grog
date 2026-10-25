@@ -123,9 +123,13 @@ class Mic:
                 return
             wait = min(wait * 2, self.retry_max_s)
 
-    def read(self):
-        """The next frame and when it came."""
-        return self.frames.get()
+    def read(self, timeout=None):
+        """The next frame and when it came, or None when none came within
+        `timeout` (switched off, say)."""
+        try:
+            return self.frames.get(timeout=timeout)
+        except queue.Empty:
+            return None
 
     def flush(self):
         """Drops what was heard so far."""
@@ -156,7 +160,7 @@ class WavMic:
         self.frames = [data[i : i + FRAME_BYTES] for i in range(0, len(data) - FRAME_BYTES + 1, FRAME_BYTES)]
         self.i, self.start = 0, None
 
-    def read(self):
+    def read(self, timeout=None):
         if self.start is None:
             self.start = time.monotonic()
         if self.i >= len(self.frames):
@@ -229,6 +233,13 @@ def peak_dbfs(pcm):
     samples = array.array("h", pcm)
     peak = max(max(samples, default=0), -min(samples, default=0)) / 32768
     return 20 * math.log10(peak) if peak > 0 else float("-inf")
+
+
+def rms_dbfs(pcm):
+    """The RMS level of 16-bit audio, in dBFS."""
+    samples = array.array("h", pcm)
+    power = sum(s * s for s in samples) / len(samples) / 32768**2 if samples else 0.0
+    return 10 * math.log10(power) if power > 0 else float("-inf")
 
 
 # Speech to text makes out little of quiet speech (from across the room, say),

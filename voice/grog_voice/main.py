@@ -118,9 +118,11 @@ def build(settings, open_mic, play, report=None, name=lambda: None, partials=Tru
     word by default, comes from the Reporter, or else `name()`. With
     `partials` (and partialMs), what was said so far, while someone talks, is
     transcribed by a Parakeet of its own, in a process of its own (see
-    worker.py), loaded when someone first talks."""
+    worker.py), loaded when someone first talks. It listens while grog
+    answers, but for the echo of grog's own sound (see echo.py)."""
     from . import grog
-    from .audio import NullPlayer, Player
+    from .audio import FRAME_S, NullPlayer, Player
+    from .echo import Echo
     from .loop import Voice
     from .speech import Parakeet, SileroVad
     from .worker import Worker
@@ -146,14 +148,15 @@ def build(settings, open_mic, play, report=None, name=lambda: None, partials=Tru
         stt=stt,
         tts=tts,
         player=lambda rate, speaker: make_player(rate, speaker or settings["speaker"]),
-        ask=lambda text, said=None, on_connect=None: grog.ask(
-            settings["grogUrl"], settings["conversationId"], text, said, on_connect=on_connect
+        ask=lambda text, said=None, cut_off=None, on_connect=None: grog.ask(
+            settings["grogUrl"], settings["conversationId"], text, said, cut_off, on_connect=on_connect
         ),
         wake=wake,
         report=report or (lambda state: None),
         report_heard=report.heard if report is not None else lambda text, final: None,
         captions=lambda: report is not None and report.captions,
         partial_stt=partial_stt,
+        echo=Echo(FRAME_S),
     )
 
 

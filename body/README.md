@@ -225,9 +225,12 @@ on the same machine. It makes two nodes there:
 Only the music goes through it. grog's own voice and earcons go straight
 to the speaker: tried on them, the canceller lowered grog's echo by ~11 dB
 but the speaker beside the mic clipped it, and it ate the words of someone
-talking over grog ([plans/voice.md](../plans/voice.md)), so grog-voice
-stays half duplex. Both nodes rank below any real device, so they never
-become the session's defaults (don't pick them in GNOME's sound settings).
+talking over grog, calling it included
+([plans/voice.md](../plans/voice.md#interruptions)). So while they play,
+grog-voice only hears what's louder than their echo
+([voice/](../voice/README.md)). Both nodes rank below any real device, so
+they never become the session's defaults (don't pick them in GNOME's sound
+settings).
 grog also tells grog-voice when its music plays, to listen for its name in
 short windows over it, and ducks the music once it heard it. The
 canceller's thread flushes denormal floats to zero: once the music paused,
@@ -267,9 +270,11 @@ the mic's volume.
   speakerphones and conference mics do, mute what they take for noise:
   words lose their start, and grog misses its name even from up close.
   Plain mics do better. Try one with `grog-voice listen` before settling.
-- Keep the speaker away from the mic. grog doesn't listen while it talks,
-  but the sound saying it heard its name plays while you're still talking,
-  and if it reaches the mic louder than you, it covers your words.
+- Keep the speaker away from the mic. While grog speaks, saying its name
+  only stops it if you reach the mic louder than its voice does: on a
+  laptop at full volume, its speaker beside its mics, never. And the sound
+  saying it heard its name plays while you're still talking: if it reaches
+  the mic louder than you, it covers your words.
 - Bluetooth speakers add about 0.3 s before grog is heard.
 - A CPU with AVX2 makes speech 3 to 6 times faster. Without it, Parakeet
   takes about 0.9 s to write down what you said, and Supertonic 0.5 s per

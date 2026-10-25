@@ -3,6 +3,7 @@ import threading
 import unittest
 
 from fakes import (
+    ECHO,
     FRAME,
     FRAME_S,
     HEARD,
@@ -26,9 +27,17 @@ from fakes import (
 from grog_voice import ears as ears_module
 from grog_voice.audio import MicError
 from grog_voice.ears import Ears, Heard
+from grog_voice.echo import Echo
 from grog_voice.wake import WakeWords
 
 GROG = WakeWords(["Grog"])
+
+
+def echoing(seconds=30.0):
+    """An Echo of grog speaking for `seconds` from now."""
+    echo = Echo(FRAME_S)
+    echo.played(seconds, speech=True)
+    return echo
 
 
 class Told(list):
@@ -50,12 +59,16 @@ def ears(
     captions=False,
     awake=None,
     music=lambda: False,
+    echo=None,
+    busy=lambda: None,
 ):
     """Ears with fakes, with partials by `partials` (a speech to text) when
     given, awake for a reason when `awake` says one (awake, asked), music
-    playing while `music()`; what they tell grog is in .told, the earcons
-    they chime in .chimes, what they heard for grog in .heard_reports
-    ((text, final))."""
+    playing while `music()`, grog's own sound told apart by `echo`, and
+    grog answering while `busy()` says how; what they tell grog is in .told,
+    the earcons they chime in .chimes, what they heard for grog in
+    .heard_reports ((text, final)), how many times someone turned out to
+    talk to grog as they went on in .called."""
     told, chimes, heard = Told(), [], []
     e = Ears(
         settings or (PARTIAL if partials is not None else SETTINGS),
@@ -70,10 +83,13 @@ def ears(
         report_heard=lambda text, final: heard.append((text, final)),
         captions=lambda: captions,
         music=music,
+        echo=echo,
+        busy=busy,
+        called=lambda: setattr(e, "called_count", e.called_count + 1),
         frame_bytes=FRAME,
         frame_s=FRAME_S,
     )
-    e.told, e.chimes, e.heard_reports = told, chimes, heard
+    e.told, e.chimes, e.heard_reports, e.called_count = told, chimes, heard, 0
     return e
 
 
@@ -151,15 +167,84 @@ class ListenTest(unittest.TestCase):
         # Someone talks, and the mic is switched off and on again meanwhile:
         # what they said before is forgotten.
         class Switched(FakeMic):
-            def read(self):
+            def read(self, timeout=None):
                 if self.read_count == 20:
                     e.forget()
-                return super().read()
+                return super().read(timeout)
 
         e = ears(mic=Switched(frames(("S", 2.0), (".", 1.0))), settings={**SETTINGS, "speculateMs": 0})
         heard = e.listen()
         self.assertEqual(SPEECH * 42 + SILENCE * 6, heard.pcm, "only what came after")
         self.assertFalse(e.forgetting)
+
+
+class WhileGrogAnswersTest(unittest.TestCase):
+    """It listens while grog answers: grog's own sound isn't someone talking,
+    and someone calling grog is said as they go on."""
+
+    def test_its_echo_starts_nothing(self):
+        e = ears([ECHO] * 200, echo=echoing())
+        with self.assertRaises(MicError):
+            e.listen()
+        self.assertEqual([], e.stt.calls, "nothing transcribed")
+        self.assertEqual(["listening"], e.told)
+
+    def test_someone_heard_over_it_is(self):
+        e = ears([ECHO] * 40 + frames(("S", 1.0), (".", 1.0)), echo=echoing())
+        heard = e.listen()
+        self.assertEqual(HEARD, heard.text)
+        self.assertEqual([heard.pcm], e.stt.calls)
+        self.assertTrue(heard.pcm.endswith(SPEECH * 31 + SILENCE * 6), "all they said")
+        self.assertEqual(10, heard.pcm.count(ECHO), "with what came just before")
+
+    def test_its_sound_while_someone_talks_cuts_nothing_off(self):
+        # The sound saying it heard its name plays while they talk on.
+        said = "Grog, que horas são agora em Lisboa?"
+        echo = Echo(FRAME_S)
+        e = ears(mic=slow_mic(("S", 2.0), (".", 1.0)), stt=Saying(said), partials=Saying(said), wake=GROG)
+        e.echo = echo
+        e.chime = lambda name: (e.chimes.append(name), echo.played(1.0))
+        heard = e.listen()
+        self.assertEqual(["listening", "ack"], e.chimes)
+        self.assertEqual(said, heard.text)
+        self.assertAlmostEqual(2.0, heard.speech_s, delta=0.05)
+
+    def test_its_name_is_said_as_they_go_on(self):
+        said = "Grog, que horas são agora em Lisboa?"
+        e = ears(mic=slow_mic(("S", 2.0), (".", 1.0)), stt=Saying(said), partials=Saying(said), wake=GROG)
+        e.listen()
+        self.assertEqual(1, e.called_count)
+        e = ears(mic=slow_mic(("S", 2.0), (".", 1.0)), stt=Saying("Droga, esqueci a chave."), wake=GROG)
+        self.assertIsNone(e.address(e.listen()))
+        self.assertEqual(0, e.called_count, "not for what isn't for grog")
+
+    def test_returns_once_grog_is_done_with_nobody_talking(self):
+        done = threading.Event()
+
+        class Done(FakeMic):
+            def read(self, timeout=None):
+                if self.read_count == 10:
+                    done.set()
+                return super().read(timeout)
+
+        e = ears(mic=Done(frames((".", 2.0))), busy=lambda: None if done.is_set() else "speaking")
+        self.assertIsNone(e.listen(until=done.is_set))
+        self.assertEqual(["speaking"], e.told, "as grog's answer has it, until then: what's next comes next")
+        self.assertLess(e.mic.read_count, 15)
+
+    def test_what_was_being_said_as_grog_was_done_is_heard_to_its_end(self):
+        done = threading.Event()
+
+        class Done(FakeMic):
+            def read(self, timeout=None):
+                if self.read_count == 20:
+                    done.set()
+                return super().read(timeout)
+
+        e = ears(mic=Done(frames(("S", 1.0), (".", 1.0))))
+        heard = e.listen(until=done.is_set)
+        self.assertEqual(HEARD, heard.text)
+        self.assertTrue(heard.pcm.endswith(SPEECH * 31 + SILENCE * 6))
 
 
 class AddressTest(unittest.TestCase):
@@ -324,10 +409,10 @@ class MusicTest(unittest.TestCase):
         playing = [True]
 
         class Stopping(FakeMic):
-            def read(self):
+            def read(self, timeout=None):
                 if self.read_count == 200:
                     playing[0] = False
-                return super().read()
+                return super().read(timeout)
 
         stt = OverMusic(["la la la"], rest="la la")
         mic = Stopping(song(25.0), frame_wait_s=0.002)

@@ -14,6 +14,7 @@ from fakes import (
     SPEECH,
     FakeConnection,
     FakeTts,
+    OneSecond,
     PausingTts,
     Players,
     StreamingTts,
@@ -141,7 +142,7 @@ class AnswerTest(unittest.TestCase):
     def test_text_to_speech_that_streams_gets_whole_sentences_and_those_waiting_together(self):
         started, done = threading.Event(), threading.Event()
 
-        def ask(text, said=None, on_connect=None):
+        def ask(text, said=None, cut_off=None, on_connect=None):
             try:
                 yield ("text", "Amanhã faz sol, com vento à tarde. ")
                 # The rest comes while the first sentence is being said.
@@ -170,7 +171,7 @@ class AnswerTest(unittest.TestCase):
     def test_pauses_after_a_sentence_before_the_next_only(self):
         started, done = threading.Event(), threading.Event()
 
-        def ask(text, said=None, on_connect=None):
+        def ask(text, said=None, cut_off=None, on_connect=None):
             try:
                 yield ("text", "Amanhã faz sol, com vento à tarde. ")
                 started.wait(2)
@@ -211,7 +212,7 @@ class AnswerTest(unittest.TestCase):
     def test_says_what_it_will_do_before_searching(self):
         said_meanwhile = []
 
-        def ask(text, said=None, on_connect=None):
+        def ask(text, said=None, cut_off=None, on_connect=None):
             yield ("text", "Vou ver o tempo.")
             yield ("tool", "web_search")
             # The search takes a while: what came before it is said meanwhile.
@@ -307,7 +308,7 @@ class StopTest(unittest.TestCase):
     def test_hangs_up_as_soon_as_connected_when_stopped_before(self):
         asked, connecting, conn = threading.Event(), threading.Event(), FakeConnection()
 
-        def ask(text, said=None, on_connect=None):
+        def ask(text, said=None, cut_off=None, on_connect=None):
             asked.set()
             # Stopped while it connects.
             connecting.wait(5)
@@ -330,6 +331,94 @@ class StopTest(unittest.TestCase):
         turn = m.answer(heard(), HEARD)
         self.assertFalse(turn.stopped)
         self.assertEqual(ANSWER, turn.answer)
+
+
+def wait_for(condition, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while not condition():
+        if time.monotonic() > deadline:
+            raise AssertionError("never happened")
+        time.sleep(0.005)
+
+
+class CutOffTest(unittest.TestCase):
+    """What it said of an answer, its sound as it plays it, and what it's
+    doing: for listening while it answers."""
+
+    def setUp(self):
+        self.now = 0.0
+        self.played = []
+
+    def mouth(self, ask):
+        return Mouth(
+            tts=OneSecond(),
+            player=Players(),
+            ask=ask,
+            played=lambda seconds, speech=False: self.played.append((seconds, speech)),
+            clock=lambda: self.now,
+        )
+
+    def test_says_the_sentences_said_to_their_end_before_it_was_stopped(self):
+        m = self.mouth(hanging("Primeira frase. ", "Segunda frase. "))
+        answering = m.start(heard(), HEARD)
+        # Got it (0.12 s), then a second each: due to end at 1.12 s and 2.12 s.
+        wait_for(lambda: len(played(m.player)) == 3)
+        self.now = 1.5
+        m.stop()
+        turn = answering.turn()
+        self.assertTrue(turn.stopped)
+        self.assertEqual("Primeira frase.", turn.said)
+        self.assertEqual("Primeira frase. Segunda frase.", turn.answer.strip())
+
+    def test_said_nothing_when_stopped_before_it_spoke(self):
+        m = self.mouth(hanging())
+        answering = m.start(heard(), HEARD)
+        m.ask.answered.wait(5)
+        m.stop()
+        self.assertEqual("", answering.turn().said)
+
+    def test_said_it_all_when_not_stopped(self):
+        m = self.mouth(answering("Primeira frase. ", "Segunda frase."))
+        turn = m.answer(heard(), HEARD)
+        self.assertFalse(turn.stopped)
+        self.assertEqual("Primeira frase. Segunda frase.", turn.said)
+
+    def test_tells_of_its_sound_as_it_plays_it(self):
+        m = self.mouth(answering("Primeira frase. ", "Segunda frase."))
+        m.answer(heard(), HEARD)
+        m.chime("listening")
+        m.quiet()
+        self.assertEqual(
+            [(len(ACK) / 2 / 22050, False), (1.0, True), (1.0, True), (len(LISTENING) / 2 / 22050, False)],
+            self.played,
+            "got it, the answer, its speech, and the sound saying it listens",
+        )
+
+    def test_what_it_does_while_it_answers(self):
+        m = self.mouth(hanging("Primeira frase. "))
+        self.assertIsNone(m.state)
+        answering = m.start(heard(), HEARD)
+        self.assertEqual("answering", m.state, "at once")
+        wait_for(lambda: m.state == "speaking")
+        m.stop()
+        answering.turn()
+        self.assertIsNone(m.state)
+        self.assertTrue(answering.done.is_set())
+
+    def test_grog_hears_how_much_of_its_last_answer_was_said(self):
+        m = mouth(ask=answering("Dez e quinze."))
+        m.answer(heard(), HEARD, cut_off="Amanhã faz sol.")
+        m.answer(heard(), HEARD)
+        self.assertEqual(["Amanhã faz sol.", None], m.ask.cut_offs)
+
+    def test_a_failed_answer_is_raised_by_its_turn(self):
+        m = mouth()
+        m.tts = None  # a bug
+        answering = m.start(heard(), HEARD)
+        with self.assertRaises(AttributeError):
+            answering.turn()
+        self.assertTrue(answering.done.is_set())
+        self.assertIsNone(m.state)
 
 
 class SoundsTest(unittest.TestCase):
@@ -356,7 +445,7 @@ class SoundsTest(unittest.TestCase):
     def test_once_playing_failed_it_stops_synthesizing(self):
         players = Players(failing=True)
 
-        def ask(text, said=None, on_connect=None):
+        def ask(text, said=None, cut_off=None, on_connect=None):
             # Once the sound saying it got it failed to play.
             players.one_closed.wait(5)
             yield ("text", "Primeira frase. Segunda frase. ")

@@ -670,6 +670,47 @@
                     (range 50))
               "the turn stopped")
           (is (deref upstream-closed 5000 false) "and so did the provider's stream")
+          (testing "stopped rather than failed, keeping what was asked and answered so far, cut off"
+            (is (true? (get-in (events/snapshot (:events (:ctx srv))) [:turn :stopped])))
+            (let [[question answer] (get-in @(:store (:ctx srv)) ["default" :messages])]
+              (is (= {:role "user" :content "talk a lot"} question))
+              (is (str/starts-with? (:content answer) "chunk 0."))
+              (is (str/ends-with? (:content answer) " …"))))
+          (finally
+            (server/stop! srv)
+            ((:stop! upstream))))))))
+
+(deftest a-client-going-away-while-the-model-searches-stops-it-at-once
+  (let [upstream-closed (promise)
+        upstream (h/start-handler!
+                  (fn [req]
+                    (http-server/as-channel
+                     req
+                     {:on-open (fn [ch]
+                                 (future
+                                   (http-server/send! ch {:status 200 :headers {"Content-Type" "text/event-stream"}}
+                                                      false)
+                                   (http-server/send! ch (h/sse {:type "response.output_item.added"
+                                                                 :item {:type "web_search_call"}})
+                                                      false)
+                                   ;; Searching, for a long while.
+                                   (Thread/sleep 10000)))
+                      :on-close (fn [_ _] (deliver upstream-closed true))})))
+        body "{\"message\": \"look it up\", \"conversationId\": \"voice\"}"]
+    (with-redefs [http/api-key (constantly "k")]
+      (let [srv (start-server (:url upstream))]
+        (try
+          ;; Like grog-voice once someone called grog: it hangs up.
+          (with-open [socket (java.net.Socket. "127.0.0.1" (int (:port srv)))]
+            (.write (.getOutputStream socket)
+                    (.getBytes (str "POST /v1/chat HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: text/event-stream\r\n"
+                                    "Content-Type: application/json\r\nContent-Length: " (count body) "\r\n\r\n"
+                                    body)
+                               "UTF-8"))
+            (.flush (.getOutputStream socket))
+            (is (pos? (.read (.getInputStream socket) (byte-array 64))) "it said it searches"))
+          (is (deref upstream-closed 3000 false) "without waiting for the search: the next turn needn't either")
+          (is (eventually #(true? (get-in (events/snapshot (:events (:ctx srv))) [:turn :stopped]))))
           (finally
             (server/stop! srv)
             ((:stop! upstream))))))))
@@ -714,7 +755,9 @@
       (doseq [id [" " 7 (apply str (repeat 201 "c"))]]
         (let [resp (post-chat url {:message "hi" :conversationId id})]
           (is (= 400 (:status resp)) (pr-str id))
-          (is (= "Send a JSON body with a \"message\", and maybe a \"conversationId\" (up to 200 characters), \"new\": true, and what was \"said\" (up to 1000 characters)."
+          (is (= (str "Send a JSON body with a \"message\", and maybe a \"conversationId\" (up to 200 characters),"
+                      " \"new\": true, what was \"said\" (up to 1000 characters), and \"cutOff\", what of the last"
+                      " answer was said before it was cut off (up to 20000 characters).")
                  (:error (config/parse (:body resp)))))))
       (finally
         (server/stop! srv)))))

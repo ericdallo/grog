@@ -27,11 +27,23 @@ ACK, LISTENING, ERROR, BACK = (s(22050) for s in (sounds.ack, sounds.listening, 
 SOUND, PAUSE = b"\x01\x00" * 22050, Silence(2 * 8820)
 
 
-def frames(*parts):
-    """("S", 1.0) is a second of speech, (".", 0.5) half a second of silence."""
+def frames(*parts, silence=SILENCE):
+    """("S", 1.0) is a second of speech, (".", 0.5) half a second of
+    `silence`."""
     return [
-        SPEECH if kind == "S" else SILENCE for kind, seconds in parts for _ in range(round(seconds / FRAME_S))
+        SPEECH if kind == "S" else silence for kind, seconds in parts for _ in range(round(seconds / FRAME_S))
     ]
+
+
+# What the mic hears of grog's own voice, from its speaker: speech to the
+# VAD (see FakeVad), at -52 dBFS. And silence as a mic hears it, quiet.
+ECHO, HUSH = b"S\x00S\x00", bytes(FRAME)
+
+
+def quiet(*parts):
+    """frames(*parts), its silence quiet (HUSH): what grog's echo is told
+    apart from (see echo.py)."""
+    return frames(*parts, silence=HUSH)
 
 
 def seconds(pcm):
@@ -72,24 +84,31 @@ class OverMusic:
 
 
 class FakeMic:
-    """Frames, then MicError. `frame_wait_s` between them; `gate`, an Event
-    the frames wait for from frame `gate_at` on. How it was switched on and
-    off is in .switched."""
+    """Frames, then MicError, once `drained`. `frame_wait_s` between them;
+    `gate`, an Event the frames wait for from frame `gate_at` on; none comes
+    while `hold()` says so (up to 5 s). How it was switched on and off is in
+    .switched."""
 
     def __init__(self, frames, frame_wait_s=0, gate=None, gate_at=0):
         self.frames = list(frames)
         self.frame_wait_s, self.gate, self.gate_at = frame_wait_s, gate, gate_at
+        self.hold = lambda: False
+        self.drained = threading.Event()
         self.flushed, self.read_count, self.closed = 0, 0, False
         self.switched = []
 
     def switch(self, on):
         self.switched.append(on)
 
-    def read(self):
+    def read(self, timeout=None):
         if not self.frames:
+            self.drained.set()
             raise MicError("no more frames")
         if self.gate is not None and self.read_count >= self.gate_at:
             self.gate.wait(5)
+        deadline = time.monotonic() + 5
+        while self.hold() and time.monotonic() < deadline:
+            time.sleep(0.001)
         time.sleep(self.frame_wait_s)
         self.read_count += 1
         return time.monotonic(), self.frames.pop(0)
@@ -105,6 +124,24 @@ def slow_mic(*parts):
     """A FakeMic of frames(*parts), 2 ms a frame: partials, and what's
     transcribed at a pause, are done before the utterance ends."""
     return FakeMic(frames(*parts), frame_wait_s=0.002)
+
+
+class SimMic(FakeMic):
+    """A FakeMic stamping its frames with a time of its own, FRAME_S on for
+    each, as a mic records in real time (2 ms a frame here): `clock()`
+    tells it, for what compares it with frames (see echo.py)."""
+
+    def __init__(self, frames, **kwargs):
+        super().__init__(frames, **({"frame_wait_s": 0.002} | kwargs))
+        self.now = 1000.0
+
+    def clock(self):
+        return self.now
+
+    def read(self, timeout=None):
+        _, frame = super().read(timeout)
+        self.now += FRAME_S
+        return self.now, frame
 
 
 class FakeVad:
@@ -223,19 +260,71 @@ def played(players):
 
 def answering(*pieces):
     """A fake grog answering `pieces`: text, ("tool", name) or an exception
-    to raise. It keeps what it was asked in .asked, and what was said in
-    .said."""
+    to raise. It keeps what it was asked in .asked, what was said in .said,
+    and how much of its last answer was said before it was cut off in
+    .cut_offs."""
 
-    def ask(text, said=None, on_connect=None):
+    def ask(text, said=None, cut_off=None, on_connect=None):
         ask.asked.append(text)
         ask.said.append(said)
+        ask.cut_offs.append(cut_off)
         for piece in pieces:
             if isinstance(piece, Exception):
                 raise piece
             yield piece if isinstance(piece, tuple) else ("text", piece)
 
-    ask.asked, ask.said = [], []
+    ask.asked, ask.said, ask.cut_offs = [], [], []
     return ask
+
+
+def answers(*asks):
+    """A fake grog answering each time as the next of `asks` (the last one
+    over and over), keeping what it was asked in .asked and how much of its
+    last answer was said before it was cut off in .cut_offs."""
+
+    def ask(text, said=None, cut_off=None, on_connect=None):
+        ask.asked.append(text)
+        ask.cut_offs.append(cut_off)
+        return asks[min(len(ask.asked), len(asks)) - 1](text, said, cut_off, on_connect)
+
+    ask.asked, ask.cut_offs = [], []
+    return ask
+
+
+class OneSecond(FakeTts):
+    """A FakeTts saying each text in a second (SOUND)."""
+
+    def __call__(self, text):
+        self.texts.append(text)
+        yield SOUND
+
+
+class Speaking(Players):
+    """Players playing as grog speaks: its earcons and an answer's first
+    second (SOUND) at once, then, the first time, its next second until
+    stopped or `done` is set, `speaking` meanwhile."""
+
+    def __init__(self):
+        super().__init__()
+        self.speaking, self.done = threading.Event(), threading.Event()
+
+    def __call__(self, rate, speaker=None):
+        player = super().__call__(rate, speaker)
+        write = player.write
+
+        def playing(pcm):
+            write(pcm)
+            if pcm != SOUND or player.written.count(SOUND) < 2 or self.speaking.is_set():
+                return
+            self.speaking.set()
+            deadline = time.monotonic() + 5
+            while not (player.stopped or self.done.is_set()) and time.monotonic() < deadline:
+                time.sleep(0.002)
+            if player.stopped:
+                raise BrokenPipeError("pw-cat was killed")
+
+        player.write = playing
+        return player
 
 
 class FakeConnection:
@@ -256,7 +345,7 @@ def hanging(*pieces):
     gave them all."""
     conn, answered = FakeConnection(), threading.Event()
 
-    def ask(text, said=None, on_connect=None):
+    def ask(text, said=None, cut_off=None, on_connect=None):
         if on_connect is not None:
             on_connect(conn)
         yield from (("text", piece) for piece in pieces)

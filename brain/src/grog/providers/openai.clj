@@ -195,10 +195,11 @@
     result))
 
 (defn ^:private stream!
-  "What `consume` returns for the request, with the response's :headers."
-  [cfg {:keys [url headers body]} emit! on-tool emitted?]
+  "What `consume` returns for the request, with the response's :headers.
+  Once `cancel` is delivered, it stops (see http/read-events!)."
+  [cfg {:keys [url headers body]} emit! on-tool emitted? cancel]
   (let [resp (http/post-sse! "OpenAI" url headers body (:timeout-ms cfg))]
-    (assoc (http/read-events! "OpenAI" (:body resp) (:timeout-ms cfg) #(consume % emit! on-tool emitted?))
+    (assoc (http/read-events! "OpenAI" (:body resp) (:timeout-ms cfg) cancel #(consume % emit! on-tool emitted?))
            :headers (:headers resp))))
 
 (defn cost
@@ -265,23 +266,26 @@
   :quota}: what the turn used ({:auth :model :input-tokens :cached-tokens
   :output-tokens :web-searches}, and with an API key its :usd, nil without a
   price for the model), and with the subscription how much of its limits is
-  used (grog.providers.openai.quota), when the backend said."
-  [cfg {:keys [call-tool] :as request} on-text on-tool]
+  used (grog.providers.openai.quota), when the backend said. Once the
+  request's :cancel is delivered, it stops, throwing http/cancelled."
+  [cfg {:keys [call-tool cancel] :as request} on-text on-tool]
   (let [out (StringBuilder.)
         emit! (fn [^String s] (.append out s) (on-text s))
         creds (credentials cfg)
         subscription? (= :subscription (:type creds))
         turn-id (str (random-uuid))
         ask! (fn [request emitted?]
+               (when (and cancel (realized? cancel))
+                 (throw (http/cancelled)))
                (if subscription?
                  (try
-                   (stream! cfg (subscription-request cfg request turn-id false) emit! on-tool emitted?)
+                   (stream! cfg (subscription-request cfg request turn-id false) emit! on-tool emitted? cancel)
                    (catch clojure.lang.ExceptionInfo e
                      ;; Rejected before any text: refresh the token and retry once.
                      (if (= 401 (:status (ex-data e)))
-                       (stream! cfg (subscription-request cfg request turn-id true) emit! on-tool emitted?)
+                       (stream! cfg (subscription-request cfg request turn-id true) emit! on-tool emitted? cancel)
                        (throw e))))
-                 (stream! cfg (api-request cfg creds request) emit! on-tool emitted?)))]
+                 (stream! cfg (api-request cfg creds request) emit! on-tool emitted? cancel)))]
     (loop [request request
            n 1
            emitted? false

@@ -6,7 +6,9 @@
 
     :name           for messages, e.g. \"OpenAI\"
     :stream-reply!  (fn [cfg request on-text on-tool]): answers `request`
-                    ({:system :messages :location :timezone :tools :call-tool}),
+                    ({:system :messages :location :timezone :tools :call-tool
+                    :cancel}), stopping once :cancel (a promise, or nil) is
+                    delivered: whoever asked went away (it throws then),
                     calling `on-text` with each chunk of text, and `on-tool`
                     with {:name} when the model starts using a tool (like web
                     search, or one of `tools`), and again with {:name

@@ -38,6 +38,10 @@ said otherwise.
   (`voice/grog_voice/commands.py`). Until then grog-voice could only tell
   grog what it was doing. grog also tells it when its music plays, to
   listen for its name in short windows over it (see "Music" below).
+- It listens while grog answers: its name then cuts the answer off, and
+  what follows it is answered instead. While grog's sounds play, only what's
+  louder than their echo is heard, which with the station's speaker at full
+  volume, beside its mics, is nothing: see "Interruptions" below.
 - Code: `voice/grog_voice/pocket.py` and `voice/grog_voice/supertonic.py`
   (text handling, pure), the `Pocket`, `Supertonic` and `Piper` classes in
   `voice/grog_voice/speech.py`, the `tts.*` settings in
@@ -99,7 +103,8 @@ said otherwise.
 - **Watch for noise**: grog-voice keeps listening during a benchmark, and
   people talking in the room make it transcribe (165% CPU), which shows up as
   sentences suddenly twice as slow (`top`, `journalctl --user -u
-  grog-voice`). When it speaks for real, it doesn't listen.
+  grog-voice`). When it speaks for real, it only transcribes what's louder
+  than its voice (see "Interruptions").
 - **Without installing anything there**: scripts ran with grog-voice's own
   Python (the site directories listed in its store path's
   `bin/.grog-voice-wrapped`); other tools were built on the laptop from this
@@ -336,8 +341,8 @@ grog would answer. The scripts ran with grog-voice's own Python, as above.
   canceller alone, no noise suppression or gain control), with the speaker
   right next to the mic. grog's echo went from -13.5 to -25 dBFS on
   average, but it clipped the mic at 0 dBFS to begin with, and when someone
-  talked over grog, their words went too. Not worth it there: grog-voice
-  stays half duplex.
+  talked over grog, their words went too. Not worth it there, as tried
+  again for interruptions (see "Interruptions").
 - **The listening earcon over speech**: it plays while someone talks on
   after grog's name. Added to the recordings peaking at -1 dBFS (as the
   speaker beside the mic gave it), the question was lost in 2 of 15
@@ -677,8 +682,8 @@ So a piece that ends a sentence is followed by silence, up to 0.4 s of
 quiet at its end (`pocket.pause`): 0.40 to 0.46 s there now, in either
 voice. The mouth plays it only before more speech, and only what's left
 of it by then (`mouth.Pauses`): not at the end of an answer, where it
-would keep the mic deaf longer (a quick "Sim" to a question), nor after a
-wait for grog's tools. Inside a piece, the carioca voice still sometimes
+would hold off a quick "Sim" to a question (while grog's sound plays, only
+what's louder than it is heard), nor after a wait for grog's tools. Inside a piece, the carioca voice still sometimes
 runs sentences together (0.1 s), as he does himself (his pauses: 0.1 to
 0.4 s).
 
@@ -707,7 +712,7 @@ two words allowed before it, and partials only cover an utterance's first
    "Echo cancellation"). The canceller's reference is the music alone.
    grog's own voice and earcons go straight to the speaker, as before (see
    "Echo cancellation" under "The ears": on them, it clipped and ate the
-   words of someone talking over grog). grog-voice stays half duplex.
+   words of someone talking over grog; and "Interruptions").
 2. **Windows** (`ears.py`, `Ears._window`): grog tells grog-voice whether
    music plays (`GET /v1/voice/commands`: `music` in the snapshot, and a
    `music` event when it changes). While it does, and grog-voice waits for
@@ -775,8 +780,8 @@ from where they talk to it (1 to 2 m), the speaker at 100%, the mic at its
   there too, and the user wanted it for the music only: the skin's Speakers
   pick them apart (the music's is the default; grog's voice's, kept by the
   brain), across restarts (brain/README.md, "Speakers"). Its voice on the
-  laptop's speaker isn't in the canceller's reference, but grog-voice
-  doesn't listen while it speaks.
+  laptop's speaker isn't in the canceller's reference: while it speaks,
+  grog-voice only hears what's louder than it (see "Interruptions").
 - **Pausing the music left grog deaf for minutes** (October 24, 2026):
   every "Grog" after a pause came out "not for grog". `pw-top` showed the
   canceller missing ~70 of its 100 cycles a second, `grog-mic` with them,
@@ -792,6 +797,94 @@ from where they talk to it (1 to 2 m), the speaker at 100%, the mic at its
   virtual mic records exact zeros, and the same pause there never fell
   behind.
 
+## Interruptions
+
+The user wanted grog to take interruptions as Alexa does: while grog
+thinks, searches or speaks, its name alone stops it and waits for what
+comes next, and "Grog, ..." stops it and does that instead. Until then
+grog-voice dropped what the mic heard while grog answered, and only
+touching grog's face stopped it.
+
+Measured on the station (October 25, 2026), its speaker at 100% unless
+said, the mic at its 0.68, levels in 0.5 s blocks, with calls ("Grog, que
+horas são?" and the like) made with text to speech and played on the
+station's speaker (recordings deleted once measured):
+
+- **grog's voice is the loudest thing its mic hears**: it clips it (peaks
+  at 0 dBFS, -8 to -15 dBFS RMS). A call played 20 dB down peaked at -14
+  to -16 dBFS (-27 to -34 RMS), and speech in the room, in grog-voice's
+  logs, peaks at -19 to -30 dBFS: grog's voice reaches the mic ~25 dB
+  louder than someone talking to it, by those numbers.
+- **Transcribing the mic while grog speaks**: none of 6 calls was heard,
+  only grog's words, and its "Eu sou o Grog" had its name in it: grog
+  would call itself.
+- **grog's voice through the music's echo canceller** (played into
+  `grog-music-out`): its echo went down to -28 to -45 dBFS RMS, and the
+  calls went with it: none of 6 heard as loud as above, none 8 dB louder,
+  1 of 6 (garbled) 14 dB louder. With grog's voice 20 dB down, as from a
+  speaker farther away, none of 6 was heard, with the canceller or
+  without: Parakeet follows the louder voice. 30 dB down, about as loud as
+  the calls, it heard bits of them.
+- **At 50% the laptop's speaker plays much quieter** (its DSP): a call
+  played at full level reached the mic at ~-47 dBFS RMS, peaking at -28
+  to -33.
+
+So grog's voice still goes straight to the speaker, and grog-voice listens
+while grog answers, through an echo gate (`echo.py`):
+
+- **The mouth says when grog's sounds play** (`Echo.played`, as each piece
+  is written to the speaker, after what it still plays), its speech apart
+  from its earcons. While they play, and 0.5 s after (`TAIL_S`: the room,
+  the speaker's own delay, and the mic's frames, seen stamped up to ~0.35
+  s late under load), a frame no louder than their echo gets a speech
+  probability of 0: it can't start an utterance. Pocket TTS sometimes falls
+  behind on the station (80 ms pieces every ~120 ms), so grog's sound comes
+  in bits, which the tail joins. Once an utterance started, the rest of it
+  is heard as usual: the earcon saying grog listens, played while someone
+  talks on after its name, never cuts them.
+- **How loud their echo is**: the 90th percentile of the levels of every
+  frame heard while grog spoke, over the last 10 s of it, plus 6 dB
+  (`MARGIN_DB`). Until it has 1 s of them, nothing is heard over grog's
+  sounds. Learning from every frame while they played, earcons included
+  (their echo is quieter), set the limit too low, and grog's voice started
+  an utterance; learning only from frames the VAD took for speech left its
+  quieter echo out, and nothing ever got through.
+- **What's heard over them**: as usual, its name heard in a partial or at a
+  pause stops the answer at once (the player killed, the connection to
+  grog shut down), with the earcon saying it listens. Its name alone wakes
+  it up (8 s without the name); "Grog, ..." is answered next. What isn't
+  for grog is let be, and the answer goes on. What's still being said as
+  the answer ends is the next turn's. "Grog, para" goes to grog like
+  anything else, which answers it: grog-voice never decides an answer.
+- **The brain**, hung up on, stops the turn at once, even mid web search
+  (its provider's stream checks every 200 ms), as stopped rather than
+  failed. The conversation keeps the question and what was answered so
+  far, marked " …", and with the next question grog-voice says how much
+  of the answer was said aloud, its sentences played to their end
+  (`cutOff`): the conversation keeps only that of it, so "continua" goes
+  on from where the user stopped hearing.
+- While grog speaks, the VAD now runs on every frame (they were dropped);
+  with nothing over the gate, nothing is transcribed.
+
+Live on the station, with a test copy of grog-voice (its service stopped
+meanwhile) and the brain as it was:
+
+- Calling grog while it thought cut the answer off, and what was asked
+  was answered, twice (the first turn "stopped" in the log).
+- With grog's voice at 100%, the gate's limit came to ~-4 dBFS: nothing
+  is heard over it there, as measured above, and it never started an
+  utterance (once, before the gate learned from grog's speech alone).
+- With grog's voice played 30 dB down by the test copy, the speaker at
+  50%, as from a speaker farther away: "Grog, que horas são?" over it cut
+  the answer off, and was answered.
+- "Grog!" alone over its voice, at that level, was too quiet for the VAD.
+  The tests cover it.
+- Some calls lost their first "Grog," as with the service as it was: the
+  VAD started ~1 s into them, past the 0.42 s kept from before speech (the
+  endpointer's preroll), so they weren't for grog. Offline, keeping the
+  VAD's state between utterances or resetting it made no difference: both
+  started 1.44 s in. Not fixed (see "Where to go from here").
+
 ## Where to go from here
 
 ### Ears
@@ -800,8 +893,16 @@ from where they talk to it (1 to 2 m), the speaker at 100%, the mic at its
   word sounds like them. Check for false wakes first.
 - A wake word model of its own (openWakeWord, microWakeWord) for "Grog"
   alone from afar, where speech to text struggles most.
-- Echo cancellation again, with the speaker well away from the mic: it
-  would let the earcon play over speech, and someone interrupt grog.
+- Calling grog while it speaks, on the station: an echo canceller that
+  keeps the words of someone talking over grog (WebRTC's ate them; its
+  lighter AECM wasn't tried), or a speaker away from the mics (see
+  "Interruptions").
+- A quiet "Grog" said first is sometimes lost, the VAD starting late (see
+  "Interruptions"): a longer preroll, or a lower `start_prob`, may keep it.
+  Check what else starts an utterance then.
+- What's heard while grog speaks could be checked against what it says,
+  so that its own words ("Eu sou o Grog") never call it, should they get
+  over the gate (they haven't so far).
 
 ### A voice of grog's own
 
@@ -852,6 +953,10 @@ from where they talk to it (1 to 2 m), the speaker at 100%, the mic at its
 
 - The real wait on grognix, measured during conversations, when grog-voice
   isn't transcribing while it speaks.
+- Calling grog over its voice from a speaker away from the mics (a
+  Bluetooth one across the room): how often it's heard from 1 and 3 m,
+  whether 6 dB over its echo is the right margin, and whether anything
+  else starts an utterance then.
 - Portuguese text handling: for Pocket TTS, `pocket.py` spells out
   numbers, money, times, degrees, percentages and ordinals; abbreviations,
   and English words in Portuguese sentences, are left to the models.

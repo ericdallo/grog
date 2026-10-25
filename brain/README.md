@@ -426,7 +426,9 @@ after being called or asking something, and while grog answers aloud, the
 music goes down, to 20 of 100, then back once it waits for its name again.
 It's the brain's doing, from what grog-voice says it's doing: grog-voice
 knows nothing of the music. Touching grog's face while it answers stops it,
-and pauses the music (`POST /v1/actions/stop` does too).
+and pauses the music (`POST /v1/actions/stop` does too). Calling it by
+name while it answers stops it too, the music staying on, down while it
+listens ([voice/](../voice/README.md)).
 
 grog also tells grog-voice whether its player plays (`GET
 /v1/voice/commands`, `music`), as it listens for its name differently over
@@ -565,7 +567,7 @@ JSON keys are lowerCamelCase.
 
 | Request | Does |
 | --- | --- |
-| `POST /v1/chat` `{"message", "conversationId", "new", "said"}` | Answers as streamed text, or as server-sent events with `Accept: text/event-stream` (`text`, `tool`, then `done` or `error`). `new` starts over; `said` is the question as heard, shown with captions |
+| `POST /v1/chat` `{"message", "conversationId", "new", "said", "cutOff"}` | Answers as streamed text, or as server-sent events with `Accept: text/event-stream` (`text`, `tool`, then `done` or `error`). `new` starts over; `said` is the question as heard, shown with captions; `cutOff`, what of the last answer was said aloud before it was cut off: the conversation keeps only that of it. Hanging up stops the turn, as stopped rather than failed, keeping what was asked and answered so far |
 | `GET /v1/status` | `name`, its `revision`, `provider`, `model`, the account, `changed` settings, `usage`, whether someone is talking to it (`busy`), and how the last update goes (`update`) |
 | `DELETE /v1/settings` | Puts the settings changed by asking back |
 | `GET /v1/models` | `{"models": [{"id", "description", "current"...}]}` |

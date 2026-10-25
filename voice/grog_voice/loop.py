@@ -1,9 +1,11 @@
 """The voice loop: waits for an utterance (see ears.py) and, when it's for
 grog ("Grog, ..."), asks grog and speaks the answer as it streams in (see
-mouth.py). Half duplex: what the mic hears while grog answers is dropped
-(hearing someone over grog's own voice would take echo cancellation). grog
-may also ask it to listen now, to stop answering, or to turn its mic off,
-and tells it when it plays music (see commands.py)."""
+mouth.py), listening meanwhile: someone calling grog then ("Grog", or
+"Grog, ...") cuts the answer off at once, and what they say is answered
+instead. While grog's own sound plays, what the mic hears of it isn't
+taken for speech (see echo.py): only someone heard over it. grog may also
+ask it to listen now, to stop answering, or to turn its mic off, and tells
+it when it plays music (see commands.py)."""
 
 import logging
 import threading
@@ -31,12 +33,16 @@ BACK_EVERY_S = 60.0
 @dataclass
 class Result:
     """What a turn did: `answered` grog asked `command` (how it went: `turn`),
-    `woken` just the wake word, or `ignored` what wasn't for grog."""
+    `woken` just the wake word, or `ignored` what wasn't for grog. `then`:
+    what was heard while grog answered, to take next: someone calling grog,
+    which cut the answer off, or what was still being said once it was
+    over."""
 
     kind: str  # answered, woken or ignored
     heard: Heard
     command: str | None = None
     turn: Turn | None = None
+    then: Heard | None = None
 
 
 class Voice:
@@ -48,7 +54,9 @@ class Voice:
     `report_heard(text, final)` what it heard for grog (see reporter.py), and
     `captions` whether grog shows that (its skin.captions): only then is what
     it hears for grog reported, and are its partials made to its end.
-    `partial_stt` transcribes partials (None: none, see Ears)."""
+    `partial_stt` transcribes partials (None: none, see Ears). `echo` (an
+    Echo) keeps grog's own sound from being taken for someone talking (None:
+    nothing does); `clock` tells the time, as the mic stamps its frames."""
 
     def __init__(
         self,
@@ -65,6 +73,8 @@ class Voice:
         report_heard=lambda text, final: None,
         captions=lambda: False,
         partial_stt=None,
+        echo=None,
+        clock=time.monotonic,
         frame_bytes=FRAME_BYTES,
         frame_s=FRAME_S,
     ):
@@ -76,6 +86,9 @@ class Voice:
         self.muted = False  # its mic is switched off (see set_mic)
         self.music = False  # grog plays music (see set_music)
         self.speaker = None  # the speaker grog picked for it (see set_speaker)
+        # How much of the last answer was said before it was cut off, for
+        # grog, with what's asked next: None when it wasn't.
+        self.cut_off = None
         self._telling = threading.Lock()
         self._back_at = None  # when its sound last said grog is back
         self.mouth = Mouth(
@@ -84,6 +97,8 @@ class Voice:
             ask=ask,
             tell=self.tell,
             captions=captions,
+            played=echo.played if echo is not None else lambda seconds, speech=False: None,
+            clock=clock,
         )
         self.ears = Ears(
             settings,
@@ -98,6 +113,9 @@ class Voice:
             report_heard=report_heard,
             captions=captions,
             music=lambda: self.music,
+            echo=echo,
+            busy=lambda: self.mouth.state,
+            called=self._called,
             frame_bytes=frame_bytes,
             frame_s=frame_s,
         )
@@ -106,45 +124,43 @@ class Voice:
 
     def run(self):
         """Turns, forever. Only ends (raising MicError) when the mic's input
-        does: a file's."""
+        does: a file's. What the mic hears while grog's sounds play is heard
+        too, but for their echo (see echo.py): a reply comes quickly
+        ("Sim"), and someone may call grog while it answers."""
         log.info("listening")
+        then = None
         while True:
             try:
-                result = self.turn()
+                result = self.turn(then)
             except MicError:
                 raise
             except Exception as e:
                 log.error("the turn failed: %s", where(e))
                 self.tell("error")
+                then = None
             else:
-                # The log says how what it ignored sounded, to tell a quiet
-                # mic from a wake word misheard.
-                heard = result.heard
+                heard, then = result.heard, result.then
                 if result.kind == "ignored":
-                    why = "not for grog" if heard.said else "no words heard"
-                    log.info("%s: %s", why, self.ears.describe(heard))
+                    self._ignored(heard)
                     continue
                 if result.kind == "woken":
                     log.info("just the wake word: %s", self.ears.describe(heard))
                     if heard.chimed:
-                        # Its sound played as they spoke: what they say
-                        # next, right away maybe, is kept.
+                        # Its sound played as they spoke: no need to wait
+                        # for it.
                         continue
                 else:
                     log.info("%s", result.turn)
-            # What the mic heard while grog spoke, or chimed, is dropped, and
-            # nothing after: a player returns once its sound is over, with
-            # 0.2 s of silence after it for the room's echo (see Player). A
-            # reply comes quickly ("Sim").
             self.mouth.quiet()
-            self.ears.flush()
 
-    def turn(self):
-        """Listens for an utterance and answers it when it's for grog, or
+    def turn(self, heard=None):
+        """Listens for an utterance, unless given one (`heard`, heard while
+        grog answered), and answers it when it's for grog (see answer), or
         after just the wake word, listens without it for a while (awake), as
         after an answer asking something (asked). Returns once its sounds are
-        over."""
-        heard = self.ears.listen()
+        over, or once someone called grog while it answered."""
+        if heard is None:
+            heard = self.ears.listen()
         if heard.said:
             self.awake_until = 0.0
         command = self.ears.address(heard)
@@ -157,11 +173,58 @@ class Voice:
             if not heard.chimed:
                 self.mouth.play("listening")
             return Result("woken", heard, command)
-        turn = self.mouth.answer(heard, command)
-        if turn.answer.rstrip().endswith("?") and not turn.stopped:
-            # It asked something: the reply needs no wake word.
+        turn, then = self.answer(heard, command)
+        return Result("answered", heard, command, turn, then)
+
+    def answer(self, heard, command):
+        """Asks grog `command` and speaks its answer, listening meanwhile:
+        what isn't for grog is let be, while someone calling grog cuts the
+        answer off (see _called), what they say to be answered next. grog
+        hears how much of an answer cut off was said, with what's asked
+        next. An answer asking something wakes it up (asked): the reply
+        needs no wake word, even when it started as grog finished asking.
+        Returns the turn, and what was heard while it answered to take next,
+        if anything: what was for grog, or what was still being said once
+        the answer was over."""
+        answering = self.mouth.start(heard, command, self.cut_off)
+        self.cut_off = None
+        then = None
+        try:
+            while (later := self.ears.listen(until=answering.done.is_set)) is not None:
+                if answering.done.is_set():
+                    then = later
+                    break
+                if self.ears.command(later.said, later.needs_name, later.addressed, later.anywhere) is None:
+                    self._ignored(later)
+                    continue
+                self._called()
+                then = later
+                break
+        except MicError:
+            pass  # a file's end, as the mic: the answer goes on, and the next turn ends there
+        finally:
+            answering.done.wait()
+        turn = answering.turn()
+        if turn.stopped:
+            self.cut_off = turn.said
+        elif turn.answer.rstrip().endswith("?"):
             self.wake_up("asked")
-        return Result("answered", heard, command, turn)
+            if then is not None:
+                then.needs_name = False
+        return turn, then
+
+    def _called(self):
+        """Someone turned out to talk to grog: what it answers, if anything,
+        is cut off at once."""
+        if self.mouth.state is not None and not self.mouth.stopping.is_set():
+            log.info("called while answering: cutting it off")
+            self.mouth.stop()
+
+    def _ignored(self, heard):
+        """Logs how what wasn't for grog sounded, to tell a quiet mic from a
+        wake word misheard: never what was said."""
+        why = "not for grog" if heard.said else "no words heard"
+        log.info("%s: %s", why, self.ears.describe(heard))
 
     def wake_up(self, why):
         """What's said for a while needs no wake word, `why` being awake (its

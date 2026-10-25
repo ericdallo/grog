@@ -39,10 +39,10 @@
                answer is made of, in order: text ({:text}) and the tools it
                used ({:tool :detail :at :done-at}, :detail saying what with,
                like what it searched, once known), :stopping once it's asked
-               to stop, :stopped when it then ended (not well, without
-               failing), :spoken-at when grog-voice was done saying its
-               answer, if it said it; nil once the conversations were
-               forgotten
+               to stop, :stopped when it then ended, or whoever asked cut
+               it off (not well, without failing), :spoken-at when
+               grog-voice was done saying its answer, if it said it; nil
+               once the conversations were forgotten
     :history   the turns before it, up to 20, oldest first, as :turn; only
                sent with the events changing it (and the snapshot)
     :integrations  what grog can connect to, and what's connected, as
@@ -205,11 +205,12 @@
 
 (defn ^:private on-end
   "The turn is over, well (:done) or not (:failed): stopped, when it was
-  asked to (see `on-stop`), rather than failed."
-  [state {:keys [type error at] :as event}]
+  asked to (see `on-stop`) or cut off by whoever asked (:stopped, someone
+  calling grog while it answered, say), rather than failed."
+  [state {:keys [type error stopped at] :as event}]
   (if-let [path (turn-path state event)]
     (let [ok? (= :done type)
-          stopped? (boolean (and (not ok?) (get-in state (conj path :stopping))))]
+          stopped? (boolean (and (not ok?) (or stopped (get-in state (conj path :stopping)))))]
       (update-in state path #(cond-> (-> (assoc % :done-at at :ok ok?)
                                          (dissoc :stopping)
                                          (update :parts close-tool at))

@@ -58,8 +58,9 @@
   or server-sent events when `events?` (text, tool, then done or error). The
   200 status is only sent with the first chunk, so failures before any answer
   (bad key, network, API errors) become a 502 with a JSON error; later ones are
-  appended inline. When the client goes away, the turn stops. Once the
-  answer is out, the actions the model asked for are taken."
+  appended inline. When the client goes away (`gone`), the turn stops, cut
+  off (grog.assistant/reply!'s cancel). Once the answer is out, the actions
+  the model asked for are taken."
   [ctx ch gone request events?]
   (let [later (atom [])
         started? (volatile! false)
@@ -81,7 +82,7 @@
                     (send! (sse/message "tool" {:name name}))))]
     (try
       ;; An answer always started: there's no answer without text.
-      (assistant/reply! ctx (assoc request :later later) on-text on-tool)
+      (assistant/reply! ctx (assoc request :later later :cancel gone) on-text on-tool)
       (when events?
         (send! (sse/message "done" {})))
       (http/close ch)
@@ -89,7 +90,7 @@
       (catch Throwable e
         (let [msg (or (ex-message e) (str e))]
           (cond
-            (= ::client-gone (:type (ex-data e)))
+            (or (= ::client-gone (:type (ex-data e))) (realized? gone))
             (log/info "chat cancelled: the client went away")
 
             @started?
@@ -108,26 +109,32 @@
 
 (def ^:private max-said-chars 1000)
 
+;; The longest an answer cut off can have been said, in characters.
+(def ^:private max-cut-off-chars 20000)
+
 (defn ^:private chat-request
-  "The turn a /v1/chat `body` asks for ({:id :message :new? :said}), or nil
-  when it doesn't make sense."
+  "The turn a /v1/chat `body` asks for ({:id :message :new? :said
+  :cut-off}), or nil when it doesn't make sense."
   [body]
   (when (map? body)
-    (let [{:keys [conversation-id said]} body
+    (let [{:keys [conversation-id said cut-off]} body
           message (some-> (:message body) str str/trim)]
       (when (and (not (str/blank? message))
                  (or (nil? conversation-id) (conversation-id? conversation-id))
-                 (or (nil? said) (and (string? said) (<= (count said) max-said-chars))))
+                 (or (nil? said) (and (string? said) (<= (count said) max-said-chars)))
+                 (or (nil? cut-off) (and (string? cut-off) (<= (count cut-off) max-cut-off-chars))))
         (cond-> {:id (or conversation-id "default") :message message :new? (true? (:new body))}
-          (not (str/blank? said)) (assoc :said said))))))
+          (not (str/blank? said)) (assoc :said said)
+          (some? cut-off) (assoc :cut-off cut-off))))))
 
 (defn ^:private chat [ctx req]
   (let [request (chat-request (read-json req))
         events? (some-> (get-in req [:headers "accept"]) (str/includes? "text/event-stream"))]
     (if-not request
       (json-response 400 {:error (str "Send a JSON body with a \"message\", and maybe a \"conversationId\" (up to 200"
-                                      " characters), \"new\": true, and what was \"said\" (up to "
-                                      max-said-chars " characters).")})
+                                      " characters), \"new\": true, what was \"said\" (up to " max-said-chars
+                                      " characters), and \"cutOff\", what of the last answer was said before it"
+                                      " was cut off (up to " max-cut-off-chars " characters).")})
       (let [gone (promise)]
         (http/as-channel req {:on-open (fn [ch]
                                          (future
