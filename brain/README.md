@@ -345,8 +345,11 @@ passes.
 Next to it are Home Assistant's own tools, `ha__...`, for the rest of the
 home, under the rules [above](#what-the-model-sees): those that change
 things and that Home Assistant doesn't mark as non-destructive ask first,
-but for those its entry allows (`GetLiveContext`, `HassLightSet`, setting
-the temperature).
+but for those its entry allows (`GetLiveContext`, turning things on and
+off, `HassLightSet`, setting the temperature). Turning on and off also
+opens and closes covers (a garage door) and locks and unlocks locks:
+expose to Assist only what grog may do that to without asking, or have
+them ask first (`grog tools home-assistant TOOL ask`).
 
 ### What grog reads in its own entries
 
@@ -621,9 +624,10 @@ it in text the script reads, a line of `key=value` each
   an MCP server answers. Nothing it read holds back what it does next in
   that turn (it once did, and grog couldn't look a song up and play it),
   so a page written to fool it could have it use any of its tools, its
-  hands included. Destructive MCP tools still ask first. What grog learns
-  by itself, once a conversation is quiet, leaves out the answers of turns
-  that read such things.
+  hands included. Destructive MCP tools still ask first, unless their entry
+  allows them, as Home Assistant's allows turning things on and off. What
+  grog learns by itself, once a conversation is quiet, leaves out the
+  answers of turns that read such things.
 - Updating runs what was pushed to grog's flake input, as root: whoever can
   push there runs code on the machine, once someone asks for an update.
 - grog only listens on the network while someone at it connects something,

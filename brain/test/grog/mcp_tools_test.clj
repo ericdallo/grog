@@ -148,6 +148,22 @@
                   ["intent__Unlock" "deny" true] ["intent__read.mail" "allow" false]]
                  (map (juxt :name :mode :shown) (mcp-tools/tool-settings config id)))))))))
 
+(deftest home-assistant-as-it-comes
+  (let [ctx (context)
+        config @(:config ctx)
+        ;; Annotated as Home Assistant does: only GetLiveContext says it's
+        ;; read-only, and none that they aren't destructive.
+        listed [{:name "intent__HassTurnOn" :annotations {:openWorldHint false}}
+                {:name "intent__HassTurnOff" :annotations {:idempotentHint true :openWorldHint false}}
+                {:name "light__HassLightSet" :annotations {:idempotentHint true}}
+                {:name "homeassistant__GetLiveContext" :annotations {:readOnlyHint true :openWorldHint false}}
+                {:name "media_player__HassMediaPause" :annotations {:openWorldHint false}}]
+        id (connected! ctx (catalog/entry config "home-assistant") listed true)]
+    (is (= [["intent__HassTurnOn" "allow"] ["intent__HassTurnOff" "allow"] ["light__HassLightSet" "allow"]
+            ["homeassistant__GetLiveContext" "allow"] ["media_player__HassMediaPause" "ask"]]
+           (map (juxt :name :mode) (mcp-tools/tool-settings config id)))
+        "turning things on and off doesn't ask first, unlike what its entry doesn't allow")))
+
 (deftest a-server-the-user-added
   (let [ctx (context)
         config @(:config ctx)

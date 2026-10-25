@@ -895,7 +895,7 @@ pkgs.testers.runNixOSTest {
         assert re.match(r"  home-assistant +Casa, 4 tools(, since |$)", under := ha_heading()), under
         tools = grog("tools home-assistant")
         assert re.search(r"(?m)^ *homeassistant__GetLiveContext +allow \(default\) +shown +Get live context$", tools), tools
-        assert re.search(r"(?m)^ *intent__HassTurnOn +ask \(default\) +shown +Turn on$", tools), tools
+        assert re.search(r"(?m)^ *intent__HassTurnOn +allow \(default\) +shown +Turn on$", tools), tools
         assert re.search(r"(?m)^ *light__HassLightSet +allow \(default\) +shown +Set a light$", tools), tools
         assert "test-ha-refresh-token" not in machine.succeed("cat /var/lib/grog/integrations.json")
         offered = ask("use tool nothing-here {}", new=True).split()

@@ -56,7 +56,8 @@
           "state": {"tool": "GetLiveContext", "args": {"name": "{name}", "area": "{area}", "domain": "light"}}
         }
       },
-      "policy": {"GetLiveContext": "allow", "HassLightSet": "allow", "HassClimateSetTemperature": "allow"}
+      "policy": {"GetLiveContext": "allow", "HassTurnOn": "allow", "HassTurnOff": "allow", "HassLightSet": "allow",
+                 "HassClimateSetTemperature": "allow"}
     }
   }
 }
