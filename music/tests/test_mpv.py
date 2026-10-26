@@ -3,7 +3,7 @@ import unittest
 
 from fakes import FakeSpawn, temp_dir
 
-from grog_music.mpv import Mpv, MpvError
+from grog_music.mpv import MAX_TIMEOUTS, Mpv, MpvError, MpvTimeout
 
 
 class MpvTest(unittest.TestCase):
@@ -51,9 +51,20 @@ class MpvTest(unittest.TestCase):
     def test_started_again_when_it_dies(self):
         self.mpv.ensure()
         self.spawn.mpv.die()
-        self.mpv.set("pause", True)
+        with self.assertLogs("grog_music", "WARNING") as logs:
+            self.mpv.set("pause", True)
+        self.assertIn("starting it again", logs.output[0])
         self.assertEqual(2, len(self.spawn.started))
         self.assertEqual([1, 1], self.started)
+        self.assertEqual(True, self.spawn.mpv.props["pause"])
+
+    def test_started_again_when_the_connection_breaks(self):
+        self.mpv.get("volume")
+        self.spawn.mpv.hang_up()
+        with self.assertLogs("grog_music", "WARNING") as logs:
+            self.mpv.set("pause", True)
+        self.assertIn("mpv went away", logs.output[0])
+        self.assertEqual(2, len(self.spawn.started))
         self.assertEqual(True, self.spawn.mpv.props["pause"])
 
     def test_ensure_starts_it_again_when_it_died(self):
@@ -62,6 +73,60 @@ class MpvTest(unittest.TestCase):
         self.assertEqual(1, len(self.spawn.started))
         self.spawn.mpv.die()
         self.mpv.ensure()
+        self.assertEqual(2, len(self.spawn.started))
+
+    def test_events_go_to_on_event_before_the_reply(self):
+        events = []
+        mpv = Mpv("mpv", self.socket, "yt-dlp", spawn=self.spawn, on_event=events.append)
+        self.addCleanup(mpv.close)
+        mpv.ensure()
+        self.spawn.mpv.emit({"event": "end-file", "reason": "error", "playlist_entry_id": 1})
+        self.assertEqual(100, mpv.get("volume"))
+        self.assertEqual(
+            [
+                {"event": "property-change", "name": "volume"},
+                {"event": "end-file", "reason": "error", "playlist_entry_id": 1},
+            ],
+            events,
+        )
+
+    def test_a_failing_on_event_doesnt_stop_the_reply(self):
+        def fail(_):
+            raise KeyError("x")
+
+        mpv = Mpv("mpv", self.socket, "yt-dlp", spawn=self.spawn, on_event=fail)
+        self.addCleanup(mpv.close)
+        with self.assertLogs("grog_music", "WARNING"):
+            self.assertEqual(100, mpv.get("volume"))
+
+    def test_a_late_reply_is_an_error_for_that_command_only(self):
+        mpv = Mpv("mpv", self.socket, "yt-dlp", spawn=self.spawn, reply_timeout_s=0.2)
+        self.addCleanup(mpv.close)
+        mpv.command("loadfile", "file:///a.mp3", "replace")
+        self.spawn.mpv.silent = 1
+        with self.assertRaises(MpvTimeout):
+            mpv.get("volume")
+        self.assertEqual(1, len(self.spawn.started))
+        self.assertEqual(["file:///a.mp3"], self.spawn.mpv.playlist)
+        self.assertEqual(100, mpv.get("volume"))
+        # The count starts over with each reply.
+        self.spawn.mpv.silent = MAX_TIMEOUTS - 1
+        for _ in range(MAX_TIMEOUTS - 1):
+            with self.assertRaises(MpvTimeout):
+                mpv.get("volume")
+        self.assertEqual(100, mpv.get("volume"))
+        self.assertEqual(1, len(self.spawn.started))
+
+    def test_started_again_when_it_stops_answering(self):
+        mpv = Mpv("mpv", self.socket, "yt-dlp", spawn=self.spawn, reply_timeout_s=0.1)
+        self.addCleanup(mpv.close)
+        mpv.ensure()
+        self.spawn.mpv.silent = 100
+        for _ in range(MAX_TIMEOUTS - 1):
+            with self.assertRaises(MpvTimeout):
+                mpv.get("volume")
+        with self.assertLogs("grog_music", "WARNING"):
+            self.assertEqual(100, mpv.get("volume"))
         self.assertEqual(2, len(self.spawn.started))
 
     def test_without_mpv(self):

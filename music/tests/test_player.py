@@ -5,10 +5,16 @@ from fakes import FakeSpawn, temp_dir
 
 from grog_music import Refused
 from grog_music.mpv import Mpv
-from grog_music.player import Player, mpv_url, playable
+from grog_music.player import FAILED, YOUTUBE_FAILED, Player, artwork, failure, mpv_url, playable
 
 SONGS = [
-    {"url": "https://music.youtube.com/watch?v=aaaaaaaaaaa", "title": "One", "artist": "A", "album": "X"},
+    {
+        "url": "https://music.youtube.com/watch?v=aaaaaaaaaaa",
+        "title": "One",
+        "artist": "A",
+        "album": "X",
+        "artwork": "https://i.ytimg.com/vi/aaaaaaaaaaa/default.jpg",
+    },
     {"url": "https://radio.example/stream.mp3"},
     {"url": "file:///music/three.flac", "title": "Three"},
 ]
@@ -17,13 +23,20 @@ SONGS = [
 class PlayerTest(unittest.TestCase):
     def setUp(self):
         self.spawn = FakeSpawn()
-        self.player = Player(volume=80, duck_level=20, max_queue=5, shuffle=lambda items: items.reverse())
+        self.player = Player(
+            volume=80,
+            duck_level=20,
+            max_queue=5,
+            shuffle=lambda items: items.reverse(),
+            clock=lambda: 1_800_000_000.5,
+        )
         self.player.mpv = Mpv(
             "mpv",
             os.path.join(temp_dir(self), "mpv.sock"),
             "yt-dlp",
             spawn=self.spawn,
             on_start=self.player.on_mpv_start,
+            on_event=self.player.on_mpv_event,
         )
         self.addCleanup(self.player.mpv.close)
         self.player.mpv.ensure()
@@ -33,7 +46,18 @@ class PlayerTest(unittest.TestCase):
         return self.spawn.mpv
 
     def test_idle(self):
-        self.assertEqual({"state": "idle", "volume": 80, "ducked": False, "count": 0}, self.player.status())
+        self.assertEqual(
+            {
+                "state": "idle",
+                "volume": 80,
+                "ducked": False,
+                "count": 0,
+                "artwork": None,
+                "error": None,
+                "errorAt": None,
+            },
+            self.player.status(),
+        )
         # A new mpv gets the player's volume.
         self.assertEqual(80, self.fake.props["volume"])
 
@@ -59,6 +83,9 @@ class PlayerTest(unittest.TestCase):
                 "title": "One",
                 "artist": "A",
                 "album": "X",
+                "artwork": "https://i.ytimg.com/vi/aaaaaaaaaaa/default.jpg",
+                "error": None,
+                "errorAt": None,
             },
             status,
         )
@@ -169,6 +196,88 @@ class PlayerTest(unittest.TestCase):
         self.assertEqual("idle", status["state"])
         self.assertEqual([], self.player.items)
 
+    def failed(self, entry):
+        self.fake.emit(
+            {
+                "event": "end-file",
+                "reason": "error",
+                "file_error": "loading failed",
+                "playlist_entry_id": entry,
+            }
+        )
+
+    def test_an_entry_that_couldnt_play_is_in_the_status_until_one_plays(self):
+        self.player.play(SONGS)
+        with self.assertLogs("grog_music", "WARNING") as logs:
+            self.failed(1)
+            status = self.player.status()
+        self.assertEqual(YOUTUBE_FAILED, status["error"])
+        self.assertEqual(1_800_000_000_500, status["errorAt"])
+        self.assertNotIn("aaaaaaaaaaa", "\n".join(logs.output))
+        self.fake.emit({"event": "file-loaded"})
+        self.assertIsNone(self.player.status()["error"])
+        self.failed(2)
+        self.assertEqual(FAILED, self.player.status()["error"])
+        self.fake.emit({"event": "playback-restart"})
+        self.assertIsNone(self.player.status()["errorAt"])
+
+    def test_the_last_one_failing_leaves_it_idle_with_the_error(self):
+        self.player.play(SONGS[:1])
+        self.fake.playlist, self.fake.pos = [], -1
+        self.failed(1)
+        status = self.player.status()
+        self.assertEqual(("idle", YOUTUBE_FAILED), (status["state"], status["error"]))
+
+    def test_other_ends_are_no_errors(self):
+        self.player.play(SONGS)
+        self.fake.emit({"event": "end-file", "reason": "eof", "playlist_entry_id": 1})
+        self.fake.emit({"event": "end-file", "reason": "stop", "playlist_entry_id": 2})
+        self.assertIsNone(self.player.status()["error"])
+
+    def test_playing_again_or_stopping_forgets_the_error(self):
+        self.player.play(SONGS)
+        self.failed(1)
+        self.assertIsNotNone(self.player.status()["error"])
+        # Read before the new queue's first reply: about the queue before.
+        self.failed(1)
+        self.assertIsNone(self.player.play(SONGS)["error"])
+        self.failed(4)
+        self.assertEqual(YOUTUBE_FAILED, self.player.status()["error"])
+        self.assertIsNone(self.player.stop()["error"])
+
+    def test_a_restart_while_the_queue_loads_loads_it_again(self):
+        self.fake.die_at = ("loadfile", 2)
+        status = self.player.play(SONGS)
+        self.assertEqual(2, len(self.spawn.started))
+        self.assertEqual([mpv_url(s["url"]) for s in SONGS], self.fake.playlist)
+        self.assertEqual(SONGS, self.player.items)
+        self.assertEqual(("One", 3), (status["title"], status["count"]))
+        self.fake.pos = 2
+        self.assertEqual("Three", self.player.status()["title"])
+
+    def test_a_restart_while_enqueueing_makes_them_the_queue(self):
+        self.player.play(SONGS[:1])
+        self.fake.die_at = ("loadfile", 3)
+        status = self.player.enqueue(SONGS[1:])
+        self.assertEqual(2, len(self.spawn.started))
+        self.assertEqual([mpv_url(s["url"]) for s in SONGS[1:]], self.fake.playlist)
+        self.assertEqual(SONGS[1:], self.player.items)
+        self.assertEqual(2, status["count"])
+        self.fake.pos = 1
+        self.assertEqual("Three", self.player.status()["title"])
+
+    def test_artwork(self):
+        items = [
+            {"url": "file:///a.mp3", "artwork": "https://img.example/a.jpg"},
+            {"url": "file:///b.mp3", "artwork": "http://img.example/b.jpg"},
+            {"url": "file:///c.mp3", "artwork": "file:///etc/passwd"},
+            {"url": "file:///d.mp3", "artwork": 3},
+        ]
+        self.assertEqual("https://img.example/a.jpg", self.player.play(items)["artwork"])
+        self.assertEqual([{"url": i["url"]} for i in items[1:]], self.player.items[1:])
+        self.fake.pos = 1
+        self.assertIsNone(self.player.status()["artwork"])
+
     def test_bad_items(self):
         for items in (
             None,
@@ -201,6 +310,20 @@ class UrlTest(unittest.TestCase):
         )
         self.assertEqual("https://radio.example/a", mpv_url("https://radio.example/a"))
         self.assertEqual("file:///a.mp3", mpv_url("file:///a.mp3"))
+
+    def test_artwork_only_https(self):
+        self.assertEqual("https://i.ytimg.com/a.jpg", artwork("https://i.ytimg.com/a.jpg"))
+        for bad in ("http://i.ytimg.com/a.jpg", "https://", "data:image/png;base64,x", None, "x" * 5000):
+            self.assertIsNone(artwork(bad))
+
+    def test_failure(self):
+        urls = {1: "https://youtu.be/abc", 2: "https://radio.example/a"}
+        error = {"event": "end-file", "reason": "error"}
+        self.assertEqual(YOUTUBE_FAILED, failure(error | {"playlist_entry_id": 1}, urls))
+        self.assertEqual(FAILED, failure(error | {"playlist_entry_id": 2}, urls))
+        self.assertEqual(FAILED, failure(error, urls))
+        self.assertIsNone(failure({"event": "end-file", "reason": "eof", "playlist_entry_id": 1}, urls))
+        self.assertIsNone(failure({"event": "file-loaded"}, urls))
 
 
 if __name__ == "__main__":

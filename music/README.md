@@ -17,12 +17,14 @@ line, reads one back, and hangs up. Keys are lowerCamelCase. Replies are
 sentence.
 
 The player takes playable items from any provider: `{url, title?, artist?,
-album?}`, where `url` is http(s) (YouTube's go through yt-dlp, anything else,
-like a radio, plays as it is) or `file:///` and an absolute path.
+album?, artwork?}`, where `url` is http(s) (YouTube's go through yt-dlp,
+anything else, like a radio, plays as it is) or `file:///` and an absolute
+path, and `artwork` an https URL of a picture for the screen (any other is
+dropped). YouTube Music's items come with a small one, about 120 px wide.
 
 | Command | Takes | Does |
 | --- | --- | --- |
-| `status` | | `state` (`playing`, `paused` or `idle`), `title`, `artist`, `album`, `positionS`, `durationS`, `volume` (0 to 100), `ducked`, `index` (from 0), `count` |
+| `status` | | `state` (`playing`, `paused` or `idle`), `title`, `artist`, `album`, `positionS`, `durationS`, `volume` (0 to 100), `ducked`, `index` (from 0), `count`; and always `artwork` (the current item's), `error` (a sentence safe to show, saying the last entry couldn't play) and `errorAt` (when, in epoch milliseconds), `null` when there's none. The error stays until something plays, the queue is replaced or it stops |
 | `play` | `items`, `shuffle` | Replaces the queue and plays it |
 | `enqueue` | `items` | Adds to the queue (plays them when nothing plays) |
 | `pause`, `resume`, `next`, `previous` | | |
@@ -67,7 +69,8 @@ Without the network, a local file plays: `{"command": "play", "items":
 On NixOS, `services.grog.music.enable` runs it as a user service of
 `services.grog.music.user` (`services.grog.user`), its socket at `/run/grog-music/music.sock`, which
 only that user and grog reach. It starts mpv once, and again whenever mpv
-dies. YouTube changes often, and yt-dlp and ytmusicapi follow: when it
+dies (its queue is lost then), or stops answering three times in a row: a
+reply that's only late fails that command, and mpv keeps playing. YouTube changes often, and yt-dlp and ytmusicapi follow: when it
 stops playing, a newer nixpkgs (or ytmusicapi, pinned in
 `body/packages/grog-music.nix` at 1.12.3, as nixpkgs' 1.12.0 breaks on
 YouTube Music's answers) usually fixes it. yt-dlp needs a JavaScript runtime

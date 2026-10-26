@@ -50,6 +50,7 @@ def build(settings, spawn=None, client=None):
         mpv_socket(settings),
         settings["ytdlp"],
         on_start=player.on_mpv_start,
+        on_event=player.on_mpv_event,
         audio_device=settings["audioDevice"],
         **mpv_args,
     )

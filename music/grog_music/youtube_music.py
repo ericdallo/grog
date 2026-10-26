@@ -13,7 +13,7 @@ import time
 import unicodedata
 
 from . import Refused
-from .google import Google
+from .google import Google, smallest_artwork
 
 log = logging.getLogger("grog_music")
 
@@ -145,8 +145,9 @@ def _entry(kind, id, title, **more):
     return {"kind": kind, "id": id, "title": title} | {k: v for k, v in more.items() if v not in (None, "")}
 
 
-def track(t, album=None, artist=None):
-    """A song of ytmusicapi's (a playlist's, an album's, up next...)."""
+def track(t, album=None, artist=None, artwork=None):
+    """A song of ytmusicapi's (a playlist's, an album's, up next...), its
+    artwork its own (up next's are in thumbnail), else `artwork`."""
     if not isinstance(t, dict):
         return None
     duration = t.get("duration_seconds")
@@ -157,6 +158,7 @@ def track(t, album=None, artist=None):
         artist=_name(t.get("artists")) or _name(t.get("artist")) or artist,
         album=_name(t.get("album")) or album,
         durationS=duration if isinstance(duration, int) else _seconds(t.get("duration") or t.get("length")),
+        artwork=smallest_artwork(t.get("thumbnails") or t.get("thumbnail")) or artwork,
     )
 
 
@@ -204,7 +206,7 @@ def kind_of_id(id):
 def item(entry):
     """What the player plays for a song."""
     return {"url": WATCH.format(entry["id"])} | {
-        k: entry[k] for k in ("title", "artist", "album") if k in entry
+        k: entry[k] for k in ("title", "artist", "album", "artwork") if k in entry
     }
 
 
@@ -272,7 +274,9 @@ class YouTubeMusic:
         if kind not in SEARCH_KINDS:
             raise Refused(f"kind must be one of {', '.join(SEARCH_KINDS)}")
         found = self._ask(lambda c: c.search(query, filter=FILTERS.get(kind.rstrip("s"))))
-        results = [r for r in (result(x) for x in found or []) if r]
+        results = [
+            {k: v for k, v in r.items() if k != "artwork"} for r in (result(x) for x in found or []) if r
+        ]
         return {"results": results[:MAX_RESULTS]}
 
     def _find(self, query, kind):
@@ -298,7 +302,11 @@ class YouTubeMusic:
         if kind == "album":
             album = self._ask(lambda c: c.get_album(id)) or {}
             title, artist = _name(album.get("title")), _name(album.get("artists"))
-            return [t for t in (track(x, album=title, artist=artist) for x in album.get("tracks") or []) if t]
+            artwork = smallest_artwork(album.get("thumbnails"))
+            tracks = (
+                track(x, album=title, artist=artist, artwork=artwork) for x in album.get("tracks") or []
+            )
+            return [t for t in tracks if t]
         if kind == "playlist":
             playlist = self._ask(lambda c: c.get_playlist(id, limit=limit)) or {}
             return [t for t in (track(x) for x in playlist.get("tracks") or []) if t]

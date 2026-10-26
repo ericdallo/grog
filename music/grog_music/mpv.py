@@ -1,6 +1,6 @@
 """mpv, started once and started again whenever it dies, controlled over its
 JSON IPC: one JSON object per line each way, replies matched to requests by
-their request_id, events skipped."""
+their request_id, events handed to whoever wants them as they're read."""
 
 import json
 import logging
@@ -16,9 +16,18 @@ log = logging.getLogger("grog_music")
 MAX_LINE = 1024 * 1024
 
 
+# Replies not coming in time, in a row, before mpv counts as stuck and is
+# started again.
+MAX_TIMEOUTS = 3
+
+
 class MpvError(Exception):
     """mpv refused a command (its error, like "property unavailable"), or
     can't be reached."""
+
+
+class MpvTimeout(MpvError):
+    """mpv didn't answer a command in time: it still runs, with its queue."""
 
 
 def arguments(program, ipc_socket, ytdlp, audio_device=None):
@@ -43,8 +52,10 @@ def arguments(program, ipc_socket, ytdlp, audio_device=None):
 class Mpv:
     """mpv at `program`, its IPC at `ipc_socket`, playing into `audio_device`
     (None: the default). `spawn` starts it (subprocess.Popen's arguments);
-    `on_start()` runs each time it (re)starts, once it answers. Safe to use
-    from several threads."""
+    `on_start()` runs each time it (re)starts, once it answers;
+    `on_event(event)` gets each of its events (a dict), read while waiting
+    for a reply, so those before a command come before its reply. Safe to
+    use from several threads."""
 
     def __init__(
         self,
@@ -56,12 +67,15 @@ class Mpv:
         start_timeout_s=10.0,
         reply_timeout_s=10.0,
         audio_device=None,
+        on_event=None,
     ):
         self.program, self.ipc_socket, self.ytdlp = program, ipc_socket, ytdlp
         self.audio_device = audio_device
-        self._spawn, self.on_start = spawn, on_start
+        self._spawn, self.on_start, self.on_event = spawn, on_start, on_event
         self._start_timeout_s, self._reply_timeout_s = start_timeout_s, reply_timeout_s
-        self._proc = self._sock = self._file = None
+        self._proc = self._sock = None
+        self._buffer = b""
+        self._timeouts = 0
         self._next_id = 0
         self._lock = threading.RLock()
         self.starts = 0
@@ -106,20 +120,19 @@ class Mpv:
                 raise MpvError("mpv didn't start")
             time.sleep(0.02)
         sock.settimeout(self._reply_timeout_s)
-        self._sock, self._file = sock, sock.makefile("rb")
+        self._sock, self._buffer, self._timeouts = sock, b"", 0
         self.starts += 1
         log.info("mpv started in %d ms", (time.monotonic() - started) * 1000)
         if self.on_start is not None:
             self.on_start()
 
     def _stop(self):
-        for f in (self._file, self._sock):
-            if f is not None:
-                try:
-                    f.close()
-                except OSError:
-                    pass
-        self._sock = self._file = None
+        if self._sock is not None:
+            try:
+                self._sock.close()
+            except OSError:
+                pass
+        self._sock, self._buffer = None, b""
         if self._proc is not None and self._proc.poll() is None:
             self._proc.kill()
             try:
@@ -130,20 +143,27 @@ class Mpv:
 
     def command(self, *command):
         """What mpv answers `command` with (its data). Raises MpvError when
-        it refuses, or can't be started. When it went away, it's started
-        again (on_start runs) and asked again."""
+        it refuses, or can't be started, and MpvTimeout when its reply
+        doesn't come in time (it keeps running, unless that happened
+        MAX_TIMEOUTS times in a row). When it went away, it's started again
+        (on_start runs) and asked again."""
         with self._lock:
             self.ensure()
             try:
                 return self._send(command)
+            except MpvTimeout:
+                self._timeouts += 1
+                if self._timeouts < MAX_TIMEOUTS:
+                    raise
+                log.warning("mpv stopped answering: starting it again")
             except (OSError, ValueError) as e:
                 log.warning("mpv went away (%s): starting it again", type(e).__name__)
-                self._start()
-                try:
-                    return self._send(command)
-                except (OSError, ValueError) as again:
-                    self._stop()
-                    raise MpvError("mpv isn't answering") from again
+            self._start()
+            try:
+                return self._send(command)
+            except (OSError, ValueError) as again:
+                self._stop()
+                raise MpvError("mpv isn't answering") from again
 
     def _send(self, command):
         self._next_id += 1
@@ -151,15 +171,43 @@ class Mpv:
         line = json.dumps({"command": list(command), "request_id": request_id}) + "\n"
         self._sock.sendall(line.encode())
         while True:
-            reply = self._file.readline(MAX_LINE)
-            if not reply.endswith(b"\n"):
-                raise ConnectionError("mpv hung up")
-            message = json.loads(reply)
+            try:
+                message = json.loads(self._read_line())
+            except TimeoutError as e:
+                raise MpvTimeout("mpv didn't answer in time") from e
+            if not isinstance(message, dict):
+                continue
+            if "event" in message:
+                self._event(message)
+                continue
             if message.get("request_id") != request_id:
                 continue
+            self._timeouts = 0
             if message.get("error") != "success":
                 raise MpvError(str(message.get("error")))
             return message.get("data")
+
+    def _read_line(self):
+        """The next line mpv sent. What was read stays buffered when the
+        reply doesn't come in time, so the connection is still good for the
+        next command (a socket's makefile isn't, after a timeout)."""
+        while b"\n" not in self._buffer:
+            if len(self._buffer) > MAX_LINE:
+                raise ValueError("mpv sent too long a line")
+            chunk = self._sock.recv(65536)
+            if not chunk:
+                raise ConnectionError("mpv hung up")
+            self._buffer += chunk
+        line, self._buffer = self._buffer.split(b"\n", 1)
+        return line
+
+    def _event(self, event):
+        if self.on_event is None:
+            return
+        try:
+            self.on_event(event)
+        except Exception as e:
+            log.warning("handling an mpv event failed (%s)", type(e).__name__)
 
     def get(self, name):
         """Property `name`, or None when mpv has none now (no file, say)."""

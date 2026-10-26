@@ -23,6 +23,8 @@ MUSIC_CATEGORY = "10"
 # Pages of 50 read at most for an answer: likes are read on until there's
 # enough music among them.
 MAX_PAGES = 10
+# The screen shows artwork small: the smallest at least this wide will do.
+ARTWORK_WIDTH = 120
 
 
 class AccountError(Refused):
@@ -34,6 +36,25 @@ def artist_of_channel(name):
     if not isinstance(name, str):
         return None
     return name[: -len(" - Topic")] if name.endswith(" - Topic") else name
+
+
+def smallest_artwork(thumbnails):
+    """The URL of the smallest of `thumbnails` ([{url, width, height}], or
+    the Data API's {name: {url, width, height}}) at least ARTWORK_WIDTH
+    wide, else of the largest, of the https ones; None without any."""
+    if isinstance(thumbnails, dict):
+        thumbnails = list(thumbnails.values())
+    if not isinstance(thumbnails, list):
+        return None
+    sizes = [
+        (t["width"] if isinstance(t.get("width"), int) else 0, t["url"])
+        for t in thumbnails
+        if isinstance(t, dict) and isinstance(t.get("url"), str) and t["url"].startswith("https://")
+    ]
+    wide = [s for s in sizes if s[0] >= ARTWORK_WIDTH]
+    if wide:
+        return min(wide)[1]
+    return max(sizes)[1] if sizes else None
 
 
 def iso_seconds(duration):
@@ -128,8 +149,8 @@ class Google:
         return out
 
     def playlist_tracks(self, auth, playlist_id, limit=100):
-        """A playlist's videos: [{kind "song", id, title, artist?}], without the
-        deleted or private ones."""
+        """A playlist's videos: [{kind "song", id, title, artist?, artwork?}],
+        without the deleted or private ones."""
         out = []
         params = {"part": "snippet,contentDetails", "playlistId": playlist_id}
         for i in self._pages(auth, "playlistItems", params, limit):
@@ -140,6 +161,7 @@ class Google:
                 out.append(
                     {"kind": "song", "id": video, "title": snippet["title"]}
                     | _maybe("artist", artist_of_channel(owner))
+                    | _maybe("artwork", smallest_artwork(snippet.get("thumbnails")))
                 )
         return out
 
@@ -147,7 +169,7 @@ class Google:
         """The music the user liked on YouTube: YouTube Music's likes are
         YouTube's, and it only shows those in the Music category, not the
         podcasts or other videos. [{kind "song", id, title, artist?,
-        durationS?}]."""
+        durationS?, artwork?}]."""
         out = []
         params = {"part": "snippet,contentDetails", "myRating": "like"}
         for v in self._pages(auth, "videos", params, limit, keep=_music):
@@ -157,6 +179,7 @@ class Google:
                     {"kind": "song", "id": v["id"], "title": snippet["title"]}
                     | _maybe("artist", artist_of_channel(snippet.get("channelTitle")))
                     | _maybe("durationS", iso_seconds((v.get("contentDetails") or {}).get("duration")))
+                    | _maybe("artwork", smallest_artwork(snippet.get("thumbnails")))
                 )
         return out
 

@@ -7,7 +7,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from fakes import AUTH
 
 from grog_music import Refused
-from grog_music.google import MAX_PAGES, AccountError, Google, artist_of_channel, iso_seconds
+from grog_music.google import (
+    MAX_PAGES,
+    AccountError,
+    Google,
+    artist_of_channel,
+    iso_seconds,
+    smallest_artwork,
+)
 
 
 class FakeGoogleServer:
@@ -45,6 +52,13 @@ class FakeGoogleServer:
         test.addCleanup(self.server.server_close)
         test.addCleanup(self.server.shutdown)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+
+THUMBNAILS = {
+    "default": {"url": "https://i.ytimg.com/vi/v1/default.jpg", "width": 120, "height": 90},
+    "medium": {"url": "https://i.ytimg.com/vi/v1/mqdefault.jpg", "width": 320, "height": 180},
+    "high": {"url": "https://i.ytimg.com/vi/v1/hqdefault.jpg", "width": 480, "height": 360},
+}
 
 
 def playlist_page(query):
@@ -91,7 +105,11 @@ class GoogleTest(unittest.TestCase):
             {
                 "items": [
                     {
-                        "snippet": {"title": "Song", "videoOwnerChannelTitle": "Band - Topic"},
+                        "snippet": {
+                            "title": "Song",
+                            "videoOwnerChannelTitle": "Band - Topic",
+                            "thumbnails": THUMBNAILS,
+                        },
                         "contentDetails": {"videoId": "v1"},
                     },
                     {"snippet": {"title": "Deleted video"}, "contentDetails": {"videoId": "v2"}},
@@ -99,7 +117,15 @@ class GoogleTest(unittest.TestCase):
             },
         )
         self.assertEqual(
-            [{"kind": "song", "id": "v1", "title": "Song", "artist": "Band"}],
+            [
+                {
+                    "kind": "song",
+                    "id": "v1",
+                    "title": "Song",
+                    "artist": "Band",
+                    "artwork": "https://i.ytimg.com/vi/v1/default.jpg",
+                }
+            ],
             self.google.playlist_tracks(self.auth, "PL1", 100),
         )
         self.assertEqual("PL1", self.fake.requests[0][1]["playlistId"])
@@ -111,7 +137,12 @@ class GoogleTest(unittest.TestCase):
                 "items": [
                     {
                         "id": "v1",
-                        "snippet": {"title": "Liked", "channelTitle": "Singer", "categoryId": "10"},
+                        "snippet": {
+                            "title": "Liked",
+                            "channelTitle": "Singer",
+                            "categoryId": "10",
+                            "thumbnails": THUMBNAILS,
+                        },
                         "contentDetails": {"duration": "PT3M20S"},
                     },
                     {"id": "v2", "snippet": {"title": "A podcast", "categoryId": "22"}},
@@ -120,7 +151,16 @@ class GoogleTest(unittest.TestCase):
             },
         )
         self.assertEqual(
-            [{"kind": "song", "id": "v1", "title": "Liked", "artist": "Singer", "durationS": 200}],
+            [
+                {
+                    "kind": "song",
+                    "id": "v1",
+                    "title": "Liked",
+                    "artist": "Singer",
+                    "durationS": 200,
+                    "artwork": "https://i.ytimg.com/vi/v1/default.jpg",
+                }
+            ],
             self.google.liked(self.auth, 100),
         )
         self.assertEqual("like", self.fake.requests[0][1]["myRating"])
@@ -182,6 +222,21 @@ class GoogleTest(unittest.TestCase):
         self.assertEqual(86400, iso_seconds("P1D"))
         self.assertIsNone(iso_seconds("P"))
         self.assertIsNone(iso_seconds(None))
+
+    def test_smallest_artwork(self):
+        self.assertEqual("https://i.ytimg.com/vi/v1/default.jpg", smallest_artwork(THUMBNAILS))
+        small = [
+            {"url": "https://x/60", "width": 60},
+            {"url": "https://x/90", "width": 90},
+            {"url": "https://x/226", "width": 226},
+            {"url": "https://x/544", "width": 544},
+        ]
+        self.assertEqual("https://x/226", smallest_artwork(small))
+        self.assertEqual("https://x/90", smallest_artwork(small[:2]), "else the largest")
+        self.assertEqual("https://x/n", smallest_artwork([{"url": "https://x/n"}]))
+        self.assertIsNone(smallest_artwork([{"url": "http://x/1", "width": 200}, "x", {"width": 200}]))
+        self.assertIsNone(smallest_artwork(None))
+        self.assertIsNone(smallest_artwork([]))
 
 
 if __name__ == "__main__":

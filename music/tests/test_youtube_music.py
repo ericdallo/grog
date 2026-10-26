@@ -108,8 +108,15 @@ class PlayTest(ProviderTest):
         reply = self.music.play(query=SECRET_QUERY, kind="song")
         self.assertEqual([watch(SONG_ID), watch("next0000001"), watch("next0000002")], self.urls())
         self.assertEqual(
-            {"url": watch(SONG_ID), "title": SECRET_TITLE, "artist": SECRET_ARTIST}, self.queue[0]
+            {
+                "url": watch(SONG_ID),
+                "title": SECRET_TITLE,
+                "artist": SECRET_ARTIST,
+                "artwork": "https://lh3.googleusercontent.com/song=w120",
+            },
+            self.queue[0],
         )
+        self.assertNotIn("artwork", self.queue[1])
         self.assertEqual(("get_watch_playlist", SONG_ID, 100), self.clients.anonymous.calls[-1])
         self.assertEqual({"title": SECRET_TITLE, "artist": SECRET_ARTIST}, reply["playing"])
         self.assertEqual(3, reply["count"])
@@ -134,6 +141,7 @@ class PlayTest(ProviderTest):
                     "title": f"Track {i}",
                     "artist": SECRET_ARTIST,
                     "album": "Calm",
+                    "artwork": "https://lh3.googleusercontent.com/album=w226",
                 }
                 for i in range(1, 4)
             ],
@@ -254,6 +262,7 @@ class DataApiTest(ProviderTest):
         self.music.play(query="corrida", kind="my-playlist", auth=AUTH)
         self.assertEqual(("playlist_tracks", "PLrunD", 100), self.google.calls[-1])
         self.assertEqual(watch("d0000000000"), self.queue[0]["url"])
+        self.assertEqual("https://i.ytimg.com/vi/d0000000000/default.jpg", self.queue[0]["artwork"])
         self.music.play(kind="liked", auth=AUTH)
         self.assertEqual(("liked", 100), self.google.calls[-1])
         self.assertEqual(25, len(self.music.library("liked", AUTH)["items"]))

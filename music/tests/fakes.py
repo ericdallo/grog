@@ -28,7 +28,10 @@ def temp_dir(test):
 class FakeMpv:
     """mpv's IPC at `path`, answering like mpv: its playlist in .playlist
     (URLs), .pos, its properties in .props; what it was asked in .commands.
-    Also a Popen: poll, kill, wait. die() makes it exit."""
+    Also a Popen: poll, kill, wait. die() makes it exit. emit(event) sends an
+    event before its next reply; with .silent at n, it doesn't answer the
+    next n commands; with .die_at at (name, n), it dies as the n-th command
+    named name comes."""
 
     def __init__(self, path):
         self.path = path
@@ -36,6 +39,8 @@ class FakeMpv:
         self.playlist, self.pos = [], -1
         self.props = {"pause": False, "volume": 100}
         self.returncode = None
+        self.pending, self.silent, self.die_at = [], 0, None
+        self._entries = 0
         self._conns = []
         self._server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._server.bind(path)
@@ -45,6 +50,9 @@ class FakeMpv:
     def asked(self, name):
         """The commands named `name` it was sent."""
         return [c for c in self.commands if c[0] == name]
+
+    def emit(self, event):
+        self.pending.append(event)
 
     def _accept(self):
         while True:
@@ -61,9 +69,17 @@ class FakeMpv:
                 request = json.loads(line)
                 command = request["command"]
                 self.commands.append(command)
+                if self.die_at is not None and self.die_at == (command[0], len(self.asked(command[0]))):
+                    self.die()
+                    return
+                if self.silent > 0:
+                    self.silent -= 1
+                    continue
                 error, data = self._run(command)
                 # Events come in between, as with mpv.
                 conn.sendall(b'{"event":"property-change","name":"volume"}\n')
+                while self.pending:
+                    conn.sendall(json.dumps(self.pending.pop(0)).encode() + b"\n")
                 reply = {"request_id": request["request_id"], "error": error}
                 if data is not None:
                     reply["data"] = data
@@ -90,6 +106,8 @@ class FakeMpv:
                 self.playlist.append(url)
                 if mode == "append-play" and self.pos < 0:
                     self.pos = len(self.playlist) - 1
+            self._entries += 1
+            return "success", {"playlist_entry_id": self._entries}
         elif name == "stop":
             self.playlist, self.pos = [], -1
         elif name == "playlist-next":
@@ -107,6 +125,10 @@ class FakeMpv:
     def die(self):
         self.returncode = -9
         self._server.close()
+        self.hang_up()
+
+    def hang_up(self):
+        """Closes its connections, running on."""
         for conn in self._conns:
             try:
                 conn.shutdown(socket.SHUT_RDWR)
@@ -161,6 +183,13 @@ def song(video_id, title, artist="Artist", album="Album", seconds=200):
     }
 
 
+def thumbnails(name, widths=(60, 120, 544)):
+    """ytmusicapi's thumbnails: square, a URL per width."""
+    return [
+        {"url": f"https://lh3.googleusercontent.com/{name}=w{w}", "width": w, "height": w} for w in widths
+    ]
+
+
 SONG_ID, ALBUM_ID, PLAYLIST_ID, ARTIST_ID = "aaaaaaaaaaa", "MPREb_album", "VLPLpublic", "UCartist00"
 
 SEARCH = {
@@ -174,7 +203,8 @@ SEARCH = {
             "artists": [{"name": SECRET_ARTIST, "id": ARTIST_ID}],
             "browseId": None,
         },
-        song(SONG_ID, SECRET_TITLE, SECRET_ARTIST) | {"resultType": "song", "category": "Songs"},
+        song(SONG_ID, SECRET_TITLE, SECRET_ARTIST)
+        | {"resultType": "song", "category": "Songs", "thumbnails": thumbnails("song")},
     ],
     "songs": [song(SONG_ID, SECRET_TITLE, SECRET_ARTIST) | {"resultType": "song"}]
     + [song(f"song{i:07d}", f"Song {i}") | {"resultType": "song"} for i in range(15)],
@@ -224,6 +254,7 @@ class FakeYTMusic:
                     "title": SECRET_TITLE,
                     "artists": [{"name": SECRET_ARTIST}],
                     "length": "3:45",
+                    "thumbnail": thumbnails("song"),
                 },
                 {
                     "videoId": "next0000001",
@@ -245,6 +276,7 @@ class FakeYTMusic:
         return {
             "title": "Calm",
             "artists": [{"name": SECRET_ARTIST}],
+            "thumbnails": thumbnails("album", (60, 226, 544)),
             "tracks": [
                 {"videoId": f"album{i:06d}", "title": f"Track {i}", "artists": None, "album": None}
                 for i in range(1, 4)
@@ -334,7 +366,14 @@ class FakeGoogle:
     def playlist_tracks(self, auth, playlist_id, limit):
         self.calls.append(("playlist_tracks", playlist_id, limit))
         return [
-            {"kind": "song", "id": f"d{i:010d}", "title": f"Data song {i}", "artist": "X"} for i in range(3)
+            {
+                "kind": "song",
+                "id": f"d{i:010d}",
+                "title": f"Data song {i}",
+                "artist": "X",
+                "artwork": f"https://i.ytimg.com/vi/d{i:010d}/default.jpg",
+            }
+            for i in range(3)
         ]
 
     def liked(self, auth, limit):
