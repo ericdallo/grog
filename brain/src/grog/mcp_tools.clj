@@ -17,7 +17,8 @@
   Each tool's policy: \"allow\", \"ask\" (grog.asks) or \"deny\", by default
   \"ask\" for destructive ones and \"allow\" for the rest, over which the
   shipped entry's _meta policy goes. Shown by default: those the shipped
-  entry's _meta show names, else the first `shown-max`. The entry's names
+  entry's _meta show names, else the first `shown-max` but those its hide
+  names (what grog does itself, like telling the time). The entry's names
   match the server's as `matches?` says. The user's choices
   win, kept in <state-dir>/tools.json: {\"<connection>\" {\"<tool>\"
   {\"mode\" \"ask\", \"show\" true}}}, tool names as the servers have them."
@@ -152,14 +153,16 @@
   :destructive :open-world}], in the server's order."
   [config id entry tools]
   (let [trusted? (catalog/trusted? entry)
-        {:keys [policy show]} (when trusted? (catalog/grog-meta entry))
-        shown-names (when (sequential? show) (map str show))
+        {:keys [policy show hide]} (when trusted? (catalog/grog-meta entry))
+        named (fn [names name] (boolean (some #(matches? (str %) name) (when (sequential? names) names))))
         mine (get (choices config) id {})]
     (vec (map-indexed
           (fn [i {:keys [name description] :as tool}]
             (let [{:keys [read-only destructive open-world]} (guards trusted? tool)
                   default-mode (or (modes (policy-of policy name)) (if destructive "ask" "allow"))
-                  default-shown (if shown-names (boolean (some #(matches? % name) shown-names)) (< i shown-max))
+                  default-shown (cond (sequential? show) (named show name)
+                                      (named hide name) false
+                                      :else (< i shown-max))
                   {:strs [mode show]} (get mine name)]
               {:name name
                :title (tool-title tool)

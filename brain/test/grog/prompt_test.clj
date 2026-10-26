@@ -13,6 +13,10 @@
 (deftest format-date-time
   (is (= "Thursday, October 15, 2026, 09:05" (prompt/format-date-time now))))
 
+(deftest time-note
+  (is (= {:role "developer" :content "It is now Thursday, October 15, 2026, 09:05 (America/Sao_Paulo time zone)."}
+         (prompt/time-note now))))
+
 (deftest built-in-prompt
   (testing "defaults: named grog, the user's language, web search"
     (is (= (str "You are grog, a personal voice assistant that lives in the user's home.\n"
@@ -26,7 +30,7 @@
                 "- Use web search when the answer depends on recent or changing information, like news, weather, scores, prices and schedules.\n"
                 "\n"
                 "Context:\n"
-                "- It is now Thursday, October 15, 2026, 09:05 (America/Sao_Paulo time zone).\n"
+                "- The date and time come just before each question (the home's time zone is America/Sao_Paulo).\n"
                 "- You don't know where the home is. When an answer depends on it, like the weather, ask the user which city they live in, saying you'll save it. When they say it, save it with the settings tool.\n"
                 "- You run on the AI model gpt-6-luna.")
            (prompt/system-prompt config/defaults now))))

@@ -88,7 +88,7 @@
     (is (= [{:role "user" :content "como vai ser amanhã?"}
             {:role "assistant" :content "Amanhã faz sol. …"}
             {:role "user" :content "e que horas são?"}]
-           (second @sent)))))
+           (remove #(= "developer" (:role %)) (second @sent))))))
 
 (deftest a-turn-cut-off-keeps-what-was-asked-and-answered-so-far
   (let [ctx (assistant/new-context (assoc config/defaults :state-dir (h/temp-dir)))

@@ -131,7 +131,13 @@
           (with-redefs [catalog/shipped (constantly [(assoc-in home [:_meta catalog/meta-key :show] ["GetLiveContext"])])]
             (is (= ["ha__GetLiveContext"] (map :name (mcp-tools/tools config))))
             (mcp-tools/set-tool! config id "Unlock" {:show true})
-            (is (= ["ha__GetLiveContext" "ha__Unlock"] (map :name (mcp-tools/tools config))))))
+            (is (= ["ha__GetLiveContext" "ha__Unlock"] (map :name (mcp-tools/tools config)))))
+          (mcp-tools/set-tool! config id "Unlock" {:show nil}))
+        (testing "or all but those the entry hides"
+          (with-redefs [catalog/shipped (constantly [(assoc-in home [:_meta catalog/meta-key :hide] ["GetLiveContext"])])]
+            (is (= ["ha__HassTurnOff" "ha__Unlock" "ha__read_mail"] (map :name (mcp-tools/tools config))))
+            (is (= [["HassTurnOff" true] ["GetLiveContext" false] ["Unlock" true] ["read.mail" true]]
+                   (map (juxt :name :default-shown) (mcp-tools/tool-settings config id))))))
         (testing "not while signed out"
           (connections/set-status! (config/state-dir config) id "signed-out")
           (is (= [] (mcp-tools/tools config))))))))

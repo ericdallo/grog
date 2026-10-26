@@ -50,6 +50,8 @@
              :instructions system
              :input (into (mapv #(select-keys % [:role :content]) messages) items)
              :max_output_tokens max-tokens
+             ;; Its requests go together, for the cache to find their prompt.
+             :prompt_cache_key "grog"
              :store false
              :stream true}
       reasoning-effort (assoc :reasoning {:effort reasoning-effort})

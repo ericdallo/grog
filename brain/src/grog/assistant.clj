@@ -142,6 +142,7 @@
         (publish! (cond-> {:type :turn :question message} said (assoc :said said)))
         (try
           (let [config @(:config ctx)
+                clock (prompt/now config)
                 now-ms (System/currentTimeMillis)
                 opts {:ttl-ms (* 60 1000 (:conversation-ttl-minutes config))
                       :max-messages (:max-history-messages config)}
@@ -167,8 +168,10 @@
             (let [{:keys [text stop-reason usage quota]} (provider/stream-reply!
                                                           config
                                                           {:system (prompt/system-prompt
-                                                                    config (prompt/now config) {:memory @memory})
-                                                           :messages messages
+                                                                    config clock {:memory @memory})
+                                                           ;; When it is, said just before the question
+                                                           ;; and not kept (grog.prompt/time-note).
+                                                           :messages (into heard [(prompt/time-note clock) (peek messages)])
                                                            :location (:location config)
                                                            :timezone (config/timezone config)
                                                            :tools (tools/definitions offered)

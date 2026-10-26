@@ -2,7 +2,8 @@
   "The system prompt: a Selmer template, the built-in one
   (resources/grog/system-prompt.md, which documents the variables) or the
   `systemPrompt`/`systemPromptFile` setting, rendered with the settings and the
-  current date and time. The `instructions` setting is appended."
+  current date and time. The `instructions` setting is appended. The date and
+  time also come with each question (`time-note`)."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [grog.config :as config]
@@ -33,6 +34,15 @@
     (not (str/blank? system-prompt)) system-prompt
     system-prompt-file (slurp system-prompt-file)
     :else (slurp (io/resource "grog/system-prompt.md"))))
+
+(defn time-note
+  "What grog says just before each question: when it is, at instant `now`
+  (a ZonedDateTime). It isn't in the built-in system prompt, which stays
+  the same from a turn to the next, so that the provider can cache it with
+  the conversation before the question."
+  [^ZonedDateTime now]
+  {:role "developer"
+   :content (format "It is now %s (%s time zone)." (format-date-time now) (.getZone now))})
 
 (defn ^:private location-str [{:keys [city region country]}]
   (->> [city region country]

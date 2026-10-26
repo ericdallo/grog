@@ -9,6 +9,7 @@
     icon     its icon on grog's skin
     about    what it's for, in a few words
     show     which of its tools the model sees at first
+    hide     without show, which it doesn't (the rest it does)
     policy   {tool \"allow\"|\"ask\"|\"deny\"}, over the defaults
     cloud    whether what grog sends it leaves home
     added    the user added it, at addedAt (epoch ms)

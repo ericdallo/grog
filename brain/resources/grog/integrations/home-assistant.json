@@ -57,7 +57,9 @@
         }
       },
       "policy": {"GetLiveContext": "allow", "HassTurnOn": "allow", "HassTurnOff": "allow", "HassLightSet": "allow",
-                 "HassClimateSetTemperature": "allow"}
+                 "HassClimateSetTemperature": "allow"},
+      "hide": ["GetDateTime", "HassBroadcast", "HassStartTimer", "HassCancelTimer", "HassCancelAllTimers",
+               "HassIncreaseTimer", "HassDecreaseTimer", "HassPauseTimer", "HassUnpauseTimer", "HassTimerStatus"]
     }
   }
 }

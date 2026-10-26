@@ -365,7 +365,9 @@ says more than `server.json` does:
 - `name`: where to read what the connection is called.
 - `errors`: what to say when it answers a status (404: no MCP server yet).
 - `capabilities`: what `lights` and `music` call of it, and with what.
-- `policy` and `show`: its tools' default modes, and which the model sees.
+- `policy` and `show`: its tools' default modes, and which the model sees;
+  or `hide`, which it doesn't (Home Assistant's clock, timers and
+  broadcasts: grog has its own).
 
 A tool named there also matches a server's ending in `__` and that name
 (`intent__HassTurnOn`), as Home Assistant's change by version.

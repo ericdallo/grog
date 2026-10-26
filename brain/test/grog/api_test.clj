@@ -55,9 +55,10 @@
      [ok? (str out)])))
 
 (defn ^:private sent
-  "The messages sent to the fake LLM in its `n`th request."
+  "The messages sent to the fake LLM in its `n`th request, but for the note
+  saying when it is (grog.prompt/time-note)."
   [fake n]
-  (get-in @(:requests fake) [n :body :input]))
+  (vec (remove #(= "developer" (:role %)) (get-in @(:requests fake) [n :body :input]))))
 
 (deftest chat-end-to-end
   (h/with-fake [fake [(answer "Hi" ", I'm Friday.")
@@ -85,6 +86,12 @@
 
           (testing "the configured name is in the system prompt"
             (is (str/starts-with? (get-in @(:requests fake) [0 :body :instructions]) "You are Friday")))
+
+          (testing "when it is comes just before the question, not in the system prompt, and isn't kept"
+            (let [input (get-in @(:requests fake) [1 :body :input])]
+              (is (= ["user" "assistant" "developer" "user"] (map :role input)))
+              (is (str/starts-with? (:content (nth input 2)) "It is now "))
+              (is (not (str/includes? (get-in @(:requests fake) [1 :body :instructions]) "It is now")))))
 
           (testing "provider errors before the answer fail the request and don't pollute the history"
             ;; the fake has no more answers and replies 500

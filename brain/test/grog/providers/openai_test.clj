@@ -50,6 +50,7 @@
                 :instructions "sys"
                 :input (:messages request)
                 :max_output_tokens 2048
+                :prompt_cache_key "grog"
                 :store false
                 :stream true
                 :reasoning {:effort "low"}
