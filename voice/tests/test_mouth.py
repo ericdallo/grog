@@ -327,6 +327,29 @@ class AnswerTest(unittest.TestCase):
         self.assertEqual(["Primeira frase.", "Segunda"], m.tts.texts)
         self.assertEqual(ERROR, played(m.player)[-1])
 
+    def test_text_to_speech_failing_beeps_and_hangs_up_keeping_what_was_said(self):
+        class Failing(FakeTts):
+            def __call__(self, text):
+                if self.texts:
+                    raise RuntimeError(f"no voice for {text!r}")
+                yield from super().__call__(text)
+
+        ask = hanging("Primeira frase. ", "Segunda frase. ", "Terceira.")
+        m = mouth(ask=ask)
+        m.tts = Failing()
+        with self.assertLogs("grog_voice", "ERROR") as logs:
+            turn = m.answer(heard(), HEARD)
+        [line] = logs.output
+        self.assertRegex(line, r"speaking failed: RuntimeError at .*test_mouth\.py:\d+$")
+        self.assertNotIn("Segunda", line)
+        self.assertEqual([ACK, b"Primeira frase.", ERROR], played(m.player))
+        self.assertTrue(ask.conn.hung_up.is_set(), "grog's turn stops too")
+        self.assertEqual("Primeira frase.", turn.said)
+        self.assertTrue(turn.stopped and turn.unsaid, "grog hears how much was said")
+        self.assertEqual(["ack", "error"], turn.sounds)
+        self.assertEqual("error", m.told[-1])
+        self.assertTrue(str(turn).endswith("; unsaid"))
+
 
 class StopTest(unittest.TestCase):
     def answer_until_stopped(self, m, before_stopping):

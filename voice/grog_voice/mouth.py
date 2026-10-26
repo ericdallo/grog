@@ -50,6 +50,7 @@ class Turn:
     tools: list = field(default_factory=list)
     sounds: list = field(default_factory=list)  # the earcons played, in order
     stopped: bool = False  # it was asked to stop, and cut the answer off
+    unsaid: bool = False  # its text to speech failed: the rest went unsaid
     answer: str = field(default="", repr=False)
     # What of the answer was said aloud, its sentences said to their end
     # before it was cut off; all of it when it wasn't.
@@ -67,7 +68,7 @@ class Turn:
         return (
             f"turn: {self.speech_s:.1f} s of speech ({sounded(self.peak_db, self.speculated)});"
             f" since it ended: {since}{'; tools: ' + ', '.join(self.tools) if self.tools else ''}"
-            f"{'; stopped' if self.stopped else ''}"
+            f"{'; unsaid' if self.unsaid else '; stopped' if self.stopped else ''}"
         )
 
 
@@ -325,10 +326,14 @@ class Mouth:
         self.quiet()
         self._speak(chunks, turn)
         self._conn = None
-        turn.stopped = self.stopping.is_set()
+        # Cut off, as far as grog is concerned, when it went unsaid: grog
+        # hears how much of it was said (see loop.Voice.answer).
+        turn.stopped = self.stopping.is_set() or turn.unsaid
         if failure and not turn.stopped:
             e = failure[0]
             log.error("grog couldn't answer: %s", e if isinstance(e, GrogError) else where(e))
+            self.tell("error")
+        elif turn.unsaid:
             self.tell("error")
         return turn
 
@@ -393,15 +398,17 @@ class Mouth:
         chunks as they come (None ends them), calmed, while a thread plays
         them, with the pauses after their sentences in between (see Pauses),
         held back once they're made slower than they play (see Cushion).
-        Once that failed, or it's to stop, it only waits for the end. What
-        of it was said, once it's over, is in the turn: the chunks whose
-        sound was due to end before it was asked to stop."""
+        Once that failed, or it's to stop, it only waits for the end. Once
+        text to speech failed, what it made plays, then an earcon, the rest
+        unsaid (the turn's unsaid), grog hung up on. What of it was said,
+        once it's over, is in the turn: the chunks whose sound was due to end
+        before it was asked to stop."""
         audio, failed, pauses = queue.Queue(), threading.Event(), Pauses(self.sample_rate)
         cushion = Cushion(self.sample_rate, self.clock)
         said = []  # (a chunk, when its sound is due to end), as they're played
 
         def over():
-            return failed.is_set() or self.stopping.is_set()
+            return failed.is_set() or turn.unsaid or self.stopping.is_set()
 
         def play():
             player, due, cut = None, 0.0, False
@@ -448,23 +455,33 @@ class Mouth:
                 if self.streams:
                     item = gathered(item, chunks, ahead)
                 cushion.restart()
-                for pcm in self.tts(calmed(item)):
-                    if over():
-                        break
-                    for sound in pauses(pcm if isinstance(pcm, Silence) else Spoken(pcm)):
-                        for held in cushion(sound):
-                            if "first_audio" not in turn.marks:
-                                turn.mark("first_audio")
-                                self.state = "speaking"
-                                self.tell("speaking")
+                try:
+                    for pcm in self.tts(calmed(item)):
+                        if over():
+                            break
+                        for sound in pauses(pcm if isinstance(pcm, Silence) else Spoken(pcm)):
+                            for held in cushion(sound):
+                                if "first_audio" not in turn.marks:
+                                    turn.mark("first_audio")
+                                    self.state = "speaking"
+                                    self.tell("speaking")
+                                audio.put(held)
+                    else:
+                        for held in cushion.flush():
                             audio.put(held)
-                else:
-                    for held in cushion.flush():
-                        audio.put(held)
-                    audio.put(item)
+                        audio.put(item)
+                except Exception as e:
+                    # What was made of it plays, and of the rest nothing: grog,
+                    # hung up on, keeps what was said (see _answering).
+                    log.error("speaking failed: %s", where(e))
+                    turn.unsaid = True
+                    self._hang_up()
         finally:
             audio.put(None)
             playing.join()
+        if turn.unsaid:
+            turn.sounds.append("error")
+            self.play("error")
         stopped_at = self._stopped_at if self.stopping.is_set() else None
         turn.said = " ".join(chunk for chunk, due in said if stopped_at is None or due <= stopped_at)
         turn.mark("done")
