@@ -171,12 +171,19 @@ const ENDS = [Gdk.EventType.BUTTON_RELEASE, Gdk.EventType.TOUCH_END, Gdk.EventTy
 const GESTURE = STARTS.concat(ENDS, [Gdk.EventType.MOTION_NOTIFY, Gdk.EventType.TOUCH_UPDATE]);
 // A gesture longer than this goes on to the page (a scroll has no end).
 const GESTURE_US = 1_500_000;
+// Just turned on, a screen may still show nothing for this long: a gesture
+// starting then only wakes it too, rather than pressing what it can't see.
+const DARK_US = 1_000_000;
+// After failing to turn the screen on or off, the seconds until it tries
+// again, the last one over and over.
+const RETRY_DELAYS_S = [2, 4, 8, 16, 30, 60];
 
 /**
  * The screen, turned off and on as the page asks (`want`), one change at a
  * time, the last asked winning, through a backend ({name, set(on)}, set
- * once known: `use`). Off, or going off, the gesture waking it goes no
- * further than `input`, and `touched` tells the page.
+ * once known: `use`), tried again a while after failing. Off, going off or
+ * just on, the gesture waking it goes no further than `input`, and
+ * `touched` tells the page.
  */
 class Screen {
   constructor(touched) {
@@ -188,6 +195,10 @@ class Screen {
     this.turning = null;
     // Until when (monotonic µs) input is the gesture waking it.
     this.waking = 0;
+    // When (monotonic µs) it was last turned on.
+    this.onAt = 0;
+    // How many times in a row turning it failed.
+    this.failures = 0;
   }
 
   use(backend) {
@@ -198,6 +209,7 @@ class Screen {
 
   want(on) {
     this.wanted = on;
+    this.failures = 0;
     this.turn();
   }
 
@@ -205,6 +217,7 @@ class Screen {
   woken() {
     if (this.on || this.turning !== null) return;
     this.on = this.wanted = true;
+    this.onAt = GLib.get_monotonic_time();
     print("The screen is on: woken");
     this.touched();
   }
@@ -216,21 +229,31 @@ class Screen {
         this.turning = this.wanted;
         await this.backend.set(this.turning);
         this.on = this.turning;
+        if (this.on) this.onAt = GLib.get_monotonic_time();
+        this.failures = 0;
         print(`The screen is ${this.on ? "on" : "off"}`);
       }
     } catch (e) {
-      printerr(`Couldn't turn the screen ${this.turning ? "on" : "off"}: ${e.message}`);
-      this.wanted = this.on;
+      // Still wanted as the page last said, which it won't say again.
+      const delay = RETRY_DELAYS_S[Math.min(this.failures, RETRY_DELAYS_S.length - 1)];
+      this.failures += 1;
+      printerr(`Couldn't turn the screen ${this.turning ? "on" : "off"}: ${e.message} (again in ${delay} s)`);
+      later(delay, () => this.turn());
     } finally {
       this.turning = null;
     }
+  }
+
+  /** Whether it may show nothing: off, going off, or only just on. */
+  dark(now) {
+    return !this.on || this.turning === false || now < this.onAt + DARK_US;
   }
 
   /** Whether to stop an input event of `type` before the page gets it: the gesture waking the screen. */
   input(type) {
     if (!GESTURE.includes(type)) return false;
     const now = GLib.get_monotonic_time();
-    if (this.backend && (!this.on || this.turning === false) && STARTS.includes(type)) {
+    if (this.backend && this.dark(now) && STARTS.includes(type)) {
       this.waking = now + GESTURE_US;
       this.want(true);
       this.touched();
