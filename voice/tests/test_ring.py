@@ -111,9 +111,8 @@ class LookTest(unittest.TestCase):
         shown = dict(look("answering", spins=False))
         self.assertEqual(((ring.THINKING,), (ring.BREATH,)), (shown["LED_COLOR"], shown["LED_EFFECT"]))
 
-    def test_breathing_green_while_speaking(self):
-        shown = dict(look("speaking"))
-        self.assertEqual(((0x2ED573,), (ring.BREATH,)), (shown["LED_COLOR"], shown["LED_EFFECT"]))
+    def test_lit_green_while_speaking(self):
+        self.assertEqual(ring.solid(scaled(0x2ED573, 0.6)), look("speaking"), "steady, not breathing")
 
     def test_red_and_amber(self):
         self.assertEqual(ring.solid(scaled(ring.RED, 0.6)), look("error"))
@@ -224,7 +223,7 @@ class RingTest(unittest.TestCase):
         device.written.clear()
         r.show("speaking")
         r.tick()
-        self.assertEqual([("LED_EFFECT", (ring.BREATH,))], device.written, "its color, as it was")
+        self.assertEqual([("LED_EFFECT", (ring.SINGLE,))], device.written, "its color, as it was")
 
     def test_it_spins_while_grog_thinks(self):
         device = FakeDevice()
