@@ -25,6 +25,11 @@ PARTIAL_FROM_S = 0.8
 # While it isn't known to be for grog, only this far: its name comes first.
 # The pause and the end still tell.
 WAKE_WINDOW_S = 2.5
+# While it isn't known to be for grog, only this much of its start is
+# transcribed, at pauses and at its end: grog's name comes in its first
+# words (see wake.MAX_LEADING_WORDS), and what others say, which often runs
+# on for maxUtteranceSeconds (a TV, people talking), isn't worth the CPU.
+HEAD_S = 3.0
 # Over music, how much each window overlaps the one before: a name said
 # across a cut is whole in one of them.
 MUSIC_OVERLAP_S = 1.0
@@ -89,6 +94,7 @@ class Utterance:
     next_cut: int | None = None  # where the next window over music ends (bytes into it)
     dropped: int = 0  # how much of its start was let go of (bytes)
     start: int = 0  # where what's for grog starts, once a window heard its name (bytes into it)
+    head: Transcription | None = None  # of its start (HEAD_S), once longer, while not known to be for grog
 
     def for_grog(self):
         """Whether someone is known to talk to grog."""
@@ -100,7 +106,7 @@ class Heard:
     """An utterance, and what was made of it."""
 
     pcm: bytes
-    text: str  # all of it, transcribed
+    text: str  # all of it, transcribed; only its start (HEAD_S) when that showed it isn't for grog
     seconds: float  # how long it lasted
     speech_s: float = 0.0  # how much of it the VAD found voiced
     speech_end: float = 0.0  # time.monotonic() when speech ended
@@ -171,6 +177,7 @@ class Ears:
         self.partial_s = settings["partialMs"] / 1000
         self.window_bytes = round(settings["musicUtteranceSeconds"] / frame_s) * frame_bytes
         self.step_bytes = self.window_bytes - round(MUSIC_OVERLAP_S / frame_s) * frame_bytes
+        self.head_bytes = round(HEAD_S / frame_s) * frame_bytes
         self.held = False  # partials, since the last utterance ended
         self.forgetting = False  # what was being said is to be forgotten (see forget)
         self.endpointer = Endpointer(
@@ -203,7 +210,8 @@ class Ears:
         shows it's for grog, it hears it (see _guessed), and as it ends, says
         it got it (see _ended). Over music, while it waits for its name, it
         looks for it in windows (see _window), on stt, one transcription at a
-        time there. While grog's own sound plays, what's no louder than its
+        time there. Longer than HEAD_S and not known to be for grog, only its
+        start is transcribed. While grog's own sound plays, what's no louder than its
         echo doesn't start one (see echo.py). Tells grog when someone talks
         to it, and when it's no longer awake: not when anyone else talks.
         While grog answers, `until` says when that's over: then, with nobody
@@ -252,8 +260,14 @@ class Ears:
                 if utterance.dropped != dropped:
                     pause = None  # of what it let go of
                 free = window is None or window.done()
-                if pause is not None and free and (main is None or main.done() and main.pcm != pause):
+                ready = free and (main is None or main.done())
+                fresh = pause is not None and (main is None or main.pcm != pause)
+                if ready and fresh and self._whole(utterance, len(pause)):
                     main = self._transcribe(pause, utterance, at_pause=True)
+                elif ready and utterance.head is None and not self._whole(utterance, self.endpointer.size):
+                    # Only its start tells whether it's for grog (see HEAD_S).
+                    audio = self.endpointer.audio()[: self.head_bytes]
+                    main = utterance.head = self._transcribe(audio, utterance)
                 if (partial is None or partial.done()) and (audio := self._partial(utterance, partial)):
                     partial = Transcription(self.partial_stt, audio, utterance)
                 if free and (main is None or main.done()) and (cut := self._window(utterance)):
@@ -355,6 +369,29 @@ class Ears:
         """Whether it waits for its name over music."""
         return utterance.needs_name and not utterance.addressed and self.music()
 
+    def _whole(self, utterance, size):
+        """Whether all of what was said so far (`size` bytes) is worth
+        transcribing: it's for grog (or needs no name), it waits for its name
+        over music (see _window), or it's no longer than the start that
+        tells (HEAD_S)."""
+        return utterance.for_grog() or utterance.cut or self._over_music(utterance) or size <= self.head_bytes
+
+    def _named(self, utterance, audio, main):
+        """Whether `audio`, what was said, turns out to be for grog by its
+        start (HEAD_S), transcribed now unless it was, once `main` is done:
+        one transcription at a time on stt."""
+        if utterance.head is None:
+            if main is not None:
+                main.wait()
+                self._take(utterance, main)
+            if utterance.for_grog():
+                return True
+            utterance.head = self._transcribe(audio[: self.head_bytes], utterance)
+        utterance.head.wait()
+        self._take(utterance, utterance.head)
+        self._got_it(utterance)
+        return utterance.for_grog()
+
     def _window(self, utterance):
         """Over music, while it waits for its name, the next window of what
         was heard to look for it in, once it's all there: (where it starts,
@@ -442,9 +479,10 @@ class Ears:
     def _ended(self, t, event, utterance, main, partial, window):
         """The utterance ended: its text, the guess at its last pause when
         that was the end, or transcribed now: from the window over music
-        that heard its name, if one did. Partials are held until it listens
-        again: no use now. Once a guess shows what it asks grog, the sound
-        saying it got it plays meanwhile (see _got_it)."""
+        that heard its name, if one did; only its start's (HEAD_S) when that
+        shows it isn't for grog. Partials are held until it listens again: no
+        use now. Once a guess shows what it asks grog, the sound saying it
+        got it plays meanwhile (see _got_it)."""
         if not self.held:
             self.held = True
             self._hold()
@@ -455,6 +493,9 @@ class Ears:
             self._take(utterance, window)
         self._got_it(utterance)
         audio = event.audio[max(0, utterance.start - utterance.dropped) :]
+        if not self._whole(utterance, len(audio)) and not self._named(utterance, audio, main):
+            # Not for grog, as its start tells: the rest isn't transcribed.
+            return self._heard(t, event, utterance, audio, utterance.head.result(), speculated=False)
         speculated = main is not None and main.pcm == audio
         if not speculated:
             if main is not None:
@@ -465,6 +506,11 @@ class Ears:
         text = main.result()
         if utterance.cut:
             text = self._from_name(text)
+        return self._heard(t, event, utterance, audio, text, speculated)
+
+    def _heard(self, t, event, utterance, audio, text, speculated):
+        """What was heard of `utterance`, which ended (`event`) at `t`: its
+        `audio`, as `text`."""
         seconds = duration(audio, self.frame_bytes, self.frame_s)
         return Heard(
             pcm=audio,

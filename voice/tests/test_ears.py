@@ -320,6 +320,51 @@ class AddressTest(unittest.TestCase):
         self.assertEqual([], e.heard_reports)
 
 
+class HeadTest(unittest.TestCase):
+    """What isn't known to be for grog is only transcribed as far as its
+    name could be: its start (HEAD_S)."""
+
+    HEAD = round(ears_module.HEAD_S / FRAME_S) * FRAME
+    TALK = (("S", 2.0), (".", 0.4), ("S", 2.0), (".", 0.4), ("S", 2.0), (".", 1.0))
+
+    def test_someone_else_talking_on_is_transcribed_only_at_its_start(self):
+        e = ears(mic=slow_mic(*self.TALK), wake=GROG, stt=FakeStt("o jogo de ontem foi bom demais"))
+        heard = e.listen()
+        self.assertGreater(len(heard.pcm), 2 * self.HEAD)
+        self.assertTrue(e.stt.calls and all(len(pcm) <= self.HEAD for pcm in e.stt.calls), "never all of it")
+        self.assertEqual(self.HEAD, len(e.stt.calls[-1]), "its start")
+        self.assertEqual("o jogo de ontem foi bom demais", heard.text)
+        self.assertIsNone(e.address(heard))
+        self.assertEqual(["listening"], e.told)
+
+    def test_without_pauses_its_start_once(self):
+        e = ears(frames(("S", 4.0), (".", 1.0)), wake=GROG, stt=FakeStt("o jogo de ontem"))
+        heard = e.listen()
+        self.assertEqual([self.HEAD], [len(pcm) for pcm in e.stt.calls])
+        self.assertEqual("o jogo de ontem", heard.text)
+
+    def test_its_name_at_its_start_has_all_of_it_transcribed(self):
+        text = "Grog, me conta uma história bem longa sobre dragões"
+        e = ears(mic=slow_mic(*self.TALK), wake=GROG, stt=FakeStt(text))
+        heard = e.listen()
+        self.assertEqual(heard.pcm, e.stt.calls[-1], "all of it")
+        self.assertEqual(text, heard.text)
+        self.assertEqual("me conta uma história bem longa sobre dragões", e.address(heard))
+
+    def test_its_name_in_its_start_without_pauses_then_all_of_it(self):
+        text = "Grog, me conta uma história"
+        e = ears(frames(("S", 4.0), (".", 1.0)), wake=GROG, stt=FakeStt(text))
+        heard = e.listen()
+        self.assertEqual([self.HEAD, len(heard.pcm)], [len(pcm) for pcm in e.stt.calls])
+        self.assertEqual(text, heard.text)
+        self.assertIn("answering", e.told)
+
+    def test_awake_all_of_it(self):
+        e = ears(mic=slow_mic(*self.TALK), wake=GROG, awake="asked", stt=FakeStt("sim, e depois mais coisa"))
+        heard = e.listen()
+        self.assertEqual(heard.pcm, e.stt.calls[-1])
+
+
 def over_music(*parts):
     """A FakeMic of `parts`, frames, 2 ms each: windows are done before the
     next one is due."""

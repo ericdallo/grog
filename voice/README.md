@@ -18,7 +18,9 @@ up to it.
    tomorrow?", or "Hey Grog, ...". The name is matched by how it sounds,
    since speech to text writes it as "Groga" or "Grok" and so on. After its
    name alone, or an answer asking you something, the next thing you say
-   doesn't need it.
+   doesn't need it. What isn't known to be for grog is only transcribed as
+   far as its name could be, its first 3 s: a TV, or people talking, can go
+   on for the 15 s an utterance lasts at most, many times an hour.
 4. A short tick says it got it, and the brain answers, streamed.
 5. [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) speaks the
    answer, a sentence at a time while the rest is still coming, in a voice

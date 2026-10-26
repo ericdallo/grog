@@ -1020,6 +1020,20 @@ So:
   station's config can ask auto-cpufreq for `scaling_max_freq = 2400000`
   on AC; its lid open would let it run faster.
 
+## What isn't for grog
+
+The station's logs for the week to October 26, 2026: 5,144 utterances not
+for grog, against 172 turns, most of them 15 s long (`maxUtteranceSeconds`):
+a TV, or people talking. Each was transcribed whole at its end, and again
+at each of its pauses (in case that was the end), on the fp32 Parakeet:
+while people talked, grog-voice used ~0.4 of a core for nothing. grog's
+name has to come in the first two words (`wake.MAX_LEADING_WORDS`), so now,
+until a guess shows an utterance is for grog, it's only transcribed as far
+as its first 3 s (`ears.HEAD_S`): at pauses until then, once when it gets
+longer, and at its end if not yet. When that start has the name (the
+partials missed it), the whole is transcribed then. Over music, and once
+awake, as before.
+
 ## Where to go from here
 
 ### Ears
