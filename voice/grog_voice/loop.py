@@ -56,7 +56,9 @@ class Voice:
     it hears for grog reported, and are its partials made to its end.
     `partial_stt` transcribes partials (None: none, see Ears). `echo` (an
     Echo) keeps grog's own sound from being taken for someone talking (None:
-    nothing does); `clock` tells the time, as the mic stamps its frames."""
+    nothing does); `clock` tells the time, as the mic stamps its frames.
+    `ring` (a Ring, or None) is shown what it does and told whether grog's
+    mic is on: a ReSpeaker's ring and mute button (see ring.py)."""
 
     def __init__(
         self,
@@ -75,10 +77,12 @@ class Voice:
         partial_stt=None,
         echo=None,
         clock=time.monotonic,
+        ring=None,
         frame_bytes=FRAME_BYTES,
         frame_s=FRAME_S,
     ):
         self.report = report
+        self.ring = ring
         self.awake_until = 0.0
         self.awake_why = None  # why what's said until then needs no wake word (see awake)
         self.told = None  # what it last told grog it's doing
@@ -238,8 +242,10 @@ class Voice:
         return self.awake_why if time.monotonic() < self.awake_until else None
 
     def close(self):
-        """Closes the mic, and what transcribes partials."""
+        """Closes the mic, what transcribes partials, and the ring."""
         self.ears.close()
+        if self.ring is not None:
+            self.ring.close()
 
     def listen_now(self):
         """Listens to what's said next without its name, as if called, once
@@ -268,7 +274,9 @@ class Voice:
     def set_mic(self, on):
         """Switches the mic on or off: off, it records nothing, and grog is
         told it's muted, once it's done answering if it is. What was being
-        said is forgotten."""
+        said is forgotten. The ring is told, even when it was already so."""
+        if self.ring is not None:
+            self.ring.mic(on)
         if self.muted == (not on):
             return
         self.muted = not on
@@ -312,6 +320,8 @@ class Voice:
             if state != self.told:
                 self.told = state
                 self.report(state)
+                if self.ring is not None:
+                    self.ring.show(state)
 
     def _mic(self, state):
         """What the mic says: no-mic, or listening once it's back."""

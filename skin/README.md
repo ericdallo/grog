@@ -118,8 +118,11 @@ clicks or presses a key: that touch only wakes it, and does nothing else.
 The page decides (`screenOn`, in `view.js`) and tells the window, which
 turns the screen off with GNOME's power saving, or with wlroots
 compositors, like cage, by turning their output off (`wlr-randr`): the
-screen gets no signal then, as with power saving. Elsewhere, and in a
-browser, it stays on. GNOME may ignore a laptop's own touch screen while
+screen gets no signal then, as with power saving. Its own speakers (HDMI,
+DisplayPort) go quiet with it: grog speaking through them isn't heard
+until it's back, ~0.1 s after the window turns it on, and the sound
+saying grog heard its name, played as it wakes, is mostly lost. Elsewhere,
+and in a browser, it stays on. GNOME may ignore a laptop's own touch screen while
 it's off, and with cage, a mouse moved while it's off can stray from the
 window: a key, or grog, still wakes it.
 

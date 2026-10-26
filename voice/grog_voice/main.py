@@ -4,6 +4,7 @@ with a file as the mic, to try it out; `grog-voice listen`, what it hears."""
 import argparse
 import logging
 import os
+import signal
 import sys
 import threading
 import time
@@ -111,7 +112,7 @@ def text_to_speech(tts, engines=None):
     return engines["supertonic"](tts["model"], style, tts["language"], tts["steps"], tts["threads"], speed)
 
 
-def build(settings, open_mic, play, report=None, name=lambda: None, partials=True):
+def build(settings, open_mic, play, report=None, name=lambda: None, partials=True, ring=None):
     """Loads the models (a few seconds), then opens the mic: a Voice, telling
     grog what it's doing through `report` (a Reporter, if any), and what it
     heard for grog, as it comes when grog shows it. grog's name, the wake
@@ -119,7 +120,8 @@ def build(settings, open_mic, play, report=None, name=lambda: None, partials=Tru
     `partials` (and partialMs), what was said so far, while someone talks, is
     transcribed by a Parakeet of its own, in a process of its own (see
     worker.py), loaded when someone first talks. It listens while grog
-    answers, but for the echo of grog's own sound (see echo.py)."""
+    answers, but for the echo of grog's own sound (see echo.py). `ring`: a
+    ReSpeaker's ring and mute button, if any (see ring.py)."""
     from . import grog
     from .audio import FRAME_S, NullPlayer, Player
     from .echo import Echo
@@ -157,6 +159,7 @@ def build(settings, open_mic, play, report=None, name=lambda: None, partials=Tru
         captions=lambda: report is not None and report.captions,
         partial_stt=partial_stt,
         echo=Echo(FRAME_S),
+        ring=ring,
     )
 
 
@@ -171,20 +174,37 @@ def tell_speakers(settings, request):
         log.warning("couldn't tell grog its speakers (%s)", e)
 
 
+def stopped(signum, frame):
+    """systemd stops the service (SIGTERM): it leaves the way it would, what
+    it opened closed, as a ReSpeaker's ring and mute (see ring.py)."""
+    raise SystemExit(0)
+
+
 def run(settings):
     from . import grog
     from .audio import Mic
     from .commands import Commands
+    from .ring import Ring
 
+    signal.signal(signal.SIGTERM, stopped)
     report = reporter(settings)
     report("loading")
     # Whether the mic is on comes before it's opened: models take a while.
     commands = Commands(
         lambda: grog.commands(settings["grogUrl"]), speakers=lambda request: tell_speakers(settings, request)
     )
-    voice = build(
-        settings, lambda: Mic(settings["mic"], on=commands.mic_on is not False), play=True, report=report
-    )
+    ring = Ring(lambda on: grog.set_mic(settings["grogUrl"], on))
+    try:
+        voice = build(
+            settings,
+            lambda: Mic(settings["mic"], on=commands.mic_on is not False),
+            play=True,
+            report=report,
+            ring=ring,
+        )
+    except BaseException:
+        ring.close()  # its button mutes it by itself again
+        raise
     commands.attach(voice)
     try:
         voice.run()

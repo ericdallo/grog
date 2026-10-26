@@ -54,13 +54,15 @@ def voice(
     captions=False,
     players=None,
     turns=True,
+    ring=None,
 ):
     """A Voice with fakes, with partials by `partials` (a speech to text) when
     given; what it tells grog it's doing is in .reported, what it heard for
     grog in .heard_reports ((text, final)), its players in .players. With
     `turns`, what's said next comes once grog is done answering: the mic
     holds its frames meanwhile. Without, grog's speech plays as it does
-    (Speaking), told apart from someone talking by an Echo."""
+    (Speaking), told apart from someone talking by an Echo. `ring`: a
+    ReSpeaker's, if any."""
     reported, heard = [], []
     players = players or (Players() if turns else Speaking())
     mic = mic or FakeMic(mic_frames)
@@ -80,6 +82,7 @@ def voice(
         partial_stt=Held(partials) if partials is not None else None,
         echo=None if turns else Echo(FRAME_S, clock=clock),
         clock=clock,
+        ring=ring,
         frame_bytes=FRAME,
         frame_s=FRAME_S,
     )
@@ -636,6 +639,47 @@ class TellTest(unittest.TestCase):
         v = voice(partials=FakeStt(""))
         v.close()
         self.assertTrue(v.ears.mic.closed and v.ears.partial_stt.closed)
+
+
+class FakeRing:
+    """What a ReSpeaker's ring was shown (.shown) and told of grog's mic
+    (.mics), and whether it was closed."""
+
+    def __init__(self):
+        self.shown, self.mics, self.closed = [], [], False
+
+    def show(self, state):
+        self.shown.append(state)
+
+    def mic(self, on):
+        self.mics.append(on)
+
+    def close(self):
+        self.closed = True
+
+
+class RingTest(unittest.TestCase):
+    def test_the_ring_is_shown_what_grog_is_told(self):
+        ring = FakeRing()
+        v = voice(ring=ring)
+        for state in ("listening", "hearing", "hearing", "answering"):
+            v.tell(state)
+        self.assertEqual(["listening", "hearing", "answering"], ring.shown)
+        self.assertEqual(v.reported, ring.shown)
+
+    def test_it_knows_whether_grogs_mic_is_on_even_unchanged(self):
+        ring = FakeRing()
+        v = voice(ring=ring)
+        with self.assertLogs("grog_voice", "INFO"):
+            v.set_mic(True)
+            v.set_mic(False)
+        self.assertEqual([True, False], ring.mics, "the first says it, as it starts")
+        self.assertEqual("muted", ring.shown[-1])
+
+    def test_closing_closes_it(self):
+        ring = FakeRing()
+        voice(ring=ring).close()
+        self.assertTrue(ring.closed)
 
 
 if __name__ == "__main__":

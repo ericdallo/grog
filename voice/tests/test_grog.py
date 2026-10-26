@@ -6,7 +6,7 @@ import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from grog_voice.grog import GrogError, ask, commands, report, report_speakers, status
+from grog_voice.grog import GrogError, ask, commands, report, report_speakers, set_mic, status
 
 
 def event(kind, data):
@@ -306,6 +306,25 @@ class ReportSpeakersTest(unittest.TestCase):
             port = s.getsockname()[1]
         with self.assertRaisesRegex(GrogError, "Couldn't reach grog"):
             report_speakers(f"http://127.0.0.1:{port}", {"id": 1, "error": "pw-dump exited with 1"})
+
+
+class SetMicTest(unittest.TestCase):
+    def test_asks_grog_to_switch_its_mic(self):
+        url, requests = fake_grog(self)
+        set_mic(url, False)
+        set_mic(url, True)
+        self.assertEqual(
+            [
+                {"path": "/v1/actions/mic", "content_type": "application/json", "accept": None, "body": body}
+                for body in ({"on": False}, {"on": True})
+            ],
+            requests,
+        )
+
+    def test_refused(self):
+        url, _ = fake_grog(self, status=400, error='say whether it\'s on: {"on": true or false}')
+        with self.assertRaisesRegex(GrogError, "^say whether"):
+            set_mic(url, False)
 
 
 if __name__ == "__main__":

@@ -260,7 +260,9 @@ comes first when plugged in, then Bluetooth and the built-in audio. Pick
 another in Speakers, in the skin's actions (one for the music, the
 default, and maybe another for grog's voice), in GNOME's sound settings, or
 with `wpctl set-default <id>` as grog. To pin one by name, set
-`services.grog.voice.settings.mic` or `.speaker` in `machine.nix`.
+`services.grog.voice.settings.mic` or `.speaker` in `machine.nix`. A
+screen's own speakers only play while the screen is on
+([its screen](../skin/README.md#its-screen)).
 
 `grog-voice listen`, as grog, shows what the mic hears and how loud. From
 where you usually talk, speech should peak between -30 and -10 dBFS, and
@@ -273,6 +275,12 @@ the mic's volume.
   speakerphones and conference mics do, mute what they take for noise:
   words lose their start, and grog misses its name even from up close.
   Plain mics do better. Try one with `grog-voice listen` before settling.
+- A ReSpeaker XVF3800 (Seeed's USB mic array) cleans the sound up too, but
+  for speech recognition: the station hears its name through one, from how
+  far not measured yet. grog then gets a ring showing what it does, and a
+  mute button for its mic ([voice/](../voice/README.md#a-respeakers-ring)).
+  With a speaker on it, its own echo canceller should take grog's voice out
+  of what it hears.
 - Keep the speaker away from the mic. While grog speaks, saying its name
   only stops it if you reach the mic louder than its voice does: on a
   laptop at full volume, its speaker beside its mics, never. And the sound

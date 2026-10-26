@@ -1,7 +1,8 @@
 """Client of grog's HTTP API: GET /v1/status, POST /v1/chat, whose answer
 streams as server-sent events, POST /v1/voice, what grog-voice is doing,
-GET /v1/voice/commands, what grog asks of it, and POST /v1/voice/speakers,
-the speakers it asked for."""
+GET /v1/voice/commands, what grog asks of it, POST /v1/voice/speakers, the
+speakers it asked for, and POST /v1/actions/mic, switching its mic (from a
+mic array's mute button, see ring.py)."""
 
 import http.client
 import json
@@ -70,15 +71,12 @@ def report(url, state, conversation_id, heard=None, timeout=2):
         conn.close()
 
 
-def report_speakers(url, answer, timeout=5):
-    """Tells grog which speakers there are, as it asked (`answer`: {"id",
-    "speakers"} or {"id", "error"}, see speakers.py). Raises GrogError when
-    it can't."""
+def _post(url, route, body, timeout):
+    """POSTs `body` as JSON to grog's `route`, its answer read and dropped.
+    Raises GrogError when it can't."""
     conn, path = _connect(url, timeout)
     try:
-        conn.request(
-            "POST", path + "/v1/voice/speakers", json.dumps(answer), {"Content-Type": "application/json"}
-        )
+        conn.request("POST", path + route, json.dumps(body), {"Content-Type": "application/json"})
         resp = conn.getresponse()
         if resp.status != 200:
             raise GrogError(_error(resp))
@@ -87,6 +85,20 @@ def report_speakers(url, answer, timeout=5):
         raise GrogError(f"Couldn't reach grog at {url}: {e}") from e
     finally:
         conn.close()
+
+
+def report_speakers(url, answer, timeout=5):
+    """Tells grog which speakers there are, as it asked (`answer`: {"id",
+    "speakers"} or {"id", "error"}, see speakers.py). Raises GrogError when
+    it can't."""
+    _post(url, "/v1/voice/speakers", answer, timeout)
+
+
+def set_mic(url, on, timeout=2):
+    """Asks grog to switch its mic on or off, as someone pressed a mic
+    array's mute button (see ring.py): grog keeps it, and tells grog-voice
+    (GET /v1/voice/commands). Raises GrogError when it can't."""
+    _post(url, "/v1/actions/mic", {"on": on}, timeout)
 
 
 def _events(resp):

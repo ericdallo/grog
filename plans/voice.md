@@ -42,6 +42,11 @@ said otherwise.
   what follows it is answered instead. While grog's sounds play, only what's
   louder than their echo is heard, which with the station's speaker at full
   volume, beside its mics, is nothing: see "Interruptions" below.
+- Since October 26, 2026 the station hears through a ReSpeaker XVF3800, a
+  USB mic array with an echo canceller of its own, whose ring shows what
+  grog-voice does and whose button switches grog's mic, and speaks through
+  its screen's speaker (HDMI) until one is plugged into the ReSpeaker: see
+  "The ReSpeaker XVF3800" below.
 - Code: `voice/grog_voice/pocket.py` and `voice/grog_voice/supertonic.py`
   (text handling, pure), the `Pocket`, `Supertonic` and `Piper` classes in
   `voice/grog_voice/speech.py`, the `tts.*` settings in
@@ -885,6 +890,85 @@ meanwhile) and the brain as it was:
   VAD's state between utterances or resetting it made no difference: both
   started 1.44 s in. Not fixed (see "Where to go from here").
 
+## The ReSpeaker XVF3800
+
+On October 26, 2026 the station got a ReSpeaker XVF3800 USB 4-Mic Array,
+in its case (Seeed, USB 2886:001a, its USB firmware at bcdDevice 0206): four
+mics in a circle, and an XMOS XVF3800 doing echo cancellation,
+beamforming, dereverberation, noise suppression and up to 60 dB of gain
+control.
+
+- **Over USB**, with its firmware as it came (2.0.6), it recorded and
+  played 2 channels of 16-bit audio at 16 kHz only
+  (`/proc/asound/card1/stream0`); at 48 kHz since its update (below).
+- **What it records**: channel 0 (left) is its "conference" output,
+  channel 1 (right) the ASR output of its auto-selected beam, as Seeed
+  says. With speech in the room, they were nearly the same signal
+  (correlation 0.96, no lag), the right one ~5 dB noisier between words
+  (-44 to -46 dBFS RMS against -49 to -53). So the echo canceller mixing
+  them to mono for `grog-mic` is fine as it is.
+- **It's the session's default mic**, picked with `wpctl set-default` as
+  grog: WirePlumber keeps it, the laptop's mics coming next when it's
+  unplugged. The music's echo canceller records from it, grog-voice from
+  `grog-mic`. Speech in the room peaked at -22 to -2 dBFS through it,
+  against -19 to -30 with the laptop's mics: its gain control at work.
+- **Its echo canceller's reference is what it plays itself**, the left
+  channel of its USB output, which its DAC plays: grog's voice played
+  through it should be taken out of what it records, and someone heard
+  over grog while it speaks (see "Interruptions"). It has no speaker: a
+  3.5 mm jack, and inside the case (three clips hold it) a JST PH 2.0
+  connector for a speaker of up to 5 W on its amplifier. A 4 Ω 5 W
+  enclosed speaker for it is on its way, for grog's voice more than music,
+  which stays on the Bluetooth speaker.
+- **Its firmware** went from 2.0.6 to 2.1.1 (October 26, 2026), the 48 kHz
+  2-channel image (`respeaker_xvf3800_usb_dfu_firmware_v2.1.1_48k2ch.bin`,
+  from Seeed's repository, checked against its git blob), as root:
+  `dfu-util -d 2886:001a -S <its serial> -R -e -a 1 -D <image>`. Alt 1 is
+  the upgrade image, alt 0 the factory one, left alone; the serial keeps
+  dfu-util off the webcam, which has a DFU interface too. Since 2.0.6: the
+  ring's per-LED mode (2.0.7), USB audio fixed after bus resets on Linux
+  (2.0.10), its headphone and speaker gain set over USB, 8 dB by default
+  (2.1.0), and its button's events with its own mute off (2.1.1). It came
+  back with the same nodes, still the default mic, recording and playing
+  at 48 kHz: grog's voice through it won't stop at 8 kHz, and PipeWire,
+  running at 48 kHz, resamples less.
+- **Its control interface**: USB vendor control transfers on endpoint 0,
+  0.2 to 0.6 ms each (Seeed's `python_control/xvf_host.py` lists the
+  commands); a command its firmware lacks answers status 65. Its usbfs
+  node is root's: the NixOS module's udev rule gives it to grog-voice's
+  user. Reading its mute pin back (GPO_READ_VALUES) lags a write behind,
+  so grog-voice keeps track of it. A press of its button once failed the
+  transfer under way (EPROTO) without it going away: grog-voice tries
+  again before taking it as gone. With its own mute off, a press latches
+  an event bit (GPI_EVENT_PENDING_ALL, read and cleared), and sends no key
+  through its HID inputs, which GNOME could take for a mic mute key.
+- **Its ring** (`ring.py`), as the user picked on it: off at rest; pointing
+  at who talks (its DoA effect) in the skin's hearing green, at 6% around;
+  spinning in the thinking indigo while grog thinks (the per-LED mode, 12
+  frames a second), picked over breathing; breathing coral while grog
+  speaks; red a moment on errors, dim red while grog's mic is off, amber
+  without a mic.
+- **Its mute**: raising its mute pin (X0D30) silenced its mics (-119 dBFS
+  RMS at `grog-mic`) and lit its red LED: grog's mic off raises it. While
+  grog-voice runs, its button's own mute is off, and a press asks grog to
+  switch its mic (POST /v1/actions/mic), the pin following at once, asked
+  again while grog can't be reached, muted meanwhile. Once grog-voice
+  stops (SIGTERM included), its own mute is back on.
+- **Meanwhile grog speaks through its screen's speaker** (the MPI7009's,
+  over HDMI, picked for grog's voice on its screen), 3 dB over full
+  volume (`wpctl set-volume` 1.12, a gain of 1.405), as it's weak. That
+  speaker is only there while the screen is on. Under cage the kiosk turns
+  the screen off with `wlr-randr --off` after `skin.screenOffMinutes`,
+  which takes its HDMI audio too (no ELD), and only turns it on once
+  grog-voice hears grog's name, as it plays the sound saying it listens:
+  that sound is mostly lost. The audio is back 65 ms after the screen is
+  turned on. The user chose to keep it that way until the ReSpeaker has
+  its speaker.
+- The screen's HDMI audio is also the session's default speaker: asked by
+  voice, grog made it so with its hands (`shell`). So the music plays there
+  while the screen is on, and while it sleeps WirePlumber falls back to
+  the Bluetooth speaker, or the laptop's.
+
 ## Where to go from here
 
 ### Ears
@@ -893,10 +977,11 @@ meanwhile) and the brain as it was:
   word sounds like them. Check for false wakes first.
 - A wake word model of its own (openWakeWord, microWakeWord) for "Grog"
   alone from afar, where speech to text struggles most.
-- Calling grog while it speaks, on the station: an echo canceller that
-  keeps the words of someone talking over grog (WebRTC's ate them; its
-  lighter AECM wasn't tried), or a speaker away from the mics (see
-  "Interruptions").
+- Calling grog while it speaks, on the station: grog's voice on the
+  ReSpeaker's own speaker, for its echo canceller to take out (see "The
+  ReSpeaker XVF3800"). Otherwise an echo canceller that keeps the words of
+  someone talking over grog (WebRTC's ate them; its lighter AECM wasn't
+  tried), or a speaker away from the mics (see "Interruptions").
 - A quiet "Grog" said first is sometimes lost, the VAD starting late (see
   "Interruptions"): a longer preroll, or a lower `start_prob`, may keep it.
   Check what else starts an utterance then.
@@ -957,6 +1042,10 @@ meanwhile) and the brain as it was:
   Bluetooth one across the room): how often it's heard from 1 and 3 m,
   whether 6 dB over its echo is the right margin, and whether anything
   else starts an utterance then.
+- With grog's voice on the ReSpeaker's own speaker: how much of it its
+  echo canceller takes out, whether grog can then be called while it
+  speaks, and how often the ReSpeaker hears its name from 1 and 3 m
+  against the laptop's mics.
 - Portuguese text handling: for Pocket TTS, `pocket.py` spells out
   numbers, money, times, degrees, percentages and ordinals; abbreviations,
   and English words in Portuguese sentences, are left to the models.

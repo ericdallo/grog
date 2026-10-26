@@ -120,6 +120,21 @@ grog-voice turn question.wav --no-play  # a turn from a 16 kHz mono recording
 If it keeps writing your way of saying its name as something else, add that
 spelling to `wakeWord`.
 
+## A ReSpeaker's ring
+
+grog works with any mic. With a ReSpeaker XVF3800 plugged in (Seeed's USB
+4-mic array), its ring also shows what grog-voice does
+([`ring.py`](grog_voice/ring.py)): off at rest, pointing at whoever talks
+to grog, or whoever it waits for, spinning while grog thinks, breathing
+while it speaks, in the skin's colors; red a moment when something went
+wrong, dim red while grog's mic is off. Its mute button switches grog's mic
+off and on, through grog, as asking would, and grog's mic off mutes its
+mics in hardware, its red LED lit. Its own mute is off while grog-voice
+runs, and on again once it stops. grog-voice talks to it over USB, so its
+user needs the device: `services.grog.voice` gives it, on NixOS. Spinning
+takes its firmware 2.0.7 or later (it breathes instead), the button 2.1.1:
+how to update it is in [plans/voice.md](../plans/voice.md#the-respeaker-xvf3800).
+
 ## Another voice
 
 Pocket TTS clones a voice from a few seconds of clean speech. Make one

@@ -592,6 +592,13 @@ in
       # Where `grog-voice turn` finds the service's settings.
       environment.variables.GROG_VOICE_CONFIG = "${voiceConfigFile}";
 
+      # A ReSpeaker XVF3800's control interface, for grog-voice's user, when
+      # one is plugged in: its ring shows what grog-voice does, and its mute
+      # button switches grog's mic (voice/grog_voice/ring.py).
+      services.udev.extraRules = ''
+        SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="2886", ATTR{idProduct}=="001a", OWNER="${cfg.voice.user}"
+      '';
+
       # In the session of the user with the microphone and the speaker.
       systemd.user.services.grog-voice = {
         description = "grog-voice, grog's ears and mouth";
