@@ -6,7 +6,7 @@ from fakes import FakeMic, FakeStt, FakeVad
 from grog_voice import config
 from grog_voice.ears import Ears, Heard
 from grog_voice.grog import GrogError
-from grog_voice.main import NameWatch, heard_line, text_to_speech, wake_words
+from grog_voice.main import NameWatch, heard_line, load_partials, text_to_speech, wake_words
 from grog_voice.wake import WakeWords
 
 
@@ -45,6 +45,30 @@ class TextToSpeechTest(unittest.TestCase):
             made,
             "each engine with its own voice and at its own speed, unless set",
         )
+
+
+class LoadPartialsTest(unittest.TestCase):
+    def test_starts_the_worker_saying_how_long_it_took(self):
+        class Worker:
+            started = False
+
+            def start(self):
+                self.started = True
+
+        worker = Worker()
+        with self.assertLogs("grog_voice", "INFO") as logs:
+            load_partials(worker)
+        self.assertTrue(worker.started)
+        self.assertRegex(logs.output[0], r"partials' model loaded in \d+\.\d s$")
+
+    def test_failing_only_says_so(self):
+        class Failing:
+            def start(self):
+                raise RuntimeError("speech to text stopped: /some/where")
+
+        with self.assertLogs("grog_voice", "WARNING") as logs:
+            load_partials(Failing())
+        self.assertEqual(["WARNING:grog_voice:couldn't load partials' model yet (RuntimeError)"], logs.output)
 
 
 class WakeWordsTest(unittest.TestCase):

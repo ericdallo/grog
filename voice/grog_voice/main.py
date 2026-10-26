@@ -92,6 +92,19 @@ def reporter(settings):
     )
 
 
+def load_partials(worker):
+    """Starts `worker`, partials' speech to text (see worker.py), saying how
+    long its model took to load, or that it couldn't: it's tried again when
+    someone talks."""
+    started = time.monotonic()
+    try:
+        worker.start()
+    except Exception as e:
+        log.warning("couldn't load partials' model yet (%s)", type(e).__name__)
+    else:
+        log.info("partials' model loaded in %.1f s", time.monotonic() - started)
+
+
 def text_to_speech(tts, engines=None):
     """The text to speech engine the `tts` settings pick, loaded. `engines`:
     its classes by name (speech.Pocket, speech.Supertonic and speech.Piper by
@@ -118,10 +131,11 @@ def build(settings, open_mic, play, report=None, name=lambda: None, partials=Tru
     heard for grog, as it comes when grog shows it. grog's name, the wake
     word by default, comes from the Reporter, or else `name()`. With
     `partials` (and partialMs), what was said so far, while someone talks, is
-    transcribed by a Parakeet of its own, in a process of its own (see
-    worker.py), loaded when someone first talks. It listens while grog
-    answers, but for the echo of grog's own sound (see echo.py). `ring`: a
-    ReSpeaker's ring and mute button, if any (see ring.py)."""
+    transcribed by a Parakeet of its own (stt.partialModel, on
+    stt.partialThreads), in a process of its own (see worker.py), loaded
+    once the rest is. It listens while grog answers, but for the echo of
+    grog's own sound (see echo.py). `ring`: a ReSpeaker's ring and mute
+    button, if any (see ring.py)."""
     from . import grog
     from .audio import FRAME_S, NullPlayer, Player
     from .echo import Echo
@@ -130,14 +144,20 @@ def build(settings, open_mic, play, report=None, name=lambda: None, partials=Tru
     from .worker import Worker
 
     started = time.monotonic()
-    model, threads = settings["stt"]["model"], settings["stt"]["threads"]
-    partial_stt = Worker(Parakeet, model, threads) if partials and settings["partialMs"] else None
-    stt = Parakeet(model, threads)
+    stt_settings = settings["stt"]
+    partial_stt = None
+    if partials and settings["partialMs"]:
+        partial_model = stt_settings["partialModel"] or stt_settings["model"]
+        partial_stt = Worker(Parakeet, partial_model, stt_settings["partialThreads"])
+    stt = Parakeet(stt_settings["model"], stt_settings["threads"])
     tts = text_to_speech(settings["tts"])
     vad = SileroVad()
     for _ in tts("Ok."):  # the first run is slower
         pass
     log.info("models loaded in %.1f s", time.monotonic() - started)
+    if partial_stt is not None:
+        # Now rather than when someone first talks, while the rest loads.
+        threading.Thread(target=load_partials, args=(partial_stt,), daemon=True, name="partials").start()
     make_player = Player if play else NullPlayer
     if report is not None:
         report.flush()  # grog's answer has its name

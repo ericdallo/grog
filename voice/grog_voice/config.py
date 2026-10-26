@@ -38,6 +38,13 @@ DEFAULTS = {
         # On grognix's 4 cores, 3 are slower than 2 (by 0.3 to 0.4 s for a few
         # seconds of speech), as the waiting threads of its three models spin.
         "threads": 2,
+        # Partials' (see partialMs): another Parakeet's directory, an int8
+        # one where finals are fp32, say (~1.3 GB less: they only find grog's
+        # name early, and show what's said). null: model's.
+        "partialModel": None,
+        # Partials' CPU threads, fewer than finals' (they run while grog
+        # speaks, beside text to speech).
+        "partialThreads": 2,
     },
     "tts": {
         # "pocket" (Pocket TTS, in a cloned voice), "supertonic" (Supertonic 3)
@@ -160,6 +167,12 @@ CHECKS = [
         "a Parakeet model directory (encoder, decoder and joiner, .int8.onnx or .onnx, and tokens.txt)",
     ),
     ("stt.threads", lambda v: _int(v, 1), "a positive integer"),
+    (
+        "stt.partialModel",
+        lambda v: v is None or (isinstance(v, str) and parakeet_files(v) is not None),
+        "a Parakeet model directory, or null",
+    ),
+    ("stt.partialThreads", lambda v: _int(v, 1), "a positive integer"),
     ("tts.engine", lambda v: v in ENGINES, '"pocket", "supertonic" or "piper"'),
     ("endSilenceMs", lambda v: _int(v, 1), "a positive integer"),
     ("speculateMs", lambda v: _int(v, 0), "an integer, 0 or more"),

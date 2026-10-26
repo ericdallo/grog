@@ -296,5 +296,6 @@ the mic's volume.
 - 8 GB of RAM leaves room: grog-voice takes 2 to 4 GB. With a few GB more,
   `services.grog.voice.sttPrecision = "fp32"` hears better, from afar most
   of all. Give it 4 threads (`services.grog.voice.settings.stt.threads = 4`)
-  to keep it as fast.
+  to keep it as fast. What's said so far while someone talks stays int8
+  (`partialSttModel`).
 - No Wi-Fi? A USB dongle works.

@@ -12,8 +12,8 @@ up to it.
 2. [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3),
    through [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), turns it into
    text, in any of 25 European languages. While you're still talking, a
-   second Parakeet transcribes what you've said so far, to catch its name
-   early.
+   second Parakeet (int8, loaded once the rest is) transcribes what you've
+   said so far, to catch its name early.
 3. Only what starts with its name gets an answer: "Grog, will it rain
    tomorrow?", or "Hey Grog, ...". The name is matched by how it sounds,
    since speech to text writes it as "Groga" or "Grok" and so on. After its
@@ -177,6 +177,8 @@ or `$GROG_VOICE_CONFIG`), merged over the defaults in
 | `mic`, `speaker` | `null` | PipeWire node names (`wpctl status -n`). `null`: the session's defaults. A speaker picked on grog's screen comes before `speaker` |
 | `stt.model` | `null` | A Parakeet TDT model for sherpa-onnx, int8 or fp32. On NixOS: `sttModel`, or `sttPrecision` |
 | `stt.threads` | `2` | 3 is slower on grognix's 4 cores. fp32 with 4 is as fast as int8 with 2, given AVX2 |
+| `stt.partialModel` | `null` | The second Parakeet's, for what you've said so far (`partialMs`): an int8 one where `stt.model` is fp32 saves ~1.3 GB, as what's for grog is transcribed again at pauses and at its end. `null`: `stt.model`. On NixOS: `partialSttModel`, int8 |
+| `stt.partialThreads` | `2` | The second Parakeet's threads: it runs while grog speaks too |
 | `tts.engine` | `"pocket"` | Or `"supertonic"`: 31 languages, ~8 times as fast, a sentence at a time. Or `"piper"`: ~1 GB lighter than Supertonic and quicker to start speaking, but flatter. On NixOS: `ttsEngine` |
 | `tts.voice` | `null` | Pocket: one of its model's voices (`voices/`), or a voice file (`.npz`). Supertonic: one of its voices (F1 to F5, M1 to M5), or a voice style `.json`. Piper: a voice, `.onnx` with its `.onnx.json`. `null`: `deep-calm` with Pocket, `M1` with Supertonic. On NixOS: `ttsVoice` |
 | `tts.speed` | `null` | How fast it speaks, from 0.5 to 2: 1 is the voice's own pace, 1.2 a fifth faster. `null`: 1.4 with Supertonic (M1 says ~140 words a minute at 1, ~200 at 1.4), 1 with Piper. Pocket only takes `null`: its voices speak at their recording's pace |

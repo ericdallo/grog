@@ -117,7 +117,10 @@ let
   voiceConfigFile = json.generate "grog-voice.json" (lib.recursiveUpdate
     ({
       inherit grogUrl;
-      stt.model = "${cfg.voice.sttModel}";
+      stt = {
+        model = "${cfg.voice.sttModel}";
+        partialModel = "${cfg.voice.partialSttModel}";
+      };
       tts = {
         engine = cfg.voice.ttsEngine;
         voice = cfg.voice.ttsVoice;
@@ -290,6 +293,19 @@ in
         description = ''
           Speech to text: the directory of a Parakeet TDT model for
           sherpa-onnx, int8 or fp32. The default knows 25 European languages.
+        '';
+      };
+
+      partialSttModel = lib.mkOption {
+        type = lib.types.path;
+        default = models.parakeet;
+        defaultText = lib.literalMD "Parakeet TDT 0.6B v3, in int8 (`body/packages/voice-models.nix`)";
+        description = ''
+          Speech to text of partials, what's said so far while someone talks
+          (`settings.partialMs`), to hear grog's name before they're done:
+          int8, even with `sttPrecision` fp32, for ~1.3 GB less RAM, as what's
+          said to grog is transcribed again by `sttModel` at its pauses and
+          its end.
         '';
       };
 

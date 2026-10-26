@@ -81,6 +81,23 @@ class ConfigTest(unittest.TestCase):
             open(os.path.join(fp32, f), "w").close()
         self.assertEqual([], problems(self.model))
         self.assertEqual([], problems(fp32))
+        partials = {
+            "stt": {"model": fp32, "partialModel": self.model, "partialThreads": 1},
+            "tts": {"model": self.pocket},
+        }
+        self.assertEqual([], config.problems(config.deep_merge(config.DEFAULTS, partials)), "int8 partials")
+        wrong = {
+            "stt": {"model": fp32, "partialModel": self.dir.name, "partialThreads": 0},
+            "tts": {"model": self.pocket},
+        }
+        self.assertEqual(
+            [
+                "stt.partialModel: expected a Parakeet model directory, or null, "
+                f"got {json.dumps(self.dir.name)}",
+                "stt.partialThreads: expected a positive integer, got 0",
+            ],
+            config.problems(config.deep_merge(config.DEFAULTS, wrong)),
+        )
         os.remove(os.path.join(fp32, "joiner.onnx"))
         self.assertEqual(
             [
