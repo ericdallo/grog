@@ -172,6 +172,24 @@
           (is (= "Playing Song by Band, from LP (1:23 of 3:45), 3 of 50, volume 60." (run ctx {:action "status"})))
           (is (= ["pause" "next" "stop" "volume" "volume"] (subvec (commands player) 2))))))))
 
+(deftest says-when-nothing-plays
+  (let [asked (atom 0)
+        failed "Couldn't play that: it may be unavailable, or YouTube changed (yt-dlp)."
+        player (h/start-player! (fn [{:keys [command]}]
+                                  (case command
+                                    "youtube-music.play" (assoc now-playing :ok true :position-s 0
+                                                                :playing {:title "Song" :artist "Band"})
+                                    ;; yt-dlp failed, a while after.
+                                    (if (< (swap! asked inc) 3)
+                                      (assoc now-playing :ok true :position-s 0)
+                                      {:ok true :state "idle" :volume 60 :ducked false :error failed
+                                       :error-at (System/currentTimeMillis)}))))]
+    (try
+      (let [ctx (context (:socket player))]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Couldn't play that: it may be unavailable"
+                              (run ctx {:action "play" :query "a song"}))))
+      (finally ((:stop! player))))))
+
 (deftest with-the-account
   (with-player
     (fn [player]
@@ -386,8 +404,13 @@
   (testing "the player's status, asked when: no song while it's idle"
     (is (= (assoc now-playing :provider "youtube-music" :at 5) (music/slice (assoc now-playing :ok-ish 1) 5)))
     (is (= {:state "idle" :volume 60 :ducked false :provider "youtube-music" :at 5}
-           (music/slice {:state "idle" :title "Old" :artist "Band" :volume 60 :ducked false} 5)))
+           (music/slice {:state "idle" :title "Old" :artist "Band" :volume 60 :ducked false :artwork nil :error nil} 5)))
     (is (nil? (music/slice nil 5))))
+  (testing "its artwork, and why the last song couldn't play"
+    (is (= "https://i.ytimg.com/a.jpg" (:artwork (music/slice (assoc now-playing :artwork "https://i.ytimg.com/a.jpg") 5))))
+    (is (= {:state "idle" :volume 60 :ducked false :error "Couldn't play that." :error-at 4
+            :provider "youtube-music" :at 5}
+           (music/slice {:state "idle" :volume 60 :ducked false :error "Couldn't play that." :error-at 4} 5))))
   (let [at-0 (music/slice now-playing 0)
         later (fn [ms position] (assoc at-0 :at ms :position-s position))]
     (testing "told when anything but where the song is changes"
@@ -431,7 +454,9 @@
         clock (atom 1000000)]
     (try
       (with-out-str
-        (with-redefs [events/now-ms #(deref clock)]
+        (with-redefs [events/now-ms #(deref clock)
+                      ;; Its clock stays: no waiting for it to move.
+                      music/start-wait-ms 0]
           (let [ctx (context (:socket player))
                 shown #(:music (events/snapshot (:events ctx)))
                 sent (music-events ctx)]

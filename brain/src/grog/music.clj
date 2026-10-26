@@ -70,6 +70,12 @@
 ;; player: they're for now.
 (def ^:private quick-timeout-ms 2000)
 
+;; How long playing waits to hear that the player started (its clock moving)
+;; or failed, asking every so often: YouTube's audio takes yt-dlp a second
+;; or two to find. Past it, it's taken as playing.
+(def ^:private start-wait-ms 4000)
+(def ^:private start-poll-ms 250)
+
 ;; How often grog asks its player whether it plays: often while it was
 ;; last seen playing (the queue ends, someone pauses it), now and then
 ;; otherwise (something played it without grog, like the CLI's raw player
@@ -163,9 +169,26 @@
     (try (youtube-music/auth! config)
          (catch clojure.lang.ExceptionInfo _ nil))))
 
+(defn ^:private not-started
+  "Why what grog's player was given at `asked` (epoch ms) doesn't play, as
+  it says within `start-wait-ms`: an entry failed, and nothing else plays.
+  nil once its clock moves, or when it didn't say in time."
+  [config asked]
+  (loop []
+    (let [{:keys [state error error-at position-s]}
+          (try (player/request! config "status" nil quick-timeout-ms)
+               (catch Exception _ nil))
+          playing (= "playing" state)]
+      (cond
+        (and (string? error) (number? error-at) (>= error-at asked) (not playing)) error
+        (and playing (number? position-s) (pos? position-s)) nil
+        (>= (- (System/currentTimeMillis) asked) start-wait-ms) nil
+        :else (do (Thread/sleep (long start-poll-ms)) (recur))))))
+
 (defn ^:private play-youtube-music!
   "Plays what `args` say on YouTube Music, a query or exactly what an id
-  names: what to answer."
+  names: what to answer, once it plays (see `not-started`); ex-info saying
+  why when it doesn't."
   [config {:keys [query kind shuffle id] :as args}]
   (let [library? (contains? library-kinds kind)
         query (when-not (or id (blank? query)) (str/trim query))]
@@ -177,14 +200,18 @@
       (and (nil? id) (nil? query) (not library?)) (run-player! config "resume" args)
       (and (nil? id) (nil? query) (= "my-playlist" kind)) (throw (ex-info "say which of the user's playlists"
                                                                           {:type ::bad-args}))
-      :else (let [token (auth config library?)]
-              (said "play" (player/request! config "youtube-music.play"
-                                            (cond-> {}
-                                              id (assoc :id id)
-                                              query (assoc :query query)
-                                              (contains? (set kinds) kind) (assoc :kind kind)
-                                              (boolean? shuffle) (assoc :shuffle shuffle)
-                                              token (assoc :auth token))))))))
+      :else (let [token (auth config library?)
+                  asked (System/currentTimeMillis)
+                  reply (player/request! config "youtube-music.play"
+                                         (cond-> {}
+                                           id (assoc :id id)
+                                           query (assoc :query query)
+                                           (contains? (set kinds) kind) (assoc :kind kind)
+                                           (boolean? shuffle) (assoc :shuffle shuffle)
+                                           token (assoc :auth token)))]
+              (when-let [why (not-started config asked)]
+                (throw (ex-info why {:type ::not-playing})))
+              (said "play" reply)))))
 
 (defn ^:private library-youtube-music!
   "The user's `kind` of `library-lists` on YouTube Music, through grog's
@@ -276,14 +303,16 @@
   (= "playing" (:state status)))
 
 (def ^:private song-keys
-  [:state :title :artist :album :position-s :duration-s :volume :ducked :index :count])
+  [:state :title :artist :album :artwork :position-s :duration-s :volume :ducked :index :count :error :error-at])
 
 (defn slice
   "What whoever watches grog sees of its player's `status`, asked `at`
-  (grog.events' :music): nil without one; no song while it's idle."
+  (grog.events' :music): nil without one; no song while it's idle, but why
+  the last one couldn't play (:error, at :error-at), if it couldn't."
   [status at]
   (when (map? status)
-    (assoc (select-keys status (if (= "idle" (:state status)) [:state :volume :ducked] song-keys))
+    (assoc (into {} (remove (comp nil? val))
+                 (select-keys status (if (= "idle" (:state status)) [:state :volume :ducked :error :error-at] song-keys)))
            :provider youtube-music/id
            :at at)))
 
@@ -443,10 +472,11 @@
   (contains? ducking-states voice-state))
 
 (defn ^:private duck!
-  "Takes the player's music down (`down?`) or back, unless it was
-  already (`sent`): whether it was then."
+  "Takes the player's music down (`down?`), unless it was already
+  (`sent`), or back, whatever was sent: a duck that timed out may still
+  have gone through. Whether it was then."
   [config down? sent]
-  (or (= down? sent)
+  (or (and down? sent)
       (try
         (player/request! config (if down? "duck" "unduck") nil quick-timeout-ms)
         true

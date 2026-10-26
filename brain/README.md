@@ -380,7 +380,10 @@ whatever plays it: `play`, `pause`, `resume`, `stop`, `next`, `previous`,
 What to play comes as you said it, with its `kind` when the model knows it:
 `song`, `album`, `playlist`, `artist`, `my-playlist` (one of yours, by its
 name) or `liked` (your liked songs), maybe shuffled. Like `lights`, it's
-grog's own: it never asks first.
+grog's own: it never asks first. Through grog-music, `play` answers once
+the song's clock moves (yt-dlp takes a second or two), or says why nothing
+plays, when grog-music says a song couldn't play, so that grog never says
+it's playing what it isn't.
 
 What plays it, its providers, are integrations:
 
