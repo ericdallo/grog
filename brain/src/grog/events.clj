@@ -12,6 +12,8 @@
     :timezone  grog's time zone (IANA), for clocks to show its time
     :screen-off-minutes  how long a screen showing it stays on once nothing
                happens (the `skin.screenOffMinutes` setting); nil: for good
+    :screen-off  how it goes off then: \"auto\", \"dark\" or \"off\" (the
+               `skin.screenOff` setting)
     :actions   what can be asked of grog (grog.actions), like \"restart\"
     :restarting  once grog is going away, asked to: {:action :at}, the
                action being restart, reboot or power-off; nil otherwise
@@ -20,8 +22,8 @@
                :rolled-back}; nil without any
     :mic       \"on\" or \"off\": whether grog-voice's mic is on, as asked
                (grog.voice)
-    :speaker   the speaker grog-voice speaks on, as picked: {:name :label},
-               nil for its own (grog.voice)
+    :speaker   the speaker grog-voice speaks on, as picked: {:name :label
+               :kind}, nil for its own (grog.voice)
     :volume    the volume of the speaker it speaks on, once known: {:level
                :muted}
     :started-at  when grog started: until grog-voice says anything, it may
@@ -252,7 +254,7 @@
     :stop (on-stop state)
     :forgot (assoc state :turn nil :heard nil :history [])
     :status (merge state (select-keys event [:name :provider :model :auth :revision :timezone :screen-off-minutes
-                                             :actions :mic :speaker :integrations]))
+                                             :screen-off :actions :mic :speaker :integrations]))
     :mic (assoc state :mic (:mic event))
     :speaker (assoc state :speaker (:speaker event))
     :volume (assoc state :volume (select-keys event [:level :muted]))

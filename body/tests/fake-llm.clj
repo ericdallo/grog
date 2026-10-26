@@ -29,9 +29,13 @@
    "x-codex-secondary-window-minutes" "10080"
    "x-codex-secondary-reset-after-seconds" "273600"})
 
-(defn summary [messages key system]
+(defn summary
+  "What the tests check of a request: how many messages of the conversation
+  it has (the user's and the answers, not grog's notes, like the time), the
+  key it came with, and whether the system prompt has the configured name."
+  [messages key system]
   (format "messages=%d key=%s name=%s"
-          (count messages)
+          (count (filter #(#{"user" "assistant"} (:role %)) messages))
           key
           (if (str/includes? (str system) "You are Test,") "ok" "missing")))
 

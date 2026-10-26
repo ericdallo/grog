@@ -60,14 +60,15 @@
   (and (string? v) (not (str/blank? v)) (<= (count v) max-name-chars)))
 
 (defn load-speaker
-  "The speaker picked for grog-voice, as it was last: {:name :label}, or nil
-  for its own, also when the file can't be read (logged)."
+  "The speaker picked for grog-voice, as it was last: {:name :label :kind},
+  or nil for its own, also when the file can't be read (logged)."
   [config]
   (saved config "the speaker picked"
          (fn [{:keys [speaker]}]
            (cond
              (nil? speaker) nil
-             (and (map? speaker) (name? (:name speaker)) (name? (:label speaker))) (select-keys speaker [:name :label])
+             (and (map? speaker) (name? (:name speaker)) (name? (:label speaker)))
+             (select-keys speaker [:name :label :kind])
              :else (throw (ex-info "not a speaker" {}))))
          nil))
 
@@ -92,8 +93,8 @@
   (mic-name @mic))
 
 (defn speaker
-  "The speaker grog-voice speaks on, as picked: {:name :label}, or nil for
-  its own (its speaker setting, or the default)."
+  "The speaker grog-voice speaks on, as picked: {:name :label :kind}, or nil
+  for its own (its speaker setting, or the default)."
   [{:keys [speaker]}]
   @speaker)
 
@@ -182,7 +183,7 @@
     {:mic mic}))
 
 (defn set-speaker!
-  "Makes grog-voice speak on `speaker` ({:name :label}, or nil: its own),
+  "Makes grog-voice speak on `speaker` ({:name :label :kind}, or nil: its own),
   for good, telling it and whoever watches grog (grog.events). Returns it."
   [{:keys [config voice events lock]} speaker]
   (let [{voice-lock :lock} voice]

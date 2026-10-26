@@ -63,8 +63,8 @@ pkgs.testers.runNixOSTest {
   nodes.machine = {
     imports = [ vm ];
     networking.hostName = "grognix";
-    # Room for the GNOME session and the speech models.
-    virtualisation.memorySize = 4096;
+    # Room for the GNOME session and the speech models, partials' too.
+    virtualisation.memorySize = 5120;
     virtualisation.cores = 2;
   };
 
@@ -72,7 +72,8 @@ pkgs.testers.runNixOSTest {
     imports = [ vm ];
     networking.hostName = "grognix-headless";
     grognix.desktop.enable = false;
-    virtualisation.memorySize = 3072;
+    # Room for the speech models, partials' too.
+    virtualisation.memorySize = 4096;
     virtualisation.cores = 2;
   };
 

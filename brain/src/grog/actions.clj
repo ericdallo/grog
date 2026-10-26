@@ -187,7 +187,7 @@
         (let [found (some #(when (= pick (:name %)) %) speakers)]
           (when (and pick (not found))
             (throw (ex-info "there's no such speaker now" {:type ::bad-args})))
-          (voice/set-speaker! ctx (some-> found (select-keys [:name :label])))))
+          (voice/set-speaker! ctx (some-> found (select-keys [:name :label :kind])))))
       {:speakers speakers :voice (voice/speaker voice)})))
 
 (defn ^:private forget!

@@ -58,6 +58,7 @@
                                            :revision (update/revision)
                                            :timezone (config/timezone config)
                                            :screen-off-minutes (get-in config [:skin :screen-off-minutes])
+                                           :screen-off (get-in config [:skin :screen-off])
                                            :actions (actions/available config)
                                            :mic (voice/mic (:voice ctx))
                                            :speaker (voice/speaker (:voice ctx))

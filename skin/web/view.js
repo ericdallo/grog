@@ -332,18 +332,47 @@ function idleSince(state) {
 const TALKING = ["hearing", "awake", "asked", "answering", "speaking"];
 
 /**
- * Whether the screen showing the skin is on: while someone talks to grog, a
- * card waits for someone, or grog is going away; and for
+ * Whether the screen showing the skin is awake: while someone talks to grog,
+ * a card waits for someone, or grog is going away; and for
  * `state.screenOffMinutes` (the `skin.screenOffMinutes` setting) after
  * anything else happened (see happened()), someone touching the screen
- * (`touchedAt`) included. Off otherwise, to save energy: the kiosk turns it
- * off. On for good without the setting, and before grog said anything.
+ * (`touchedAt`) included. Awake for good without the setting, and before
+ * grog said anything.
  */
-export function screenOn(state, now, touchedAt = 0) {
+function awake(state, now, touchedAt) {
   const minutes = state?.screenOffMinutes;
   if (!state || !Number.isFinite(minutes) || minutes <= 0) return true;
   if (TALKING.includes(voiceState(state, now)) || waiting(state, now) || goingAway(state, now)) return true;
   return now - happened(state, touchedAt) < minutes * 60_000;
+}
+
+/**
+ * Whether grog's voice plays through the screen's own speakers (HDMI,
+ * DisplayPort), as the speaker picked for it says: they go quiet when the
+ * screen gets no signal.
+ */
+export function speaksOnScreen(state) {
+  const s = state?.speaker;
+  if (!s) return false;
+  return s.kind === "hdmi" || /hdmi|displayport/i.test(`${s.name ?? ""} ${s.label ?? ""}`);
+}
+
+/**
+ * Whether the screen has a signal: while it's awake (see awake()), and
+ * otherwise dark (see screenDark()) when its speakers are in use, as the
+ * `skin.screenOff` setting (`state.screenOff`) says: "auto", while grog
+ * speaks through them; "dark", always; "off", never. Off otherwise, to save
+ * energy: the kiosk turns it off.
+ */
+export function screenOn(state, now, touchedAt = 0) {
+  if (awake(state, now, touchedAt)) return true;
+  const off = state.screenOff ?? "auto";
+  return off === "dark" || (off === "auto" && speaksOnScreen(state));
+}
+
+/** Whether the screen shows nothing but a dim clock: kept on, but not awake (see screenOn()). */
+export function screenDark(state, now, touchedAt = 0) {
+  return !awake(state, now, touchedAt) && screenOn(state, now, touchedAt);
 }
 
 /** Whether a card waits for someone: a session open, but the one grog keeps up itself to sign in. */

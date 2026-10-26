@@ -201,7 +201,7 @@
     (testing "only when grog-voice is there"
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"voice isn't there" (actions/perform! ctx "speakers" {}))))
     (let [got (grog-voice ctx)
-          builtin {:name "alsa_output.speaker" :label "Speaker"}]
+          builtin {:name "alsa_output.speaker" :label "Speaker" :kind "speaker"}]
       (with-out-str
         (testing "which there are"
           (is (= {:speakers speakers :voice nil} (actions/perform! ctx "speakers" {}))))

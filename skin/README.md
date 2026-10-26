@@ -119,10 +119,13 @@ The page decides (`screenOn`, in `view.js`) and tells the window, which
 turns the screen off with GNOME's power saving, or with wlroots
 compositors, like cage, by turning their output off (`wlr-randr`): the
 screen gets no signal then, as with power saving. Its own speakers (HDMI,
-DisplayPort) go quiet with it: grog speaking through them isn't heard
-until it's back, ~0.1 s after the window turns it on, and the sound
-saying grog heard its name, played as it wakes, is mostly lost. Elsewhere,
-and in a browser, it stays on. GNOME may ignore a laptop's own touch screen while
+DisplayPort) would go quiet with it, so while grog speaks through them
+(the speaker picked for its voice), the screen goes dark instead: black
+but for a dim clock, the signal kept, the music and grog's voice heard
+(`screenDark`). A touch then only wakes it. `skin.screenOff` says how it
+goes: `"auto"` (that way), `"dark"` (always), or `"off"` (always off, its
+speakers quiet until it's back, the sound saying grog heard its name
+mostly lost). Elsewhere, and in a browser, it stays on. GNOME may ignore a laptop's own touch screen while
 it's off, and with cage, a mouse moved while it's off can stray from the
 window: a key, or grog, still wakes it.
 

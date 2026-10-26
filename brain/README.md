@@ -542,6 +542,7 @@ says which one.
 | `skin.dir` | `null` | Files of its [skin](../skin/README.md), served at `/` |
 | `skin.captions` | `false` | Whether the skin shows what's said |
 | `skin.screenOffMinutes` | `10` | How long the skin's screen stays on once nothing happens: then it [turns off](../skin/README.md#its-screen), to save energy. `null`: it stays on |
+| `skin.screenOff` | `"auto"` | How it turns off: `"auto"`, dark (a dim clock, its signal and its own speakers kept) while grog's voice plays through them (HDMI, DisplayPort), else off; `"dark"`; or `"off"` |
 | `update.status` | `null` | Where the update service says how an update goes: with it and hands, grog can [update itself](#updating) |
 | `music.socket` | `null` | Unix socket of grog-music, the player it plays [music](#music) with. `null`: it plays nothing itself |
 | `music.provider` | `null` | What plays music, by its id: `youtube-music`, or a connected integration's. `null`: the first connected, else the first there. Also changed by asking |

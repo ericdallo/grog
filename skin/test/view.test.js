@@ -37,7 +37,9 @@ import {
   reaction,
   request,
   RETRY_MS,
+  screenDark,
   screenOn,
+  speaksOnScreen,
   seconds,
   shortRevision,
   songTime,
@@ -328,6 +330,33 @@ describe("its screen", () => {
   it("not for grog's music playing", () => {
     const music = { state: "playing", title: "Tempo Perdido", positionS: 30, durationS: 300, at: NOW - 1000 };
     assert.equal(screenOn(quiet({ music }), NOW), false);
+  });
+
+  it("goes dark instead while grog speaks through the screen's own speakers, which go quiet with it", () => {
+    const hdmi = { name: "alsa_output.pci-0000_00_1f.3.HiFi__HDMI1__sink", label: "HDMI / DisplayPort 1 Output" };
+    for (const speaker of [hdmi, { name: "x", label: "Monitor", kind: "hdmi" }, { name: "dp", label: "DisplayPort 2" }]) {
+      assert.equal(speaksOnScreen(state({ speaker })), true, speaker.label);
+      assert.deepEqual([screenOn(quiet({ speaker }), NOW), screenDark(quiet({ speaker }), NOW)], [true, true]);
+    }
+    const usb = { name: "alsa_output.usb-Seeed_reSpeaker", label: "reSpeaker XVF3800", kind: "usb" };
+    assert.equal(speaksOnScreen(state({ speaker: usb })), false);
+    assert.deepEqual([screenOn(quiet({ speaker: usb }), NOW), screenDark(quiet({ speaker: usb }), NOW)], [false, false]);
+    assert.equal(speaksOnScreen(state({ speaker: null })), false, "its own: unknown");
+  });
+
+  it("is never dark while awake", () => {
+    const speaker = { name: "HDMI1", label: "HDMI" };
+    assert.equal(screenDark(quiet({ speaker, startedAt: NOW - MIN }), NOW), false);
+    assert.equal(screenDark(quiet({ speaker, screenOffMinutes: null }), NOW), false);
+    assert.equal(screenDark(null, NOW), false);
+  });
+
+  it("goes dark or off as the setting says", () => {
+    const hdmi = { name: "HDMI1", label: "HDMI" };
+    assert.deepEqual([screenOn(quiet({ screenOff: "dark" }), NOW), screenDark(quiet({ screenOff: "dark" }), NOW)], [true, true]);
+    const off = quiet({ screenOff: "off", speaker: hdmi });
+    assert.deepEqual([screenOn(off, NOW), screenDark(off, NOW)], [false, false]);
+    assert.equal(screenDark(quiet({ screenOff: "auto", speaker: hdmi }), NOW), true);
   });
 });
 

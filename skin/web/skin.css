@@ -103,6 +103,31 @@ body[data-mode="offline"] { --mode: #57606f; --on: #a4b0be; }
   --on: var(--bg);
 }
 
+/* Kept on for its own speakers while nothing happens (.dark, view.js
+   screenDark): black but for a dim clock, and a touch, caught above all
+   (::after), only wakes it. */
+.dark {
+  --bg: #000000;
+}
+
+.dark .block,
+.dark .sheet,
+.dark .content > :not(.time),
+.dark .time > :not(.clock) {
+  visibility: hidden;
+}
+
+.dark .clock {
+  color: #3b414d;
+}
+
+.dark::after {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  content: "";
+}
+
 html,
 body {
   height: 100%;

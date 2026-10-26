@@ -474,8 +474,9 @@
             (is (eventually #(seq @got)))
             (let [[type {:keys [state]}] (first @got)]
               (is (= "snapshot" type))
-              (is (= {:name "Friday" :provider "openai" :auth "api-key" :captions false :screenOffMinutes 10}
-                     (select-keys state [:name :provider :auth :captions :screenOffMinutes])))))
+              (is (= {:name "Friday" :provider "openai" :auth "api-key" :captions false :screenOffMinutes 10
+                      :screenOff "auto"}
+                     (select-keys state [:name :provider :auth :captions :screenOffMinutes :screenOff])))))
           (testing "grog-voice says what it's doing"
             (is (= 200 (report-voice url {:state "hearing" :conversationId "voice"} "application/json")))
             (is (eventually #(= ["voice" "hearing"] ((juxt first (comp :state :event second)) (last @got))))))
