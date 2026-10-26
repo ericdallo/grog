@@ -91,18 +91,31 @@ class Piper:
             yield chunk.audio_int16_bytes
 
 
+def _stateful(graph, carried):
+    """`graph` (OpenVINO's) with what it carries from a step to the next, its
+    inputs and outputs `carried` ({input: output}, by name), kept as
+    variables of its requests: they're no longer given, nor returned."""
+    from openvino import passes
+
+    manager = passes.Manager()
+    manager.register_pass(passes.MakeStateful(carried))
+    manager.run_passes(graph)
+    return graph
+
+
 class Pocket:
     """Text to speech with Pocket TTS (Kyutai, CC-BY-4.0) in a cloned voice,
     kept loaded, on OpenVINO's CPU plugin, from the ONNX graphs that
     voice/tools/export_pocket.py made of it: its speech streams out 80 ms
-    at a time as it's made. On a Core Ultra 7 155H with 6 threads, its
-    24-layer model takes 0.5 s per second of speech, its first sound in 0.1
-    s (the 6-layer one: 0.17 s, and 0.03 s). A short piece (8 words or
-    fewer) starts once its first 800 ms are made, as they're made again when
-    they come out murmured (see pocket.steadiest); one that ends a sentence
-    is followed by a pause (see pocket.pause). `model` has the graphs
-    (flow_lm.onnx, mimi_decoder.onnx), tokenizer.model and pocket.json (how
-    to run them); `voice`, a voice's file (see pocket.voice_file)."""
+    at a time as it's made. On a Core Ultra 7 155H with 6 threads at 2.4
+    GHz, its 24-layer model takes 0.5 s per second of speech, its first
+    sound in 0.15 s (the 6-layer one, with turbo: 0.17 s, and 0.03 s). A
+    short piece (8 words or fewer) starts once its first 800 ms are made, as
+    they're made again when they come out murmured (see pocket.steadiest);
+    one that ends a sentence is followed by a pause (see pocket.pause).
+    `model` has the graphs (flow_lm.onnx, mimi_decoder.onnx),
+    tokenizer.model and pocket.json (how to run them); `voice`, a voice's
+    file (see pocket.voice_file)."""
 
     # Its speech plays as it's made (see mouth.Mouth).
     streams = True
@@ -124,9 +137,17 @@ class Pocket:
         self.tokenizer = sentencepiece.SentencePieceProcessor(model_file=f"{model}/tokenizer.model")
         with np.load(voice) as v:
             self.voice, self.gain = v["cache"], 10 ** (float(v["gain_db"]) / 20)
+        self._tensor = ov.Tensor
         core, config = ov.Core(), {"INFERENCE_NUM_THREADS": threads, "PERFORMANCE_HINT": "LATENCY"}
+        # What a graph carries from a step to the next (the FlowLM's KV
+        # cache, a frame longer at each, and Mimi's state) stays in OpenVINO,
+        # a variable of each request, rather than going in and out of every
+        # step: copying the cache slowed a long piece down as it grew, by up
+        # to half (plans/voice.md, "Long answers"). The sound is the same.
+        carried = {"flow_lm": {"cache": "cache_out"}, "mimi_decoder": {"state": "state_out"}}
         self.flow, self.mimi = (
-            core.compile_model(f"{model}/{name}.onnx", "CPU", config) for name in ("flow_lm", "mimi_decoder")
+            core.compile_model(_stateful(core.read_model(f"{model}/{name}.onnx"), state), "CPU", config)
+            for name, state in carried.items()
         )
 
     def __call__(self, text):
@@ -197,33 +218,31 @@ class Pocket:
         rules = self.rules
         tokens = np.array([self.tokenizer.encode(text)], dtype=np.int64)
         no_tokens, no_noise = np.zeros((1, 0), dtype=np.int64), np.zeros((1, 32), dtype=np.float32)
+        # Requests of its own, which hold its caches: a short piece's attempts
+        # are made one after the other, and the one said may be an earlier
+        # one, taken up again (see pocket.steadiest). Mimi's starts at zero.
+        flow, mimi = self.flow.create_infer_request(), self.mimi.create_infer_request()
         # The text first, into the voice's cache, then a latent at a time from
         # "speech starts" (NaN), with noise seeded by the text (and the
         # attempt): the same text sounds the same, and sentences don't all
         # start alike.
-        cache = self.flow(
-            {
-                "tokens": tokens,
-                "latent": np.zeros((1, 0, 32), np.float32),
-                "noise": no_noise,
-                "cache": self.voice,
-            }
-        )["cache_out"]
+        [cache] = flow.query_state()
+        cache.state = self._tensor(self.voice)
+        flow.infer({"tokens": tokens, "latent": np.zeros((1, 0, 32), np.float32), "noise": no_noise})
         latent = np.full((1, 1, 32), np.nan, dtype=np.float32)
         rng, std = np.random.default_rng(zlib.crc32(text.encode()) + attempt), rules["temperature"] ** 0.5
         after = rules["frames_after_eos"] if rules["frames_after_eos"] is not None else guess + 2
         ending = pocket.Ending(rules["min_frames_before_eos"], after)
-        state = np.zeros(rules["mimi_state"], dtype=np.float32)
         fade_in = np.linspace(0, 1, self.sample_rate // 200, dtype=np.float32)
         for frame in range(pocket.max_frames(tokens.shape[1], rules)):
             noise = (rng.standard_normal((1, 32)) * std).astype(np.float32)
-            out = self.flow({"tokens": no_tokens, "latent": latent, "noise": noise, "cache": cache})
+            out = flow.infer({"tokens": no_tokens, "latent": latent, "noise": noise})
             if ending(frame, float(np.asarray(out["eos"]).reshape(-1)[0]) > rules["eos_threshold"]):
                 break
-            latent, cache = np.asarray(out["latent_out"])[None], out["cache_out"]
+            latent = np.asarray(out["latent_out"])[None]
             offset = np.array([frame * rules["mimi_steps_per_frame"]], dtype=np.int64)
-            out = self.mimi({"latent": latent, "state": state, "offset": offset})
-            audio, state = np.asarray(out["audio"]).reshape(-1) * self.gain, out["state_out"]
+            out = mimi.infer({"latent": latent, "offset": offset})
+            audio = np.asarray(out["audio"]).reshape(-1) * self.gain
             if frame == 0:  # a fresh decoder starts with a click
                 audio[: len(fade_in)] *= fade_in
             yield (np.clip(audio, -1, 1) * 32767).astype(np.int16).tobytes()

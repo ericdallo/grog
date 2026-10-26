@@ -47,6 +47,8 @@ said otherwise.
   grog-voice does and whose button switches grog's mic, and speaks through
   its screen's speaker (HDMI) until one is plugged into the ReSpeaker: see
   "The ReSpeaker XVF3800" below.
+- Long answers crackled on the station: its CPU, too hot with its lid
+  closed, made Pocket TTS fall behind real time. See "Long answers" below.
 - Code: `voice/grog_voice/pocket.py` and `voice/grog_voice/supertonic.py`
   (text handling, pure), the `Pocket`, `Supertonic` and `Piper` classes in
   `voice/grog_voice/speech.py`, the `tts.*` settings in
@@ -968,6 +970,54 @@ control.
   voice, grog made it so with its hands (`shell`). So the music plays there
   while the screen is on, and while it sleeps WirePlumber falls back to
   the Bluetooth speaker, or the laptop's.
+
+## Long answers
+
+On October 26, 2026 the user heard grog's long answers fall apart on the
+station: noise, sometimes like reverb, stutters "as if something were
+loading the CPU". Measured without playing anything: three answers like
+grog's (22 to 26 s of speech, 3 or 4 sentences, the first one alone and
+the rest together, as the mouth gets them) made by the station's own Pocket
+TTS (24 layers, deep-calm, 6 threads) while grog-voice listened, played on
+a simulated speaker with pw-cat's 50 ms (WAVs deleted once measured):
+
+- **It fell behind real time**: 1.10 to 1.35 s per second of speech, and
+  97 to 298 gaps per answer, 2 to 8 s in all, up to 0.46 s each: the
+  crackling. Short answers are over before the CPU heats up.
+- **The CPU was too hot**: its package went from ~65 °C at rest to 97 to
+  106 °C within seconds, throttled thousands of times per answer, its
+  performance cores falling from 4.5 GHz to as low as 0.4 GHz. The laptop
+  runs with its lid closed, turbo always on (auto-cpufreq, see "Round 3"),
+  and limits of 36 W sustained and 64 W in bursts: more heat than it gets
+  rid of that way.
+- **A piece got slower as it went on**: each step copied the FlowLM's KV
+  cache in and out (192 KB per frame of context, 30 to 60 MB by a 50-token
+  piece's end). At a steady 2.4 GHz, steps went from 36 to 52 ms over such
+  a piece.
+- Not the screen's speaker boost: the voice peaks at -2.5 to -3.9 dBFS, so
+  its +2.95 dB clipped 0.002% of the samples at most. Nor swap: grog-voice
+  had 3.4 GB in zram, but nothing came back from it while it spoke.
+
+So:
+
+- **The caches stay in OpenVINO** (`speech.Pocket`): the KV cache and
+  Mimi's state are variables of the graphs' requests (OpenVINO's
+  MakeStateful pass), one request per piece, as a short piece's earlier
+  attempt may be taken up again. The sound is the same, bit for bit; at
+  2.4 GHz a step stays at 32 to 35 ms, and the three answers take 0.51 to
+  0.57 s per second of speech, against 0.64. fp16 weights (OpenVINO's
+  compression) were no faster.
+- **Speech waits once it runs out** (`mouth.Cushion`): mid-chunk, what
+  follows waits until there's 1 s of it, a pause now and then rather than
+  a gap every 80 ms. Speech made in time, and a chunk's first sound, play
+  at once.
+- **The station's cores capped at 2.4 GHz** (`scaling_max_freq`, by hand
+  until it reboots or its power supply changes): over the three answers
+  back to back, 72 to 92 °C, no throttling, 0.51 to 0.55 s per second of
+  speech. At 3 GHz it throttled again by the third answer (0.80); without
+  a cap, 0.93 to 1.0 even with the caches in OpenVINO. To keep it, the
+  station's config can ask auto-cpufreq for `scaling_max_freq = 2400000`
+  on AC; its lid open would let it run faster.
 
 ## Where to go from here
 

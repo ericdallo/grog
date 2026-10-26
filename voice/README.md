@@ -81,7 +81,10 @@ default; a speaker picked for the music becomes the session's default (as
 `wpctl set-default` does: WirePlumber keeps it).
 
 On a Core Ultra 7 155H, Pocket TTS takes 0.5 s per second of speech, and
-its first sound comes 0.1 s after the answer's first sentence. On grognix,
+its first sound comes 0.1 to 0.15 s after the answer's first sentence, as
+long as the CPU stays cool enough not to throttle: too hot, it falls
+behind on long answers, and what it says then waits for a second of
+speech made ahead whenever it runs out, rather than crackling. On grognix,
 a Celeron N5095, grog speaks with Supertonic, which takes ~0.5 s per second
 of speech there (Piper: 0.2), so it starts answering 1 to 3 s after the
 LLM's first words, which take 2 to 3 s, more when it searches the web.

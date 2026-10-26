@@ -13,6 +13,7 @@ from fakes import (
     SOUND,
     SPEECH,
     FakeConnection,
+    FakePlayer,
     FakeTts,
     OneSecond,
     PausingTts,
@@ -26,7 +27,7 @@ from fakes import (
 from grog_voice.audio import Silence
 from grog_voice.ears import Heard
 from grog_voice.grog import GrogError
-from grog_voice.mouth import Mouth, Pauses, Turn, calmed
+from grog_voice.mouth import Cushion, Mouth, Pauses, Turn, calmed
 
 
 def heard(text=HEARD, **more):
@@ -116,6 +117,46 @@ class PausesTest(unittest.TestCase):
         self.assertEqual([b"cd"], self.pauses(b"cd"), "grog used a tool meanwhile")
 
 
+class CushionTest(unittest.TestCase):
+    """At 8 samples a second: a second of sound is 16 bytes. It holds a
+    second of sound back once it runs out."""
+
+    def setUp(self):
+        self.now = 0.0
+        self.cushion = Cushion(8, clock=lambda: self.now, seconds=1.0)
+
+    def test_sound_made_in_time_plays_at_once(self):
+        self.assertEqual([b"ab"], self.cushion(b"ab"), "a chunk's first sound")
+        self.now = 0.1
+        self.assertEqual([b"cd"], self.cushion(b"cd"), "the first one still plays")
+        self.now = 0.25
+        self.assertEqual([b"ef"], self.cushion(b"ef"), "just in time")
+
+    def test_once_it_ran_out_it_waits_for_enough_of_it(self):
+        self.cushion(bytes(8))
+        self.now = 0.6
+        self.assertEqual([], self.cushion(b"ab"), "its half second ran out a tenth of a second ago")
+        self.now = 0.7
+        self.assertEqual([], self.cushion(b"cd"))
+        self.now = 1.2
+        self.assertEqual([b"ab", b"cd", bytes(12)], self.cushion(bytes(12)), "a second of it")
+        self.now = 2.0
+        self.assertEqual([b"ef"], self.cushion(b"ef"), "it plays until 2.2 s")
+
+    def test_a_chunk_ends_with_what_it_holds(self):
+        self.cushion(b"ab")
+        self.now = 1.0
+        self.assertEqual([], self.cushion(b"cd"))
+        self.assertEqual([b"cd"], self.cushion.flush())
+        self.assertEqual([], self.cushion.flush())
+
+    def test_a_chunks_first_sound_plays_at_once(self):
+        self.cushion(b"ab")
+        self.cushion.restart()
+        self.now = 5.0
+        self.assertEqual([b"cd"], self.cushion(b"cd"), "the next sentence, after a wait for grog")
+
+
 class AnswerTest(unittest.TestCase):
     def test_speaks_the_answer_as_it_streams_in(self):
         m = mouth()
@@ -183,6 +224,38 @@ class AnswerTest(unittest.TestCase):
         m.answer(heard(), HEARD)
         first, second = (text.encode() for text in m.tts.texts)
         self.assertEqual([ACK, first, SOUND, PAUSE, second, SOUND], played(m.player), "none at the end")
+
+    def test_holds_speech_back_once_it_comes_slower_than_it_plays(self):
+        now, second_played, writes = [0.0], threading.Event(), []
+        # A tenth of a second each.
+        frames = [bytes([i]) * (FakeTts.sample_rate // 10 * 2) for i in range(1, 6)]
+
+        class SlowTts(FakeTts):
+            """Makes each frame in a fifth of a second, waiting a moment after the
+            second one for it to be played."""
+
+            streams = True
+
+            def __call__(self, text):
+                self.texts.append(text)
+                for i, frame in enumerate(frames):
+                    now[0] += 0.2
+                    yield frame
+                    if i == 1:
+                        second_played.wait(0.2)
+
+        class Player(FakePlayer):
+            def write(self, pcm):
+                super().write(pcm)
+                writes.append((pcm, now[0]))
+                if pcm == frames[1]:
+                    second_played.set()
+
+        m = Mouth(tts=SlowTts(), player=Player, ask=answering("Uma frase só."), clock=lambda: now[0])
+        turn = m.answer(heard(), HEARD)
+        self.assertEqual([ACK] + frames, [pcm for pcm, _ in writes], "all of it, in order")
+        self.assertEqual([1.0] * 4, [at for _, at in writes[2:]], "once it ran out, the rest waited for more")
+        self.assertEqual("Uma frase só.", turn.said)
 
     def test_got_it_already_played_as_it_ended(self):
         now = time.monotonic()

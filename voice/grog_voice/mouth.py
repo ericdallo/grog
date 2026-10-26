@@ -125,6 +125,51 @@ class Pauses:
         return sound
 
 
+# Speech made slower than it plays (text to speech falling behind, as on a
+# CPU too hot to keep up) ran out every 80 ms piece: a gap each time, heard
+# as crackling. Once it ran out mid-chunk, the sound that follows waits until
+# there's this much of it, then plays: a pause now and then instead
+# (plans/voice.md, "Long answers").
+CUSHION_S = 1.0
+
+
+class Cushion:
+    """Holds sound back once it came after the sound before it was over,
+    until there's `seconds` of it (see CUSHION_S): a chunk's first sound goes
+    at once (see restart). `rate` is the sound's sample rate; `clock` tells
+    the time, in seconds."""
+
+    def __init__(self, rate, clock=time.monotonic, seconds=CUSHION_S):
+        self.rate, self.clock, self.seconds = rate, clock, seconds
+        self.over = None  # when the sound let through since the chunk started is over
+        self.held = []
+
+    def __call__(self, pcm):
+        """What to play for `pcm` now: nothing while it's held."""
+        if not self.held and (self.over is None or self.clock() <= self.over):
+            return self._through([pcm])
+        self.held.append(pcm)
+        return self.flush() if self._seconds(self.held) >= self.seconds else []
+
+    def flush(self):
+        """What it holds, to play now: at a chunk's end, however little."""
+        held, self.held = self.held, []
+        return self._through(held)
+
+    def restart(self):
+        """Another chunk starts: its first sound isn't held."""
+        self.over = None
+
+    def _through(self, sound):
+        if sound:
+            now = self.clock()
+            self.over = (now if self.over is None else max(self.over, now)) + self._seconds(sound)
+        return sound
+
+    def _seconds(self, sound):
+        return sum(map(len, sound)) / 2 / self.rate
+
+
 class Spoken(bytes):
     """16-bit audio of grog's speech, rather than an earcon or a pause: what
     its echo is learned from (see echo.py)."""
@@ -346,11 +391,13 @@ class Mouth:
     def _speak(self, chunks, turn):
         """Plays the queue's earcons ((name, pcm)) and synthesizes its text
         chunks as they come (None ends them), calmed, while a thread plays
-        them, with the pauses after their sentences in between (see Pauses).
+        them, with the pauses after their sentences in between (see Pauses),
+        held back once they're made slower than they play (see Cushion).
         Once that failed, or it's to stop, it only waits for the end. What
         of it was said, once it's over, is in the turn: the chunks whose
         sound was due to end before it was asked to stop."""
         audio, failed, pauses = queue.Queue(), threading.Event(), Pauses(self.sample_rate)
+        cushion = Cushion(self.sample_rate, self.clock)
         said = []  # (a chunk, when its sound is due to end), as they're played
 
         def over():
@@ -400,16 +447,20 @@ class Mouth:
                     continue
                 if self.streams:
                     item = gathered(item, chunks, ahead)
+                cushion.restart()
                 for pcm in self.tts(calmed(item)):
                     if over():
                         break
                     for sound in pauses(pcm if isinstance(pcm, Silence) else Spoken(pcm)):
-                        if "first_audio" not in turn.marks:
-                            turn.mark("first_audio")
-                            self.state = "speaking"
-                            self.tell("speaking")
-                        audio.put(sound)
+                        for held in cushion(sound):
+                            if "first_audio" not in turn.marks:
+                                turn.mark("first_audio")
+                                self.state = "speaking"
+                                self.tell("speaking")
+                            audio.put(held)
                 else:
+                    for held in cushion.flush():
+                        audio.put(held)
                     audio.put(item)
         finally:
             audio.put(None)
