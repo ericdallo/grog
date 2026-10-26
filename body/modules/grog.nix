@@ -541,8 +541,9 @@ in
           EnvironmentFile = lib.mkIf (cfg.environmentFile != null) "-${cfg.environmentFile}";
           Restart = "on-failure";
           RestartSec = 5;
-          # How grog restarts itself, when asked to (grog.actions).
-          SuccessExitStatus = 75;
+          # How grog restarts itself, when asked to (grog.actions), and how
+          # it stops: 128 + SIGTERM, as Java does.
+          SuccessExitStatus = "75 143";
           RestartForceExitStatus = 75;
 
           DynamicUser = true;
@@ -599,6 +600,16 @@ in
         SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="2886", ATTR{idProduct}=="001a", OWNER="${cfg.voice.user}"
       '';
 
+      # Its speech models make grog-voice the biggest process on the machine,
+      # the one the kernel would kill first once memory runs out: it goes
+      # last instead. A user's services can't lower their own score, so the
+      # users' service managers start lower, and give their other services
+      # the usual one (their own plus 100, by default).
+      systemd.services."user@".serviceConfig.OOMScoreAdjust = -500;
+      systemd.user.extraConfig = ''
+        DefaultOOMScoreAdjust=200
+      '';
+
       # In the session of the user with the microphone and the speaker.
       systemd.user.services.grog-voice = {
         description = "grog-voice, grog's ears and mouth";
@@ -611,6 +622,7 @@ in
           # Also when the mic goes away (unplugged, say): it picks it up again.
           Restart = "always";
           RestartSec = 5;
+          OOMScoreAdjust = -500;
           LockPersonality = true;
           NoNewPrivileges = true;
         };
@@ -733,6 +745,13 @@ in
 
     (lib.mkIf cfg.update.enable {
       services.grog.settings.update.status = updateStatus;
+
+      # Updates build on the machine grog talks on, in nix-daemon: they get
+      # the CPU and the disk grog-voice leaves, and go first when memory
+      # runs out.
+      nix.daemonCPUSchedPolicy = lib.mkDefault "idle";
+      nix.daemonIOSchedClass = lib.mkDefault "idle";
+      systemd.services.nix-daemon.serviceConfig.OOMScoreAdjust = lib.mkDefault 500;
 
       # Started by grog's hands when someone asks (polkit lets them, below),
       # or by hand: sudo systemctl start grog-update.
