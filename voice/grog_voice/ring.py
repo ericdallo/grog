@@ -5,12 +5,13 @@ nothing happens at all: grog works with any mic.
 
 At rest the ring is off. While someone talks to grog, or it waits for them
 (called, or asking), it points at them, as the XVF3800 knows where speech
-comes from; while grog thinks it spins, while it speaks it breathes, in the
-skin's colors (skin/web/skin.css); red a moment when something went wrong,
-dim red while grog's mic is off, amber without a mic. grog's mic off mutes
-its mics in hardware (its red LED lights), and its button switches grog's
-mic off or on through grog (POST /v1/actions/mic), which tells grog-voice
-back. Its own mute is off meanwhile, and on again once grog-voice stops.
+comes from; while grog thinks it spins, while it speaks it breathes green,
+in the skin's colors (skin/web/skin.css); red a moment when something
+went wrong, dim red while grog's mic is off, amber without a mic. grog's
+mic off mutes its mics in hardware (its red LED lights), and its button
+switches grog's mic off or on through grog (POST /v1/actions/mic), which
+tells grog-voice back. Its own mute is off meanwhile, and on again once
+grog-voice stops.
 
 Through the XVF3800's control interface: USB vendor control transfers on
 endpoint 0, as Seeed's python_control/xvf_host.py makes them, through
@@ -60,8 +61,11 @@ MUTE_PIN = 30
 # own mute off.
 RING_MODE, BUTTON = (2, 0, 7), (2, 1, 1)
 
-# The skin's colors: hearing, awake or asked, thinking, speaking, red, amber.
-HEARING, CALLED, THINKING, SPEAKING, RED, AMBER = 0x7BED9F, 0x2ED573, 0x5352ED, 0xFF7F50, 0xFF4757, 0xFFA502
+# The skin's colors: hearing, awake or asked, thinking, red, amber. grog
+# speaks in the green of awake or asked: the user found the skin's coral
+# red on the ring.
+HEARING, CALLED, THINKING, RED, AMBER = 0x7BED9F, 0x2ED573, 0x5352ED, 0xFF4757, 0xFFA502
+SPEAKING = CALLED
 # Its spinner's frames a second.
 FPS = 12
 # How often it looks for presses of its button (they wait for it), and how

@@ -945,9 +945,9 @@ control.
 - **Its ring** (`ring.py`), as the user picked on it: off at rest; pointing
   at who talks (its DoA effect) in the skin's hearing green, at 6% around;
   spinning in the thinking indigo while grog thinks (the per-LED mode, 12
-  frames a second), picked over breathing; breathing coral while grog
-  speaks; red a moment on errors, dim red while grog's mic is off, amber
-  without a mic.
+  frames a second), picked over breathing; breathing green while grog
+  speaks (the skin's awake green: its coral looked red on the ring); red a
+  moment on errors, dim red while grog's mic is off, amber without a mic.
 - **Its mute**: raising its mute pin (X0D30) silenced its mics (-119 dBFS
   RMS at `grog-mic`) and lit its red LED: grog's mic off raises it. While
   grog-voice runs, its button's own mute is off, and a press asks grog to
