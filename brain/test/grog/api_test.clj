@@ -535,7 +535,7 @@
           (let [{:keys [status headers body]} (get* "/")]
             (is (= [200 "text/html; charset=utf-8"] [status (get headers "content-type")]))
             (is (str/includes? body "<title>skin</title>"))
-            (is (= "default-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+            (is (= "default-src 'self'; img-src 'self' https:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
                    (get headers "content-security-policy")))))
         (testing "and the files next to it"
           (is (= "text/javascript; charset=utf-8" (get-in (get* "/skin.js") [:headers "content-type"])))

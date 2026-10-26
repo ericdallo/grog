@@ -186,6 +186,14 @@ describe("what grog is doing", () => {
     assert.equal(mode(state({ turn: { ...failed, error: "No credentials." } }), NOW).detail, "No credentials.");
   });
 
+  it("says why, in words, from what grog says of it without captions", () => {
+    const failed = turn([["thinking", 1]], { doneAt: NOW - 1000, ok: false });
+    assert.equal(mode(state({ turn: { ...failed, reason: "offline" } }), NOW).detail, "no internet: is the network up?");
+    assert.equal(mode(state({ turn: { ...failed, reason: "busy" } }), NOW).detail, "the AI is busy, or its limit was reached");
+    assert.equal(mode(state({ turn: { ...failed, reason: "failed" } }), NOW).detail, "it couldn't answer");
+    assert.equal(mode(state({ turn: { ...failed, reason: "login", error: "Run grog login." } }), NOW).detail, "Run grog login.");
+  });
+
   it("says when grog-voice had an error, for a while", () => {
     const voice = { state: "error", since: NOW - 1000, seen: NOW - 1000, conversation: "voice", errorAt: NOW - 1000 };
     assert.deepEqual(mode(state({ voice }), NOW), {
@@ -1201,7 +1209,9 @@ describe("the music", () => {
     assert.deepEqual(nowPlaying(playing(), NOW), {
       title: "Song",
       artist: "Band",
+      artwork: null,
       time: "1:25 / 4:59",
+      progress: 85 / 299,
       playing: true,
       volume: 60,
       buttons: [
@@ -1230,6 +1240,16 @@ describe("the music", () => {
     assert.equal(nowPlaying(state(), NOW), null);
     assert.equal(nowPlaying(playing(), NOW, true), null);
     assert.equal(nowPlaying(null, NOW), null);
+  });
+
+  it("its artwork, from https only, and how much of it played", () => {
+    const art = "https://lh3.googleusercontent.com/abc=w120-h120";
+    assert.equal(nowPlaying(playing({ artwork: art }), NOW).artwork, art);
+    for (const artwork of ["http://example.com/a.jpg", "javascript:alert(1)", 'https://a.b/x") url(y', 5]) {
+      assert.equal(nowPlaying(playing({ artwork }), NOW).artwork, null, String(artwork));
+    }
+    assert.equal(nowPlaying(playing(), NOW + 600_000).progress, 1, "never past its end");
+    assert.equal(nowPlaying(playing({ durationS: undefined }), NOW).progress, null);
   });
 
   it("what it doesn't know", () => {

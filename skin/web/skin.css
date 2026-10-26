@@ -728,8 +728,8 @@ ol {
 /* What grog's player plays (view.js nowPlaying), under the rest, in place
    of the steps of the last turn (body.music): choosing what plays, the song
    and its time, and its buttons, big enough for a finger. Out of the way of
-   a card, under the sheets. Nothing in it moves: its time changes once a
-   second. */
+   a card, under the sheets. Nothing in it moves but its progress line (by
+   transform): its time changes once a second. */
 .player {
   display: flex;
   flex: none;
@@ -821,6 +821,40 @@ ol {
   margin-top: 0.6vmin;
   color: var(--red);
   font-size: max(2.2vmin, var(--small));
+}
+
+/* The song's picture, beside it, dimmer at night. */
+.player .artwork {
+  flex: none;
+  width: max(10vmin, var(--finger));
+  height: max(10vmin, var(--finger));
+  border-radius: 1vmin;
+  object-fit: cover;
+}
+
+.night .player .artwork {
+  opacity: 0.6;
+}
+
+/* How much of it played: a line filled by scaleX, moved on once a second
+   (skin.js drawPlayer) over that second, by the compositor only. */
+.player .progress {
+  height: 0.6vmin;
+  margin-top: 1vmin;
+  overflow: hidden;
+  border-radius: 0.3vmin;
+  background: var(--line);
+}
+
+.player .progress .fill {
+  height: 100%;
+  background: var(--muted);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.player .progress.moving .fill {
+  transition: transform 1s linear;
 }
 
 .player .artist:empty,

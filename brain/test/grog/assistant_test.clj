@@ -57,6 +57,20 @@
     (testing "only those"
       (is (= {:role "assistant" :content "Done."} (answer "c" {:web-searches 0} "ha__lights"))))))
 
+(deftest why-a-turn-failed-in-a-word
+  (doseq [[data reason] [[{:type :grog.providers.http/network-error} "offline"]
+                         [{:type :grog.providers.http/timeout} "timeout"]
+                         [{:type :grog.providers.http/stalled} "timeout"]
+                         [{:type :grog.providers.http/http-error :status 429} "busy"]
+                         [{:type :grog.providers.openai/no-credentials} "login"]
+                         [{:type :grog.providers.http/http-error :status 401} "login"]
+                         [{:type :grog.providers.http/http-error :status 503} "provider"]
+                         [{:type :grog.providers.openai/stream-error} "provider"]
+                         [{:type ::anything} "failed"]
+                         [nil "failed"]]]
+    (is (= reason (assistant/failure-reason (ex-info "quoting what was said" (or data {})))) (pr-str data)))
+  (is (= "failed" (assistant/failure-reason (RuntimeException. "boom")))))
+
 (deftest an-answer-cut-off-is-what-was-heard-of-it
   (let [q {:role "user" :content "como vai ser amanhã?"}
         a {:role "assistant" :content "Amanhã faz sol.\nLeve  um casaco."}]

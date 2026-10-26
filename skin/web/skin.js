@@ -78,6 +78,7 @@ const els = Object.fromEntries(
     .concat(["card-help-url", "card-buttons", "card-asked"])
     .concat(["open-actions", "close-actions", "sheet", "items", "sheet-error", "sheet-version", "notice"])
     .concat(["player", "open-music", "player-title", "player-artist", "player-time", "player-error"])
+    .concat(["player-artwork", "player-progress-track", "player-progress"])
     .concat(["player-controls", "player-volume", "music-down", "music-up"])
     .concat(["music-sheet", "close-music", "music-note", "music-items", "music-error"])
     .concat(["speakers-sheet", "close-speakers", "speakers-note", "speakers-items", "speakers-error"])
@@ -539,6 +540,8 @@ function drawPlayer(t) {
   setText(els["player-title"], p.title);
   setText(els["player-artist"], p.artist);
   setText(els["player-time"], p.time);
+  drawArtwork(p.artwork);
+  drawProgress(p.progress, p.playing);
   setText(els["player-volume"], p.volume === null ? "" : String(p.volume));
   once("player", p.buttons, (buttons) => {
     els["player-controls"].replaceChildren(
@@ -548,6 +551,33 @@ function drawPlayer(t) {
       }),
     );
   });
+}
+
+/** The song's picture (https, or null), loaded once, hidden until it is or without one. */
+function drawArtwork(url) {
+  const img = els["player-artwork"];
+  const src = url ?? "";
+  if (img.dataset.src === src) return;
+  img.dataset.src = src;
+  img.hidden = true;
+  if (!url) return img.removeAttribute("src");
+  img.onload = () => img.dataset.src === src && (img.hidden = false);
+  img.onerror = () => (img.hidden = true);
+  img.src = url;
+}
+
+/**
+ * How much of the song played (0 to 1, or null): set once a second, and
+ * while it plays, moved there over that second (a transition on
+ * transform), so that it goes on smoothly by the compositor alone.
+ */
+function drawProgress(progress, playing) {
+  const track = els["player-progress-track"];
+  if (track.hidden === (progress !== null)) track.hidden = progress === null;
+  if (progress === null) return;
+  track.classList.toggle("moving", playing);
+  const transform = `scaleX(${Math.min(1, Math.max(0, progress)).toFixed(4)})`;
+  if (els["player-progress"].style.transform !== transform) els["player-progress"].style.transform = transform;
 }
 
 /** What to play (view.js musicSheet), when it shows: grog's player has to be there. */

@@ -106,6 +106,23 @@
       (str/blank? said) (pop messages)
       :else (conj (pop messages) (assoc answer :content (str said cut-mark))))))
 
+(defn failure-reason
+  "Why a turn failed, in a word whoever watches grog may see without
+  captions, unlike its message, which could quote what was said: offline
+  (no network), timeout (the provider took too long), busy (its rate
+  limits), login (signed out, or no key), provider (its own failure), or
+  failed."
+  [^Throwable e]
+  (let [{:keys [type status]} (ex-data e)
+        kind (when (keyword? type) (name type))]
+    (cond
+      (= "network-error" kind) "offline"
+      (#{"timeout" "stalled"} kind) "timeout"
+      (= 429 status) "busy"
+      (or (#{"no-credentials" "not-signed-in" "missing-api-key"} kind) (#{401 403} status)) "login"
+      (or (and (number? status) (>= status 500)) (#{"stream-error" "truncated"} kind)) "provider"
+      :else "failed")))
+
 (defn ^:private cut-short
   "`messages` with what was answered so far (`answered`), marked as cut
   off, when it's anything."
@@ -204,6 +221,7 @@
                                       (cut-short messages (str answered)
                                                  (read-others? {:web-searches searches} offered @used))
                                       now-ms opts)))
-              (publish! (cond-> {:type :failed :ms (elapsed-ms) :tools @used :error (or (ex-message e) (str e))}
+              (publish! (cond-> {:type :failed :ms (elapsed-ms) :tools @used :error (or (ex-message e) (str e))
+                                 :reason (failure-reason e)}
                           cancelled? (assoc :stopped true)))
               (throw e))))))))

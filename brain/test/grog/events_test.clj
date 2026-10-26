@@ -157,9 +157,10 @@
 
 (deftest failed-turns
   (let [state (run [1000 {:type :turn :conversation "c" :n 1}]
-                   [1500 {:type :failed :conversation "c" :n 1 :ms 500 :tools [] :error "No credentials."}])]
-    (is (= {:done-at 1500 :ok false :error "No credentials."}
-           (select-keys (:turn state) [:done-at :ok :ms :error])))))
+                   [1500 {:type :failed :conversation "c" :n 1 :ms 500 :tools [] :error "No credentials."
+                          :reason "login"}])]
+    (is (= {:done-at 1500 :ok false :error "No credentials." :reason "login"}
+           (select-keys (:turn state) [:done-at :ok :ms :error :reason])))))
 
 (defn ^:private watcher
   "A watcher keeping what it gets, parsed: [send! messages-atom]."
@@ -222,9 +223,11 @@
       (events/publish! hub {:type :text :conversation "c" :n 1 :text "still more secrets"})
       (events/publish! hub {:type :done :conversation "c" :n 1 :ms 10 :tools ["shell"]})
       (events/publish! hub {:type :turn :conversation "c" :n 2 :question "secret again"})
-      (events/publish! hub {:type :failed :conversation "c" :n 2 :ms 10 :error "quoting a secret"})
+      (events/publish! hub {:type :failed :conversation "c" :n 2 :ms 10 :error "quoting a secret" :reason "offline"})
       (let [sent (pr-str @got)]
         (is (not (str/includes? sent "secret")) sent))
+      (testing "why a turn failed, in a word, goes on"
+        (is (= "offline" (get-in (second (last @got)) [:state :turn :reason]))))
       (testing "the steps and the tools go on, and an answer that adds nothing isn't sent again"
         (is (= ["snapshot" "voice" "turn" "text" "tool" "text" "done" "turn" "failed"] (map first @got)))
         (is (= ["heard" "thinking" "answering" "tool" "answering"]

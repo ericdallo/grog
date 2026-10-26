@@ -71,12 +71,14 @@
 
         <section class="player" id="player" aria-label="Music" hidden>
           <button class="round" id="open-music" type="button" aria-label="Choose what plays"></button>
+          <img class="artwork" id="player-artwork" alt="" referrerpolicy="no-referrer" hidden />
           <div class="playing">
             <div class="song" id="player-title"></div>
             <div class="line">
               <span class="artist" id="player-artist"></span>
               <span class="at" id="player-time"></span>
             </div>
+            <div class="progress" id="player-progress-track" hidden><div class="fill" id="player-progress"></div></div>
             <div class="player-error" id="player-error"></div>
           </div>
           <div class="buttons">

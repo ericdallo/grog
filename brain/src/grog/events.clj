@@ -44,9 +44,11 @@
                used ({:tool :detail :at :done-at}, :detail saying what with,
                like what it searched, once known), :stopping once it's asked
                to stop, :stopped when it then ended, or whoever asked cut
-               it off (not well, without failing), :spoken-at when
-               grog-voice was done saying its answer, if it said it; nil
-               once the conversations were forgotten
+               it off (not well, without failing), :error and :reason once
+               it failed (its message, and a word whoever watches may see
+               without captions: grog.assistant/failure-reason),
+               :spoken-at when grog-voice was done saying its answer, if it
+               said it; nil once the conversations were forgotten
     :history   the turns before it, up to 20, oldest first, as :turn; only
                sent with the events changing it (and the snapshot)
     :integrations  what grog can connect to, and what's connected, as
@@ -211,7 +213,7 @@
   "The turn is over, well (:done) or not (:failed): stopped, when it was
   asked to (see `on-stop`) or cut off by whoever asked (:stopped, someone
   calling grog while it answered, say), rather than failed."
-  [state {:keys [type error stopped at] :as event}]
+  [state {:keys [type error reason stopped at] :as event}]
   (if-let [path (turn-path state event)]
     (let [ok? (= :done type)
           stopped? (boolean (and (not ok?) (or stopped (get-in state (conj path :stopping)))))]
@@ -219,7 +221,8 @@
                                          (dissoc :stopping)
                                          (update :parts close-tool at))
                                stopped? (assoc :stopped true)
-                               (and error (not stopped?)) (assoc :error error))))
+                               (and error (not stopped?)) (assoc :error error)
+                               (and reason (not stopped?)) (assoc :reason reason))))
     state))
 
 (defn ^:private on-stop

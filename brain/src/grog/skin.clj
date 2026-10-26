@@ -12,9 +12,10 @@
    "js" "text/javascript; charset=utf-8"
    "ttf" "font/ttf"})
 
-;; The page only talks to grog, and shows nothing from elsewhere.
+;; The page only talks to grog, and shows nothing from elsewhere but the
+;; pictures of what plays (grog-music's artwork, https).
 (def ^:private policy
-  "default-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+  "default-src 'self'; img-src 'self' https:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
 (defn file
   "The file of `dir` at `uri` (/ being index.html), or nil: only plain names

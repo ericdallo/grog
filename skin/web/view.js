@@ -140,6 +140,16 @@ function lastStep(turn) {
   return turn.steps?.[turn.steps.length - 1] ?? {};
 }
 
+// Why a turn failed, as grog says it in a word without captions
+// (grog.assistant/failure-reason): what the screen says of it.
+const FAILURES = {
+  offline: "no internet: is the network up?",
+  timeout: "the AI took too long to answer",
+  busy: "the AI is busy, or its limit was reached",
+  login: "it needs signing in to the AI again",
+  provider: "the AI had a problem",
+};
+
 /** Whether the last turn failed (not stopped), or grog-voice had an error, just now. */
 function failed(state, now) {
   const turn = state.turn;
@@ -244,7 +254,8 @@ export function mode(state, now, offline = false) {
       : { mode: "thinking", label: "Thinking", detail: "" };
   }
   if (failed(state, now)) {
-    return { mode: "error", label: "Something went wrong", detail: state.turn?.error ?? "it couldn't answer" };
+    const why = state.turn?.error ?? FAILURES[state.turn?.reason] ?? "it couldn't answer";
+    return { mode: "error", label: "Something went wrong", detail: why };
   }
   // Switched off, which grog-voice may not have said yet.
   if (voice === "muted" || (state.mic === "off" && WAITING.includes(voice))) return MUTED;
@@ -764,13 +775,20 @@ function trimmed(s) {
   return typeof s === "string" ? s.trim() : "";
 }
 
+/** `url` when it's a picture the screen may show (https), else null. */
+function picture(url) {
+  return typeof url === "string" && /^https:\/\/[^\s"'()<>]+$/.test(url) ? url : null;
+}
+
 /**
  * What grog's player plays (state.music, see brain/src/grog/events.clj),
  * for the bar under what was said and done, while it plays or is paused:
- * {title, artist, time, playing, volume, buttons: [{action, icon, label}]}.
- * Its time goes on from where the song was when grog last said (its `at`)
- * while it plays, and stays while it's paused. null while nothing plays,
- * without a player, or grog isn't there to say.
+ * {title, artist, artwork, time, progress, playing, volume, buttons:
+ * [{action, icon, label}]}, artwork being its picture (https, or null) and
+ * progress how much of it played (0 to 1, or null). Its time goes on from
+ * where the song was when grog last said (its `at`) while it plays, and
+ * stays while it's paused. null while nothing plays, without a player, or
+ * grog isn't there to say.
  */
 export function nowPlaying(state, now, offline = false) {
   const m = state?.music;
@@ -785,7 +803,9 @@ export function nowPlaying(state, now, offline = false) {
   return {
     title: trimmed(m.title) || trimmed(m.album) || "Untitled",
     artist: trimmed(m.artist),
+    artwork: picture(m.artwork),
     time,
+    progress: position !== null && duration !== null ? position / duration : null,
     playing,
     volume: Number.isFinite(m.volume) ? Math.round(m.volume) : null,
     buttons: [

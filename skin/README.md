@@ -16,9 +16,13 @@ grog's skin: a page showing what grog is up to, for a screen next to it.
   turn took. It keeps to the latest, but you can scroll back, and a button
   (or leaving it alone a while) brings it back.
 - While grog's player plays, or is paused, a bar under the rest, in place
-  of the steps of the last turn: the song and its artist, its time (counted
-  on by the skin between grog's updates), and its buttons. Hidden while a
-  card shows, under the sheets.
+  of the steps of the last turn: the song's picture (YouTube Music's, from
+  Google: the page lets in pictures from https), the song and its artist,
+  its time (counted on by the skin between grog's updates) with a line
+  filling up, and its buttons. Hidden while a card shows, under the sheets.
+- When a turn failed, why, in words, even without captions: no internet,
+  the AI too slow, busy or out of its limits, signed out, or its own
+  failure (the turn's `reason`, as grog says it without its message).
 - In its actions, what it costs: how much of the subscription's limits is
   used, or what the API key spent.
 - Connecting something (signing in to ChatGPT, adding a computer), a card:
