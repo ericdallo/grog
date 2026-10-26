@@ -493,8 +493,9 @@ in
         description = ''
           Whose graphical session shows the skin fullscreen as soon as it
           starts (a systemd user service of theirs; on GNOME, it closes the
-          overview and keeps the screen on). null: it's only served, at
-          grog's address.
+          overview), turning the screen off once nothing happened for a
+          while (`settings.skin.screenOffMinutes`). null: it's only served,
+          at grog's address.
         '';
       };
     };

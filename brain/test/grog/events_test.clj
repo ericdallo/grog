@@ -178,15 +178,15 @@
     (let [hub (events/new-hub (constantly false))
           [send! got] (watcher)]
       (events/publish! hub {:type :status :name "grog" :provider "openai" :model "m" :auth "api-key"
-                            :timezone "America/Sao_Paulo"})
+                            :timezone "America/Sao_Paulo" :screen-off-minutes 10})
       (events/publish! hub {:type :voice :state "hearing" :conversation "voice"})
       (events/watch! hub :w send!)
       (testing "the state first, with whether there are captions, the time and when grog started"
         (let [[[type {:keys [state]}]] @got]
           (is (= "snapshot" type))
-          (is (= {:name "grog" :auth "api-key" :timezone "America/Sao_Paulo" :captions false :now 5000 :history []
-                  :startedAt 5000}
-                 (select-keys state [:name :auth :timezone :captions :now :history :startedAt])))
+          (is (= {:name "grog" :auth "api-key" :timezone "America/Sao_Paulo" :screenOffMinutes 10 :captions false
+                  :now 5000 :history [] :startedAt 5000}
+                 (select-keys state [:name :auth :timezone :screenOffMinutes :captions :now :history :startedAt])))
           (testing "without what's kept for the turns to come"
             (is (= {:state "hearing" :since 5000 :seen 5000 :conversation "voice"} (:voice state)))
             (is (not (contains? state :heardAt)))))))))

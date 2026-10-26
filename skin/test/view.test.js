@@ -37,6 +37,7 @@ import {
   reaction,
   request,
   RETRY_MS,
+  screenOn,
   seconds,
   shortRevision,
   songTime,
@@ -262,6 +263,71 @@ describe("its face", () => {
     const done = turn([["thinking", NOW - 70_000]], { doneAt: NOW - 60_000, ok: true });
     assert.equal(face(idle, { ...quiet, turn: done }, NOW).state, "idle", "not soon after a turn");
     assert.equal(face(idle, state({ voice: null }), NOW).state, "idle", "nor when it doesn't know");
+  });
+});
+
+describe("its screen", () => {
+  const MIN = 60_000;
+  const listening = { state: "listening", since: NOW - 60 * MIN, seen: NOW - 1000, conversation: "voice" };
+  // Nothing happened for an hour.
+  const quiet = (extra = {}) => state({ screenOffMinutes: 10, startedAt: NOW - 60 * MIN, voice: listening, ...extra });
+
+  it("goes off once nothing happened for the minutes set, to save energy", () => {
+    assert.equal(screenOn(quiet(), NOW), false);
+    assert.equal(screenOn(quiet({ startedAt: NOW - 9 * MIN }), NOW), true, "grog started");
+    assert.equal(screenOn(quiet({ startedAt: NOW - 10 * MIN }), NOW), false);
+    assert.equal(screenOn(quiet({ screenOffMinutes: 0.5, startedAt: NOW - 20_000 }), NOW), true);
+  });
+
+  it("stays on without the setting, and before grog said anything", () => {
+    assert.equal(screenOn(quiet({ screenOffMinutes: null }), NOW), true);
+    assert.equal(screenOn(quiet({ screenOffMinutes: undefined }), NOW), true);
+    assert.equal(screenOn(null, NOW), true);
+  });
+
+  it("stays on a while once someone touched it", () => {
+    assert.equal(screenOn(quiet(), NOW, NOW - MIN), true);
+    assert.equal(screenOn(quiet(), NOW, NOW - 11 * MIN), false);
+  });
+
+  it("stays on while someone talks to grog, however long, then a while", () => {
+    for (const s of ["hearing", "awake", "asked", "answering", "speaking"]) {
+      assert.equal(screenOn(quiet({ voice: { ...listening, state: s } }), NOW), true, s);
+    }
+    assert.equal(screenOn(quiet({ voice: { ...listening, since: NOW - 2 * MIN } }), NOW), true, "back to listening");
+    const gone = { ...listening, state: "speaking", seen: NOW - VOICE_STALE_MS - 1 };
+    assert.equal(screenOn(quiet({ voice: gone }), NOW), false, "not once grog-voice is gone");
+  });
+
+  it("stays on a while after a turn went on, was done or was said", () => {
+    const old = turn([["thinking", NOW - 30 * MIN]], { doneAt: NOW - 29 * MIN, ok: true });
+    assert.equal(screenOn(quiet({ turn: old }), NOW), false);
+    assert.equal(screenOn(quiet({ turn: turn([["thinking", NOW - 30 * MIN], ["tool", NOW - MIN, "shell"]]) }), NOW), true);
+    assert.equal(screenOn(quiet({ turn: { ...old, doneAt: NOW - MIN } }), NOW), true);
+    assert.equal(screenOn(quiet({ turn: { ...old, spokenAt: NOW - MIN } }), NOW), true);
+  });
+
+  it("stays on a while after grog heard something for it, an update went on, or grog went away", () => {
+    assert.equal(screenOn(quiet({ heard: { text: "Grog", final: false, at: NOW - MIN } }), NOW), true);
+    assert.equal(screenOn(quiet({ update: { stage: "building", at: NOW - MIN } }), NOW), true);
+    const going = { restarting: { action: "restart", at: NOW - 2 * MIN }, screenOffMinutes: 1 };
+    assert.equal(screenOn(quiet(going), NOW), true, "while it says so");
+    assert.equal(screenOn(quiet({ ...going, restarting: { action: "restart", at: NOW - GOING_MS - 1 } }), NOW), false);
+  });
+
+  it("stays on while a card waits for someone, but not for the codes grog renews by itself", () => {
+    const open = { integration: "computer", status: "open", until: NOW + MIN, at: NOW - 20 * MIN };
+    assert.equal(screenOn(quiet({ connect: open }), NOW), true);
+    assert.equal(screenOn(quiet({ connect: { ...open, until: NOW - 1 } }), NOW), false, "nor once its time is up");
+    const signIn = { ...open, integration: "openai", kept: true, at: NOW - MIN };
+    assert.equal(screenOn(quiet({ auth: "none", connect: signIn }), NOW), false);
+    assert.equal(screenOn(quiet({ connect: { ...signIn, status: "done" } }), NOW), true, "until someone signed in");
+    assert.equal(screenOn(quiet({ connect: { ...open, status: "done", at: NOW - MIN } }), NOW), true);
+  });
+
+  it("not for grog's music playing", () => {
+    const music = { state: "playing", title: "Tempo Perdido", positionS: 30, durationS: 300, at: NOW - 1000 };
+    assert.equal(screenOn(quiet({ music }), NOW), false);
   });
 });
 

@@ -4,7 +4,8 @@
 // (to talk to it, or stop it), its actions (POST /v1/actions/<name>, its
 // speakers too), and its music (POST /v1/music, and what to play from GET
 // /v1/music/library). With ?kiosk (the fullscreen window), there's no
-// mouse pointer.
+// mouse pointer. In the kiosk, it also says when the screen is to be on or
+// off (view.js screenOn).
 
 import { Face } from "./face.js";
 import { ICONS } from "./icons.js";
@@ -30,6 +31,7 @@ import {
   physicalKey,
   pipeline,
   request,
+  screenOn,
   speakersSheet,
   stale,
   tap,
@@ -130,6 +132,10 @@ let wifi = null;
 let wifiAsks = 0;
 let form = null;
 let joining = null;
+// When someone last touched the screen (grog's clock), and whether the
+// kiosk was last told to have it on: null before it was told anything.
+let touchedScreenAt = 0;
+let screenTold = null;
 
 const now = () => Date.now() + skew;
 
@@ -647,6 +653,26 @@ function drawWifi() {
   });
 }
 
+/**
+ * Tells the kiosk (the fullscreen window, kiosk.js) whether the screen is to
+ * be on (view.js screenOn), when that changes, once grog said how long it
+ * stays on. Elsewhere, in a browser, nothing.
+ */
+function drawScreen(t) {
+  const kiosk = window.webkit?.messageHandlers?.screen;
+  if (!kiosk || !state) return;
+  const on = screenOn(state, t, touchedScreenAt);
+  if (on === screenTold) return;
+  screenTold = on;
+  kiosk.postMessage(on);
+}
+
+/** Someone touched the screen: it stays on a while. */
+function touchedScreen() {
+  touchedScreenAt = now();
+  drawScreen(touchedScreenAt);
+}
+
 function draw() {
   const t = now();
   drawMode(t);
@@ -661,6 +687,7 @@ function draw() {
   drawMusic();
   drawSpeakers();
   drawWifi();
+  drawScreen(t);
   tick();
 }
 
@@ -1053,6 +1080,12 @@ function drift() {
 }
 
 if (new URLSearchParams(location.search).has("kiosk")) document.documentElement.classList.add("kiosk");
+for (const type of ["pointerdown", "keydown", "wheel"]) {
+  document.addEventListener(type, touchedScreen, { capture: true, passive: true });
+}
+// Touched while it was off: the kiosk turned it on, keeping that touch from
+// the page, and says so.
+window.addEventListener("screen-touched", touchedScreen);
 // Scrolled back by someone (not by what it shows growing), the chat stays
 // there, until it's left alone a while.
 for (const type of ["wheel", "touchmove", "pointerdown"]) {

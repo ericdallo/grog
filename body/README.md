@@ -19,6 +19,9 @@ in at boot, its voice listening and its skin fullscreen. It answers SSH as
 `grognix.local`, and every grognix is the same ([`grognix/`](grognix)):
 
 - It never sleeps, and the power button shuts it down cleanly.
+- Its screen goes off once nothing happened for 10 minutes, and back on
+  when grog is talked to or the screen touched
+  ([its screen](../skin/README.md#its-screen)).
 - SSH with keys only. The `grog` user has no password and doesn't need one
   for sudo, so the screen never locks.
 - Ethernet or Wi-Fi, and Bluetooth for speakers.

@@ -327,6 +327,55 @@ function idleSince(state) {
   return times.length ? Math.max(...times) : null;
 }
 
+// What grog-voice says while someone talks to grog, its name heard
+// (voice/grog_voice/reporter.py).
+const TALKING = ["hearing", "awake", "asked", "answering", "speaking"];
+
+/**
+ * Whether the screen showing the skin is on: while someone talks to grog, a
+ * card waits for someone, or grog is going away; and for
+ * `state.screenOffMinutes` (the `skin.screenOffMinutes` setting) after
+ * anything else happened (see happened()), someone touching the screen
+ * (`touchedAt`) included. Off otherwise, to save energy: the kiosk turns it
+ * off. On for good without the setting, and before grog said anything.
+ */
+export function screenOn(state, now, touchedAt = 0) {
+  const minutes = state?.screenOffMinutes;
+  if (!state || !Number.isFinite(minutes) || minutes <= 0) return true;
+  if (TALKING.includes(voiceState(state, now)) || waiting(state, now) || goingAway(state, now)) return true;
+  return now - happened(state, touchedAt) < minutes * 60_000;
+}
+
+/** Whether a card waits for someone: a session open, but the one grog keeps up itself to sign in. */
+function waiting(state, now) {
+  const c = state.connect;
+  return c?.status === "open" && !c.kept && (c.until ?? 0) > now;
+}
+
+/**
+ * When something last happened, as `state` says, or someone touched the
+ * screen (`touchedAt`): grog started, a turn went on, grog-voice changed
+ * what it does or heard something for grog, connecting something went on,
+ * an update did, grog said it's going away. Not grog's music playing, nor
+ * the codes grog renews by itself to sign in with, until someone does.
+ */
+function happened(state, touchedAt) {
+  const { turn, connect: c } = state;
+  const times = [
+    state.startedAt,
+    touchedAt,
+    turn && lastStep(turn).at,
+    turn?.doneAt,
+    turn?.spokenAt,
+    state.voice?.since,
+    state.heard?.at,
+    c?.kept && c.status !== "done" ? null : c?.at,
+    state.update?.at,
+    state.restarting?.at,
+  ];
+  return Math.max(0, ...times.filter(Number.isFinite));
+}
+
 // Faces with the eye closed: asleep, or waking up.
 const SHUT = ["offline", "loading"];
 // Called, or waiting for what's said next...

@@ -65,7 +65,8 @@
           "memory.learn: expected true or false, got \"yes\""
           "server.port: expected a port number, got 99999"
           "nrepl.enable: expected true or false, got nothing"
-          "nrepl.host: expected an address, like \"127.0.0.1\", got \"\""]
+          "nrepl.host: expected an address, like \"127.0.0.1\", got \"\""
+          "skin.screenOffMinutes: expected a number of minutes, or null to keep the screen on, got 0"]
          (config/problems (-> config/defaults
                               (assoc :max-history 3
                                      :name ""
@@ -76,7 +77,16 @@
                               (assoc-in [:memory :learn] "yes")
                               (assoc-in [:server :port] 99999)
                               (assoc-in [:nrepl :enable] nil)
-                              (assoc-in [:nrepl :host] ""))))))
+                              (assoc-in [:nrepl :host] "")
+                              (assoc-in [:skin :screen-off-minutes] 0))))))
+
+(deftest screen-off-minutes
+  (is (= 10 (get-in config/defaults [:skin :screen-off-minutes])) "on by default, after 10 minutes")
+  (doseq [minutes [nil 0.5 30]]
+    (is (= [] (config/problems (assoc-in config/defaults [:skin :screen-off-minutes] minutes))) (pr-str minutes)))
+  (doseq [minutes [-1 "10" true]]
+    (is (= 1 (count (config/problems (assoc-in config/defaults [:skin :screen-off-minutes] minutes))))
+        (pr-str minutes))))
 
 (deftest settings-that-moved
   (is (= ["computers.pairing: now integrations.host and integrations.port"

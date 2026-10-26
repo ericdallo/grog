@@ -12,6 +12,8 @@ let
     services.grog.settings = {
       name = "Test";
       providers.openai.baseUrl = "http://127.0.0.1:9999";
+      # On while the screen is read: the screen's subtest turns it off.
+      skin.screenOffMinutes = null;
     };
 
     # The VM has no sound card: a virtual mic, recording silence.
@@ -38,6 +40,15 @@ let
   song = pkgs.runCommand "song.flac" { nativeBuildInputs = [ pkgs.sox ]; } ''
     sox -n -r 44100 -c 2 -t flac $out synth 600 sine 440 vol 0.1
   '';
+  # A drop-in starting a node's grog again, its screen off once nothing
+  # happened for 12 s, rather than never (vm).
+  quick = { services, ... }:
+    let settings = pkgs.lib.recursiveUpdate services.grog.settings { skin.screenOffMinutes = 0.2; };
+    in pkgs.writeText "grog-quick.conf" ''
+      [Service]
+      ExecStart=
+      ExecStart=${pkgs.lib.getExe services.grog.package} serve --config ${(pkgs.formats.json { }).generate "grog.json" settings}
+    '';
 in
 pkgs.testers.runNixOSTest {
   name = "grognix";
@@ -65,7 +76,7 @@ pkgs.testers.runNixOSTest {
     virtualisation.cores = 2;
   };
 
-  testScript = ''
+  testScript = { nodes, ... }: ''
     import json
     import shlex
 
@@ -188,6 +199,36 @@ pkgs.testers.runNixOSTest {
         machine.wait_for_text("Tone", timeout=60)
         # To look at, in the test's output.
         machine.screenshot("skin")
+
+    with subtest("grog's skin turns the screen off once nothing happens, and on for grog, or a key"):
+        # Mutter's power save mode: 0 on, 3 off.
+        power = session.format(
+            "--dest org.gnome.Mutter.DisplayConfig --object-path /org/gnome/Mutter/DisplayConfig"
+            " --method org.freedesktop.DBus.Properties.Get org.gnome.Mutter.DisplayConfig PowerSaveMode"
+        )
+
+        def screen(mode):
+            return f"{power} | grep -qx '(<{mode}>,)'"
+
+        machine.succeed(screen(0))
+        machine.succeed(
+            "journalctl -o cat _SYSTEMD_USER_UNIT=grog-skin.service"
+            " | grep -qx 'Turning the screen off when nothing happens, with GNOME'"
+        )
+        machine.succeed(
+            "install -D -m 644 ${quick nodes.machine} /run/systemd/system/grog.service.d/quick.conf",
+            "systemctl daemon-reload",
+            "systemctl restart grog",
+        )
+        machine.wait_for_open_port(8484)
+        machine.wait_until_succeeds(screen(3), timeout=120)
+        # grog answering something turns it on, for a while.
+        machine.succeed("su - grog -c 'grog ask hi'")
+        machine.wait_until_succeeds(screen(0), timeout=30)
+        machine.wait_until_succeeds(screen(3), timeout=120)
+        # A key only wakes it.
+        machine.send_key("shift")
+        machine.wait_until_succeeds(screen(0), timeout=30)
 
     with subtest("headless: no desktop, and grog's session starts at boot, with grog-voice listening"):
         headless.wait_for_unit("multi-user.target")

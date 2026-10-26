@@ -443,6 +443,19 @@
         (finally
           (server/stop! srv))))))
 
+(deftest screens-learn-how-long-to-stay-on-once-nothing-happens
+  (doseq [minutes [0.5 nil]]
+    (let [srv (start-server-at "http://127.0.0.1:1" (h/temp-dir) #(assoc-in % [:skin :screen-off-minutes] minutes))
+          [got close!] (watch-events (str "http://127.0.0.1:" (:port srv)))]
+      (try
+        (is (eventually #(seq @got)))
+        (let [[type {:keys [state]}] (first @got)]
+          (is (= "snapshot" type))
+          (is (= {:screenOffMinutes minutes} (select-keys state [:screenOffMinutes])) "null: on for good"))
+        (finally
+          (close!)
+          (server/stop! srv))))))
+
 (deftest watching-what-grog-is-up-to
   (h/with-fake [fake [searched]]
     (with-redefs [http/api-key (constantly "k")]
@@ -450,12 +463,12 @@
             url (str "http://127.0.0.1:" (:port srv))
             [got close!] (watch-events url)]
         (try
-          (testing "the state first: who grog is, and no captions"
+          (testing "the state first: who grog is, no captions, and its screen off after 10 minutes"
             (is (eventually #(seq @got)))
             (let [[type {:keys [state]}] (first @got)]
               (is (= "snapshot" type))
-              (is (= {:name "Friday" :provider "openai" :auth "api-key" :captions false}
-                     (select-keys state [:name :provider :auth :captions])))))
+              (is (= {:name "Friday" :provider "openai" :auth "api-key" :captions false :screenOffMinutes 10}
+                     (select-keys state [:name :provider :auth :captions :screenOffMinutes])))))
           (testing "grog-voice says what it's doing"
             (is (= 200 (report-voice url {:state "hearing" :conversationId "voice"} "application/json")))
             (is (eventually #(= ["voice" "hearing"] ((juxt first (comp :state :event second)) (last @got))))))

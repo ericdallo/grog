@@ -11,6 +11,7 @@
 , nodejs-slim
 , inter
 , jetbrains-mono
+, wlr-randr
 }:
 
 stdenvNoCC.mkDerivation {
@@ -49,10 +50,13 @@ stdenvNoCC.mkDerivation {
     runHook postInstall
   '';
 
+  # wlr-randr: to turn the screen off and on with wlroots compositors, like
+  # cage (GNOME has its own way).
   dontWrapGApps = true;
   postFixup = ''
     makeWrapper ${gjs}/bin/gjs $out/bin/grog-skin \
       "''${gappsWrapperArgs[@]}" \
+      --prefix PATH : ${lib.makeBinPath [ wlr-randr ]} \
       --add-flags "-m $out/share/grog-skin/kiosk.js"
   '';
 

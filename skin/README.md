@@ -91,7 +91,8 @@ The [brain](../brain/README.md) serves it at `http://127.0.0.1:8484/`, from
 
 On NixOS, `services.grog.skin.enable` also opens it fullscreen when
 `services.grog.user` logs in, in a window of its own (`kiosk.js`, GTK and
-WebKit) that keeps the screen on. F11 toggles fullscreen, Ctrl+R reloads,
+WebKit) that keeps the screen on while something happens ([its
+screen](#its-screen)). F11 toggles fullscreen, Ctrl+R reloads,
 and Ctrl+Q closes it until the next login. When the GPU hangs and the
 kernel resets it (i915 says so), the window can't draw anymore: it exits,
 and its service starts it again. With
@@ -103,6 +104,24 @@ open `http://localhost:8484/`.
 `skin.captions` is off by default, since anyone who can reach grog could
 watch what's said, and what its tools are used with. grognix turns it on:
 grog is its only user, and whoever is in the room hears it anyway.
+
+## Its screen
+
+To save energy, the window turns the screen off once nothing happened for
+10 minutes (`skin.screenOffMinutes`; `null` keeps it on). It stays on
+while someone talks to grog, while a card waits for someone, and while
+grog restarts, but not for grog's music. It's back on as soon as grog
+hears its name, when grog answers anything (the CLI's questions too),
+something connects or updates, grog restarts, or someone touches it,
+clicks or presses a key: that touch only wakes it, and does nothing else.
+
+The page decides (`screenOn`, in `view.js`) and tells the window, which
+turns the screen off with GNOME's power saving, or with wlroots
+compositors, like cage, by turning their output off (`wlr-randr`): the
+screen gets no signal then, as with power saving. Elsewhere, and in a
+browser, it stays on. GNOME may ignore a laptop's own touch screen while
+it's off, and with cage, a mouse moved while it's off can stray from the
+window: a key, or grog, still wakes it.
 
 ## Development
 

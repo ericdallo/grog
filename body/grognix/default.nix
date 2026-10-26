@@ -124,9 +124,10 @@
     # run apart from it.
     mcp.enable = true;
     # What it's up to, at its address, and on the desktop fullscreen, over
-    # GNOME's overview, keeping the screen on: Super still opens the
-    # overview, F11 leaves fullscreen, Ctrl+Q closes it. With what's said:
-    # grog is the only user here, and whoever is in the room hears it anyway.
+    # GNOME's overview, the screen off once nothing happened for 10 minutes
+    # (settings.skin.screenOffMinutes): Super still opens the overview, F11
+    # leaves fullscreen, Ctrl+Q closes it. With what's said: grog is the
+    # only user here, and whoever is in the room hears it anyway.
     skin.enable = true;
     settings.skin.captions = lib.mkDefault true;
     # When asked (by voice, on its skin, or `grog update`), to the latest

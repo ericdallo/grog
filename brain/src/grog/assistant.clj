@@ -48,15 +48,16 @@
 
 (defn publish-status!
   "Tells whoever watches (grog.events) who grog is (its revision too), how
-  it's paid, its time zone, what can be asked of it, whether its mic is on
-  and the speaker it speaks on, what's connected to it, and what it
-  consumed, now."
+  it's paid, its time zone, how long its screen stays on once nothing
+  happens, what can be asked of it, whether its mic is on and the speaker
+  it speaks on, what's connected to it, and what it consumed, now."
   [ctx]
   (let [config @(:config ctx)]
     (events/publish! (:events ctx) (merge {:type :status
                                            :name (:name config)
                                            :revision (update/revision)
                                            :timezone (config/timezone config)
+                                           :screen-off-minutes (get-in config [:skin :screen-off-minutes])
                                            :actions (actions/available config)
                                            :mic (voice/mic (:voice ctx))
                                            :speaker (voice/speaker (:voice ctx))

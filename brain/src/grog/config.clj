@@ -44,8 +44,9 @@
    ;; grog's skin, a page showing what it's up to (skin/ in the repo), served
    ;; at /: the directory with its files (nil: none). Captions: whether it
    ;; also shows what's said, questions and answers, to anyone who can reach
-   ;; grog.
-   :skin {:dir nil :captions false}
+   ;; grog. Screen off minutes: how long its screen (the skin's fullscreen
+   ;; window) stays on once nothing happens, to save energy (nil: for good).
+   :skin {:dir nil :captions false :screen-off-minutes 10}
    ;; How the update service (`grog updater`, as root) says an update goes,
    ;; a file: with it and hands, grog can update itself when asked (the
    ;; NixOS module's services.grog.update). nil: it can't.
@@ -235,6 +236,8 @@
         (check config [:hands :socket] (some-fn nil? non-blank-string?) "a unix socket path, or null")
         (check config [:skin :dir] (some-fn nil? #(and (string? %) (fs/directory? %))) "a directory or null")
         (check config [:skin :captions] boolean? "true or false")
+        (check config [:skin :screen-off-minutes] (some-fn nil? #(and (number? %) (pos? %)))
+               "a number of minutes, or null to keep the screen on")
         (check config [:update :status] (some-fn nil? non-blank-string?) "a file path, or null")
         (check config [:music :socket] (some-fn nil? non-blank-string?) "a unix socket path, or null")
         (check config [:music :provider] (some-fn nil? non-blank-string?)
