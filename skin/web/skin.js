@@ -41,6 +41,7 @@ import {
   updateNotice,
   usage,
   version,
+  weatherCard,
   wifiSheet,
   wordChanges,
 } from "./view.js";
@@ -57,6 +58,7 @@ const EVENTS = ["snapshot", "voice", "turn", "tool", "tool-detail", "text", "don
   "update",
   "connect",
   "music",
+  "weather",
 ]);
 // How close to its end the chat is still at its end, in pixels.
 const END_PX = 8;
@@ -78,7 +80,7 @@ const els = Object.fromEntries(
     .concat(["card-help-url", "card-buttons", "card-asked"])
     .concat(["open-actions", "close-actions", "sheet", "items", "sheet-error", "sheet-version", "notice"])
     .concat(["player", "open-music", "player-title", "player-artist", "player-time", "player-error"])
-    .concat(["player-artwork", "player-progress-track", "player-progress"])
+    .concat(["player-artwork", "player-progress-track", "player-progress", "weather"])
     .concat(["player-controls", "player-volume", "music-down", "music-up"])
     .concat(["music-sheet", "close-music", "music-note", "music-items", "music-error"])
     .concat(["speakers-sheet", "close-speakers", "speakers-note", "speakers-items", "speakers-error"])
@@ -553,6 +555,35 @@ function drawPlayer(t) {
   });
 }
 
+/**
+ * The weather the model looked up (view.js weatherCard), as a card under
+ * what was said, in place of the steps of the last turn, for a while: drawn
+ * again only when it changes.
+ */
+function drawWeather(t) {
+  const w = weatherCard(state, t, offline);
+  document.body.classList.toggle("weather-shown", Boolean(w));
+  if (els.weather.hidden === Boolean(w)) els.weather.hidden = !w;
+  if (!w) return;
+  once("weather", w, (v) => {
+    const now = el("div", "weather-now");
+    now.innerHTML = icon(v.icon);
+    now.append(el("div", "weather-temperature", v.temperature));
+    const words = el("div", "weather-words");
+    words.append(el("div", "weather-condition", v.condition), el("div", "weather-place", v.place));
+    now.append(words);
+    const days = el("ol", "weather-days");
+    for (const d of v.days) {
+      const li = el("li");
+      li.append(el("span", "weather-day", d.label));
+      li.insertAdjacentHTML("beforeend", icon(d.icon));
+      li.append(el("span", "weather-range", `${d.max} ${d.min}`.trim()), el("span", "weather-rain", d.rain));
+      days.append(li);
+    }
+    els.weather.replaceChildren(now, days);
+  });
+}
+
 /** The song's picture (https, or null), loaded once, hidden until it is or without one. */
 function drawArtwork(url) {
   const img = els["player-artwork"];
@@ -714,6 +745,7 @@ function draw() {
   drawNotice(t);
   drawChat(t);
   drawPipeline(t);
+  drawWeather(t);
   drawPlayer(t);
   drawUsage(t);
   drawSheet();

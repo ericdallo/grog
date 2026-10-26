@@ -61,6 +61,11 @@
    ;; connected integration's); nil: the first connected, else the first
    ;; there. Changed by asking (the settings tool).
    :music {:socket nil :provider nil}
+   ;; The weather (grog.weather): whether the model has its tool, and where
+   ;; it asks Open-Meteo (no key) to find places and their forecasts.
+   :weather {:enable true
+             :geocoding-url "https://geocoding-api.open-meteo.com/v1/search"
+             :forecast-url "https://api.open-meteo.com/v1/forecast"}
    ;; The user's computers grog acts on (grog.computers): the ssh it reaches
    ;; them with.
    :computers {:ssh "ssh"}
@@ -247,6 +252,9 @@
         (check config [:music :socket] (some-fn nil? non-blank-string?) "a unix socket path, or null")
         (check config [:music :provider] (some-fn nil? non-blank-string?)
                "what plays music, like \"youtube-music\", or null")
+        (check config [:weather :enable] boolean? "true or false")
+        (check config [:weather :geocoding-url] url? "a URL")
+        (check config [:weather :forecast-url] url? "a URL")
         (check config [:computers :ssh] non-blank-string? "a program, like \"ssh\"")
         (when (contains? (:computers config) :pairing)
           "computers.pairing: now integrations.host and integrations.port")

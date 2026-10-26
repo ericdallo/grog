@@ -20,6 +20,9 @@ grog's skin: a page showing what grog is up to, for a screen next to it.
   Google: the page lets in pictures from https), the song and its artist,
   its time (counted on by the skin between grog's updates) with a line
   filling up, and its buttons. Hidden while a card shows, under the sheets.
+- When the model looked up the weather, a card for a minute and a half,
+  in place of the steps of the last turn: where, now (big, with its icon),
+  and today, tomorrow and the day after (highs, lows, the chance of rain).
 - When a turn failed, why, in words, even without captions: no internet,
   the AI too slow, busy or out of its limits, signed out, or its own
   failure (the turn's `reason`, as grog says it without its message).

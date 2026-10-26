@@ -27,23 +27,23 @@
   (let [names #(mapv :name (tools/available %))
         hands (assoc-in config/defaults [:hands :socket] "/run/grog-hands/hands.sock")]
     (with-redefs [actions/service? (constantly false)]
-      (is (= ["settings" "memory" "microphone" "connect"] (names config/defaults)))
-      (is (= ["settings" "memory" "microphone" "volume" "system_status" "shell" "power" "connect"] (names hands))))
+      (is (= ["settings" "memory" "microphone" "weather" "connect"] (names config/defaults)))
+      (is (= ["settings" "memory" "microphone" "weather" "volume" "system_status" "shell" "power" "connect"] (names hands))))
     (testing "as a service, it can restart itself"
       (with-redefs [actions/service? (constantly true)]
-        (is (= ["settings" "memory" "microphone" "power" "connect"] (names config/defaults)))))
+        (is (= ["settings" "memory" "microphone" "weather" "power" "connect"] (names config/defaults)))))
     (testing "with the update service, and hands to start it, it can update itself"
       (with-redefs [actions/service? (constantly false)]
-        (is (= ["settings" "memory" "microphone" "volume" "system_status" "shell" "power" "update" "connect"]
+        (is (= ["settings" "memory" "microphone" "weather" "volume" "system_status" "shell" "power" "update" "connect"]
                (names (assoc-in hands [:update :status] "/run/grog-update/status.json"))))
-        (is (= ["settings" "memory" "microphone" "connect"]
+        (is (= ["settings" "memory" "microphone" "weather" "connect"]
                (names (assoc-in config/defaults [:update :status] "/run/grog-update/status.json"))))))))
 
 (deftest offers-capabilities-before-mcp-tools
   (with-redefs [actions/service? (constantly false)
                 capabilities/tools (constantly [{:name "lights"}])
                 mcp-tools/tools (constantly [{:name "ha__GetLiveContext"}])]
-    (is (= ["settings" "memory" "microphone" "lights" "ha__GetLiveContext" "connect"]
+    (is (= ["settings" "memory" "microphone" "weather" "lights" "ha__GetLiveContext" "connect"]
            (mapv :name (tools/available config/defaults))))))
 
 (deftest runs-tools-for-the-model

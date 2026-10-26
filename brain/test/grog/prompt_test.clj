@@ -27,7 +27,8 @@
                 "- Don't use markdown, lists, tables, emojis, links or URLs.\n"
                 "- Write numbers, dates, times and units the way they are spoken.\n"
                 "- If you don't know or aren't sure, say so instead of making things up.\n"
-                "- Use web search when the answer depends on recent or changing information, like news, weather, scores, prices and schedules.\n"
+                "- For the weather, use the weather tool, not web search.\n"
+                "- Use web search when the answer depends on recent or changing information, like news, scores, prices and schedules.\n"
                 "\n"
                 "Context:\n"
                 "- The date and time come just before each question (the home's time zone is America/Sao_Paulo).\n"
@@ -55,8 +56,16 @@
                      (assoc-in [:providers :openai :model] "gpt-6-astra"))]
       (is (str/includes? (prompt/system-prompt config now) "\n- You run on the AI model gpt-6-astra."))))
 
+  (testing "without the weather tool, web search is for the weather too"
+    (let [p (prompt/system-prompt (assoc-in config/defaults [:weather :enable] false) now)]
+      (is (not (str/includes? p "weather tool")))
+      (is (str/includes? p "like news, weather, scores"))))
+
   (testing "web search disabled isn't mentioned"
-    (let [p (prompt/system-prompt (assoc-in config/defaults [:providers :openai :web-search :enable] false) now)]
+    (let [p (prompt/system-prompt (-> config/defaults
+                                      (assoc-in [:providers :openai :web-search :enable] false)
+                                      (assoc-in [:weather :enable] false))
+                                  now)]
       (is (not (str/includes? p "web search")))
       (is (not (str/includes? p "searching the web")))
       (is (str/includes? p "\n- If you don't know or aren't sure, say so instead of making things up.\n\nContext:\n"))

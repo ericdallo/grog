@@ -857,6 +857,84 @@ ol {
   transition: transform 1s linear;
 }
 
+/* The weather the model looked up, a card under what was said, in place of
+   the steps of the last turn, for a while (view.js weatherCard): now, big,
+   then the next days. Nothing in it moves. */
+.weather {
+  flex: none;
+  margin-top: 2.4vmin;
+  padding: 1.6vmin 2vmin;
+  border-radius: 1.4vmin;
+  background: var(--card);
+}
+
+.weather-shown .pipeline {
+  display: none;
+}
+
+.weather-now {
+  display: flex;
+  align-items: center;
+  gap: 2vmin;
+}
+
+.weather-now > svg {
+  flex: none;
+  width: 8vmin;
+  height: 8vmin;
+  stroke-width: 1.5;
+}
+
+.weather-temperature {
+  font: 300 7vmin/1 var(--text);
+}
+
+.weather-words {
+  min-width: 0;
+}
+
+.weather-condition {
+  font: 600 max(2.6vmin, var(--small)) var(--text);
+}
+
+.weather-place {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: max(2.2vmin, var(--small));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weather-days {
+  display: flex;
+  gap: 3vmin;
+  margin: 1.4vmin 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weather-days li {
+  display: flex;
+  align-items: center;
+  gap: 1vmin;
+  font-size: max(2.2vmin, var(--small));
+}
+
+.weather-days svg {
+  flex: none;
+  width: 3.4vmin;
+  height: 3.4vmin;
+}
+
+.weather-day,
+.weather-rain {
+  color: var(--muted);
+}
+
+.weather-rain:empty {
+  display: none;
+}
+
 .player .artist:empty,
 .player .at:empty,
 .player-error:empty,

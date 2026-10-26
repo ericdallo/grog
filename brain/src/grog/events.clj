@@ -61,9 +61,13 @@
                saying what to do now ({:kind ...}: a device-code's :code and
                :url, a script's :command, a code-compare's :code...), its
                :link the page on the network, with its token; nil before any
+    :weather   the weather the model last looked up (grog.weather/card):
+               {:place :now :days :at}; nil before
     :music     what grog's player plays, as grog.music last saw it:
-               {:state :title :artist :album :position-s :duration-s
-               :volume :ducked :index :count :provider :at}, :state
+               {:state :title :artist :album :artwork :position-s
+               :duration-s :volume :ducked :index :count :error :error-at
+               :provider :at}, :error saying why the last song couldn't
+               play (grog-music's), :state
                playing, paused or idle (without a song then), :position-s
                where the song was :at (sent when anything else changes,
                and while it plays, every 5 s or so: screens move its clock
@@ -267,6 +271,7 @@
     :usage (assoc state :usage (:usage event))
     :connect (assoc state :connect (:connect event))
     :music (assoc state :music (:music event))
+    :weather (assoc state :weather (:weather event))
     state))
 
 (defn redact

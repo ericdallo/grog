@@ -60,6 +60,7 @@
    :location (not-empty (location-str (:location config)))
    :model (provider/model config)
    :web_search (boolean (get-in (config/provider-config config) [:web-search :enable]))
+   :weather (boolean (get-in config [:weather :enable]))
    :memory (not-empty (vec memory))})
 
 (defn system-prompt

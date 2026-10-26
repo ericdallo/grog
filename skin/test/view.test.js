@@ -40,6 +40,8 @@ import {
   screenDark,
   screenOn,
   speaksOnScreen,
+  weatherCard,
+  WEATHER_MS,
   seconds,
   shortRevision,
   songTime,
@@ -273,6 +275,50 @@ describe("its face", () => {
     const done = turn([["thinking", NOW - 70_000]], { doneAt: NOW - 60_000, ok: true });
     assert.equal(face(idle, { ...quiet, turn: done }, NOW).state, "idle", "not soon after a turn");
     assert.equal(face(idle, state({ voice: null }), NOW).state, "idle", "nor when it doesn't know");
+  });
+});
+
+describe("the weather", () => {
+  const weather = {
+    place: "Pinheiros, São Paulo",
+    now: { temperature: 13.9, condition: "mainly clear", icon: "moon" },
+    days: [
+      { date: "2026-10-26", weekday: "Monday", min: 13.4, max: 17.5, rainChance: 85, icon: "rain" },
+      { date: "2026-10-27", weekday: "Tuesday", min: 12.7, max: 20.3, rainChance: 2, icon: "storm" },
+      { date: "2026-10-28", weekday: "Wednesday", min: 13.9, max: 21.1, icon: "sun" },
+      { date: "2026-10-29", weekday: "Thursday", min: 14, max: 22, icon: "sun" },
+    ],
+    at: NOW - 1000,
+  };
+
+  it("shows what the model looked up, a while, in words and icons", () => {
+    assert.deepEqual(weatherCard(state({ weather }), NOW), {
+      place: "Pinheiros, São Paulo",
+      temperature: "14°",
+      condition: "Mainly clear",
+      icon: "moon",
+      days: [
+        { label: "Today", max: "18°", min: "13°", rain: "85%", icon: "rain" },
+        { label: "Tomorrow", max: "20°", min: "13°", rain: "2%", icon: "storm" },
+        { label: "Wed", max: "21°", min: "14°", rain: "", icon: "sun" },
+      ],
+    });
+    assert.equal(weatherCard(state({ weather }), NOW - 1000 + WEATHER_MS + 1), null, "then it's gone");
+  });
+
+  it("not before, offline, nor while another card shows", () => {
+    assert.equal(weatherCard(state(), NOW), null);
+    assert.equal(weatherCard(state({ weather }), NOW, true), null);
+    const open = { integration: "computer", status: "open", until: NOW + 60_000, at: NOW };
+    assert.equal(weatherCard(state({ weather, connect: open }), NOW), null);
+  });
+
+  it("with icons it has only", () => {
+    const odd = { ...weather, now: { ...weather.now, icon: "<script>" }, days: [{ ...weather.days[0], icon: 5 }] };
+    const w = weatherCard(state({ weather: odd }), NOW);
+    assert.deepEqual([w.icon, w.days[0].icon], ["cloud", "cloud"]);
+    for (const i of ["sun", "moon", "cloud", "cloud-sun", "rain", "snow", "storm", "fog"]) assert.ok(ICONS[i], i);
+    assert.equal(tool("weather").icon, "cloud-sun");
   });
 });
 

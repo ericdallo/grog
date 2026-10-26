@@ -60,6 +60,7 @@ const TOOLS = {
   power: { label: "Getting ready to restart", done: "Got ready to restart", short: "Power", icon: "power" },
   lights: { label: "Seeing to the lights", done: "Saw to the lights", short: "Lights", icon: "bulb" },
   music: { label: "Seeing to the music", done: "Saw to the music", short: "Music", icon: "music" },
+  weather: { label: "Checking the weather", done: "Checked the weather", short: "Weather", icon: "cloud-sun" },
 };
 
 // What grog says going away (POST /v1/actions/<action>) is about.
@@ -815,6 +816,42 @@ export function nowPlaying(state, now, offline = false) {
         : { action: "music-resume", icon: "play", label: "Play" },
       { action: "music-next", icon: "next", label: "Next" },
     ],
+  };
+}
+
+// How long the weather the model looked up shows, and the icons it comes
+// with (brain/src/grog/weather.clj).
+export const WEATHER_MS = 90_000;
+const WEATHER_ICONS = ["sun", "moon", "cloud", "cloud-sun", "rain", "snow", "storm", "fog"];
+
+/** `t` degrees, rounded ("17°"), or "" when it isn't known. */
+function degrees(t) {
+  return Number.isFinite(t) ? `${Math.round(t)}°` : "";
+}
+
+/**
+ * The weather the model last looked up (state.weather, see
+ * brain/src/grog/events.clj), for a card under what was said, while it's
+ * fresh (WEATHER_MS) and no other card shows: {place, temperature,
+ * condition, icon, days: [{label, max, min, rain, icon}]} (today, tomorrow
+ * and the day after at most), or null.
+ */
+export function weatherCard(state, now, offline = false) {
+  const w = state?.weather;
+  if (offline || !w || !Number.isFinite(w.at) || now - w.at > WEATHER_MS || card(state, now)) return null;
+  const icon = (i) => (WEATHER_ICONS.includes(i) ? i : "cloud");
+  return {
+    place: trimmed(w.place),
+    temperature: degrees(w.now?.temperature),
+    condition: capitalize(trimmed(w.now?.condition)),
+    icon: icon(w.now?.icon),
+    days: (Array.isArray(w.days) ? w.days : []).slice(0, 3).map((d, i) => ({
+      label: ["Today", "Tomorrow"][i] ?? trimmed(d.weekday).slice(0, 3),
+      max: degrees(d.max),
+      min: degrees(d.min),
+      rain: Number.isFinite(d.rainChance) ? `${Math.round(d.rainChance)}%` : "",
+      icon: icon(d.icon),
+    })),
   };
 }
 

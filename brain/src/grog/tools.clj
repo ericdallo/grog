@@ -28,22 +28,25 @@
             [grog.music :as music]
             [grog.settings :as settings]
             [grog.update :as update]
-            [grog.voice :as voice]))
+            [grog.voice :as voice]
+            [grog.weather :as weather]))
 
 (defn available
-  "The tools for a turn: grog's own (its settings, memory and microphone),
-  the machine's when it has hands, `power` when it can restart itself or
-  the machine, `update` when it can update itself, `computer` with
-  computers paired with it, its capability tools (`music` when something
-  plays it, grog.music; `lights` for what's connected, grog.capabilities),
-  those of the MCP servers connected to it (grog.mcp-tools), and
-  `connect`, to connect something."
+  "The tools for a turn: grog's own (its settings, memory and microphone,
+  and the weather unless it's off), the machine's when it has hands,
+  `power` when it can restart itself or the machine, `update` when it can
+  update itself, `computer` with computers paired with it, its capability
+  tools (`music` when something plays it, grog.music; `lights` for what's
+  connected, grog.capabilities), those of the MCP servers connected to it
+  (grog.mcp-tools), and `connect`, to connect something."
   [config]
   (let [power (actions/tool config)
         updating (update/tool config)
         computing (computers/tool config)
-        playing (music/tool config)]
+        playing (music/tool config)
+        forecasting (weather/tool config)]
     (cond-> [settings/tool memory/tool voice/tool]
+      forecasting (conj forecasting)
       (get-in config [:hands :socket]) (into machine/tools)
       power (conj power)
       updating (conj updating)

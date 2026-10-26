@@ -372,6 +372,18 @@ says more than `server.json` does:
 A tool named there also matches a server's ending in `__` and that name
 (`intent__HassTurnOn`), as Home Assistant's change by version.
 
+## Weather
+
+The model has a `weather` tool ([`weather.clj`](src/grog/weather.clj)),
+quicker than searching the web: what it's like now, the next hours (every
+3), and up to 7 days, from [Open-Meteo](https://open-meteo.com) (no key;
+its data CC BY 4.0). At home (`location`) when nothing's said, or a place
+by its name, found with Open-Meteo's geocoding: of those by that name, the
+one the rest of what was said names ("Pinheiros, Espírito Santo"), or the
+nearest home within 150 km (a neighborhood, a park, a town nearby), or else
+the first (Paris). A forecast is kept 10 minutes. The skin shows a card of
+it for a while.
+
 ## Music
 
 The model has one tool for music, `music` ([`music.clj`](src/grog/music.clj)),
@@ -548,6 +560,8 @@ says which one.
 | `skin.screenOff` | `"auto"` | How it turns off: `"auto"`, dark (a dim clock, its signal and its own speakers kept) while grog's voice plays through them (HDMI, DisplayPort), else off; `"dark"`; or `"off"` |
 | `update.status` | `null` | Where the update service says how an update goes: with it and hands, grog can [update itself](#updating) |
 | `music.socket` | `null` | Unix socket of grog-music, the player it plays [music](#music) with. `null`: it plays nothing itself |
+| `weather.enable` | `true` | Whether the model has the [weather](#weather) tool |
+| `weather.geocodingUrl`, `weather.forecastUrl` | Open-Meteo's | Where it finds places, and their forecasts |
 | `music.provider` | `null` | What plays music, by its id: `youtube-music`, or a connected integration's. `null`: the first connected, else the first there. Also changed by asking |
 | `computers.ssh` | `"ssh"` | The ssh it reaches its [computers](#computers) with. The `ssh-keygen` next to it makes grog's key |
 | `integrations.host`, `.port` | `"0.0.0.0"`, `8485` | Where it listens while someone at grog [connects something](#connecting-things), and only then: its page, and what pairs a computer |
