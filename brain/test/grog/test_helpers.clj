@@ -359,21 +359,38 @@
                               :isError false}))
         (json-response {:jsonrpc "2.0" :id (:id msg) :error {:code -32601 :message "Method not found"}})))))
 
+(defn ha-answer
+  "What Home Assistant's conversation agent answers
+  /api/conversation/process with: its `type` (action_done, query_answer or
+  error), what it says, and an error's `code`."
+  [type speech & [code]]
+  {:continue_conversation false
+   :conversation_id "01JCONVERSATION"
+   :response {:response_type type
+              :language "pt-BR"
+              :data (if code {:code code} {:targets [] :success [] :failed []})
+              :speech {:plain {:speech speech :extra_data nil}}}})
+
 (defn start-ha!
   "Starts a fake Home Assistant, as its source has it: its sign-in
   (/auth/authorize answering 302 to the redirect_uri with a code, its
   client id any address whose host and port are the redirect's;
   /auth/token taking that code with its PKCE verifier, and refresh tokens,
   giving no new one; /auth/revoke), /api/config (location_name \"Home\"),
-  and its MCP server at /api/mcp/assist (prefixed tools) and /api/mcp (as
-  older ones: unprefixed). Every /api/* wants a token it gave or the
-  long-lived \"llat-1\". `switches` (an atom of a set) changes it: :no-assist
-  (an older one: /api/mcp/assist is 404), :no-mcp (no MCP server set up:
-  both 404), :forbidden (/api/mcp only for admins: 403). With :expires-in
-  its tokens' life in seconds. Returns {:url :requests :calls :revoked
-  :switches :stop!}: requests {:method :uri :query :headers :body} (body as
-  text), calls {:uri :token :name :arguments}, revoked tokens."
-  [& [{:keys [expires-in] :or {expires-in 1800}}]]
+  its MCP server at /api/mcp/assist (prefixed tools) and /api/mcp (as
+  older ones: unprefixed), and its conversation agent at
+  /api/conversation/process, answering (converse body) (with :delay-ms, that
+  much later), by default that it didn't understand. Every /api/* wants a
+  token it gave or the long-lived \"llat-1\". `switches` (an atom of a set)
+  changes it: :no-assist (an older one: /api/mcp/assist is 404), :no-mcp
+  (no MCP server set up: both 404), :forbidden (/api/mcp only for admins:
+  403). With :expires-in its tokens' life in seconds. Returns {:url
+  :requests :calls :revoked :switches :stop!}: requests {:method :uri
+  :query :headers :body} (body as text), calls {:uri :token :name
+  :arguments}, revoked tokens."
+  [& [{:keys [expires-in converse]
+       :or {expires-in 1800
+            converse (fn [_] (ha-answer "error" "Desculpe, não consegui entender seu pedido" "no_intent_match"))}}]]
   (let [requests (atom [])
         calls (atom [])
         revoked (atom [])
@@ -443,6 +460,12 @@
 
                       (= "/api/config" (:uri req))
                       (json-response {:location_name "Home" :version "2026.10.0" :internal_url nil})
+
+                      (= "/api/conversation/process" (:uri req))
+                      (let [{:keys [delay-ms] :as answer} (converse (json/parse-string body true))]
+                        ;; Stopped meanwhile, it's interrupted.
+                        (try (some-> delay-ms Thread/sleep) (catch InterruptedException _ nil))
+                        (json-response (dissoc answer :delay-ms)))
 
                       (#{"/api/mcp/assist" "/api/mcp"} (:uri req))
                       (cond

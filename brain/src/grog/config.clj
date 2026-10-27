@@ -66,6 +66,10 @@
    :weather {:enable true
              :geocoding-url "https://geocoding-api.open-meteo.com/v1/search"
              :forecast-url "https://api.open-meteo.com/v1/forecast"}
+   ;; Commands a connected Home Assistant does by itself (grog.assist):
+   ;; whether what's asked goes to its own conversation agent first, which
+   ;; acts at once on what it understands, before the model.
+   :assist {:enable true}
    ;; The user's computers grog acts on (grog.computers): the ssh it reaches
    ;; them with.
    :computers {:ssh "ssh"}
@@ -259,6 +263,7 @@
         (check config [:weather :enable] boolean? "true or false")
         (check config [:weather :geocoding-url] url? "a URL")
         (check config [:weather :forecast-url] url? "a URL")
+        (check config [:assist :enable] boolean? "true or false")
         (check config [:computers :ssh] non-blank-string? "a program, like \"ssh\"")
         (when (contains? (:computers config) :pairing)
           "computers.pairing: now integrations.host and integrations.port")

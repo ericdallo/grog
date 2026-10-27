@@ -1,8 +1,11 @@
 (ns grog.assistant
   "A turn of conversation: the history, the system prompt, the tools and the
-  provider's answer. The HTTP API (grog.api) goes through `reply!`."
+  provider's answer, or a connected Home Assistant's, when it did what was
+  asked by itself (grog.assist). The HTTP API (grog.api) goes through
+  `reply!`."
   (:require [clojure.string :as str]
             [grog.actions :as actions]
+            [grog.assist :as assist]
             [grog.config :as config]
             [grog.conversation :as conversation]
             [grog.events :as events]
@@ -186,36 +189,43 @@
             (when (not= history heard)
               (conversation/save! store id heard now-ms opts))
             (vreset! asked [messages now-ms opts offered])
-            (let [{:keys [text stop-reason usage quota]} (provider/stream-reply!
-                                                          config
-                                                          {:system (prompt/system-prompt
-                                                                    config clock {:memory @memory})
+            (if-let [done (assist/act! ctx message)]
+              ;; Home Assistant did it by itself (grog.assist): its answer.
+              (do (on-text done)
+                  (log/info (format "chat conversation=%s assist ms=%d" id (elapsed-ms)))
+                  (conversation/save! store id (conj messages {:role "assistant" :content done}) now-ms opts)
+                  (publish! {:type :done :ms (elapsed-ms) :tools []})
+                  done)
+              (let [{:keys [text stop-reason usage quota]} (provider/stream-reply!
+                                                            config
+                                                            {:system (prompt/system-prompt
+                                                                      config clock {:memory @memory})
                                                            ;; When it is, said just before the question
                                                            ;; and not kept (grog.prompt/time-note).
-                                                           :messages (into heard [(prompt/time-note clock) (peek messages)])
-                                                           :location (:location config)
-                                                           :timezone (config/timezone config)
-                                                           :tools (tools/definitions offered)
-                                                           :call-tool (tools/runner ctx offered turn)
-                                                           :cancel cancel}
-                                                          on-text
-                                                          on-tool)]
-              (log/info (format "chat conversation=%s provider=%s ms=%d usage=%s%s"
-                                id (:provider config) (elapsed-ms) (pr-str usage)
-                                (if (seq @used) (str " tools=" (str/join "," @used)) "")))
-              (usage/record! ctx usage)
-              (usage/update-quota! ctx quota)
-              (usage/publish! ctx)
-              (when (str/blank? text)
-                (throw (ex-info (format "The model gave no answer (%s)." (or stop-reason "no reason given"))
-                                {:type ::no-answer})))
+                                                             :messages (into heard [(prompt/time-note clock) (peek messages)])
+                                                             :location (:location config)
+                                                             :timezone (config/timezone config)
+                                                             :tools (tools/definitions offered)
+                                                             :call-tool (tools/runner ctx offered turn)
+                                                             :cancel cancel}
+                                                            on-text
+                                                            on-tool)]
+                (log/info (format "chat conversation=%s provider=%s ms=%d usage=%s%s"
+                                  id (:provider config) (elapsed-ms) (pr-str usage)
+                                  (if (seq @used) (str " tools=" (str/join "," @used)) "")))
+                (usage/record! ctx usage)
+                (usage/update-quota! ctx quota)
+                (usage/publish! ctx)
+                (when (str/blank? text)
+                  (throw (ex-info (format "The model gave no answer (%s)." (or stop-reason "no reason given"))
+                                  {:type ::no-answer})))
               ;; Marked, so that grog learns nothing from it (grog.learning).
-              (conversation/save! store id
-                                  (conj messages (cond-> {:role "assistant" :content text}
-                                                   (read-others? usage offered @used) (assoc :read-others? true)))
-                                  now-ms opts)
-              (publish! {:type :done :ms (elapsed-ms) :tools @used})
-              text))
+                (conversation/save! store id
+                                    (conj messages (cond-> {:role "assistant" :content text}
+                                                     (read-others? usage offered @used) (assoc :read-others? true)))
+                                    now-ms opts)
+                (publish! {:type :done :ms (elapsed-ms) :tools @used})
+                text)))
           (catch Throwable e
             (let [cancelled? (boolean (and cancel (realized? cancel)))]
               (when-let [[messages now-ms opts offered] (when cancelled? @asked)]

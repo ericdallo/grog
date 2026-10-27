@@ -332,6 +332,17 @@ The connection takes the name Home Assistant has for the home. Its tokens
 refresh on their own, and disconnecting revokes them (a pasted token stays:
 delete it in Home Assistant).
 
+What you ask goes to Home Assistant's own conversation agent first
+([`assist.clj`](src/grog/assist.clj)): Assist, which matches sentences
+against its own, without a model, in milliseconds. When it acts on it
+("liga a luz da cozinha"), its answer ("Ligado") is grog's, seconds
+sooner, and the model sees it in the conversation later. Otherwise the
+model answers, as usual: when it doesn't understand, or answers a
+question, as it only knows what Home Assistant knows, not what grog
+remembers. Its sentences know the names, areas and aliases Home Assistant
+has, and lights as lights: a switch with a lamp on it is one once shown
+as a light there. `assist.enable` turns it off.
+
 ### Lights
 
 The model has one tool for lights, `lights`
@@ -582,6 +593,7 @@ says which one.
 | `music.socket` | `null` | Unix socket of grog-music, the player it plays [music](#music) with. `null`: it plays nothing itself |
 | `weather.enable` | `true` | Whether the model has the [weather](#weather) tool |
 | `weather.geocodingUrl`, `weather.forecastUrl` | Open-Meteo's | Where it finds places, and their forecasts |
+| `assist.enable` | `true` | Whether a connected Home Assistant does what it understands by itself, before the model ([Home Assistant](#home-assistant)) |
 | `music.provider` | `null` | What plays music, by its id: `youtube-music`, or a connected integration's. `null`: the first connected, else the first there. Also changed by asking |
 | `computers.ssh` | `"ssh"` | The ssh it reaches its [computers](#computers) with. The `ssh-keygen` next to it makes grog's key |
 | `integrations.host`, `.port` | `"0.0.0.0"`, `8485` | Where it listens while someone at grog [connects something](#connecting-things), and only then: its page, and what pairs a computer |

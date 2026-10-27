@@ -141,6 +141,15 @@
                         fresh))]
           {"Authorization" (str "Bearer " (:access-token fresh))})))))
 
+(defn headers!
+  "The headers a request to connection `id`'s remote takes: those it
+  connected with, and its token, refreshed when it expires (and kept).
+  Throws ex-info ::signed-out when it needs signing in again."
+  [ctx id]
+  (let [secrets (connections/secrets (config/state-dir @(:config ctx)) id)]
+    (merge (into {} (for [[k v] (:headers secrets)] [(name k) v]))
+           ((bearer ctx id)))))
+
 (defn ^:private lock-of [ctx id]
   (get-in (swap! (:servers ctx) update-in [:locks id] #(or % (Object.))) [:locks id]))
 
