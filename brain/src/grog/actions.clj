@@ -20,6 +20,7 @@
             [grog.machine :as machine]
             [grog.music :as music]
             [grog.player :as player]
+            [grog.timers :as timers]
             [grog.update :as update]
             [grog.voice :as voice]
             [grog.wifi :as wifi]))
@@ -150,8 +151,9 @@
 
 (defn ^:private listen!
   "Asks grog-voice to listen now, without its name, turning its mic on first
-  when it's off."
+  when it's off: the timers going off stop."
   [{:keys [voice] :as ctx}]
+  (timers/silence! ctx)
   (when (= "off" (voice/mic voice))
     (voice/set-mic! ctx true))
   (voice/ask! voice :listen)
@@ -159,8 +161,10 @@
 
 (defn ^:private stop!
   "Asks grog-voice to stop answering, the turn under way, if any, ending
-  then, stopped (grog.events), and pauses grog's music."
+  then, stopped (grog.events), stops the timers going off, and pauses
+  grog's music."
   [{:keys [voice events] :as ctx}]
+  (timers/silence! ctx)
   (music/pause! ctx)
   (events/publish! events {:type :stop})
   (voice/ask! voice :stop)

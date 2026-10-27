@@ -23,6 +23,11 @@ grog's skin: a page showing what grog is up to, for a screen next to it.
 - When the model looked up the weather, a card for a minute and a half,
   in place of the steps of the last turn: where, now (big, with its icon),
   and today, tomorrow and the day after (highs, lows, the chance of rain).
+- The timers, alarms and reminders set, on a line under the time: a timer
+  counting down, the others at their time (with the day when it isn't
+  today), labeled with captions. One going off turns grog amber, its face
+  shaking with the timer as its pupil, and keeps the screen on until it's
+  stopped.
 - When a turn failed, why, in words, even without captions: no internet,
   the AI too slow, busy or out of its limits, signed out, or its own
   failure (the turn's `reason`, as grog says it without its message).
@@ -50,7 +55,8 @@ On a touch screen, or with a mouse:
 
 - Touching grog's face talks to it, no name needed. While it answers, it
   stops it, and pauses the music. With its mic off, it turns it on and
-  listens.
+  listens. While a timer goes off, it stops it, as its Stop under the time
+  does.
 - The button by the clock opens its actions: the volume (of the speaker
   grog speaks on), the mic, its speakers, its Wi-Fi, a new conversation,
   its integrations (signing in to ChatGPT or out of it,
@@ -116,8 +122,8 @@ grog is its only user, and whoever is in the room hears it anyway.
 
 To save energy, the window turns the screen off once nothing happened for
 10 minutes (`skin.screenOffMinutes`; `null` keeps it on). It stays on
-while someone talks to grog, while a card waits for someone, and while
-grog restarts, but not for grog's music. It's back on as soon as grog
+while someone talks to grog, while a timer goes off, while a card waits
+for someone, and while grog restarts, but not for grog's music. It's back on as soon as grog
 hears its name, when grog answers anything (the CLI's questions too),
 something connects or updates, grog restarts, or someone touches it,
 clicks or presses a key: that touch only wakes it, and does nothing else.

@@ -8,6 +8,8 @@ import functools
 import math
 
 VOLUME = 0.18  # about -15 dBFS; speech peaks near 0 dBFS (see speech.py)
+# A timer going off is meant to be heard across the room: about -11 dBFS.
+ALARM_VOLUME = 0.32
 
 
 def _pluck(rate, hz, seconds, decay_s, octave, volume=VOLUME):
@@ -26,11 +28,11 @@ def _pluck(rate, hz, seconds, decay_s, octave, volume=VOLUME):
     ]
 
 
-def _render(rate, notes, decay_s, octave):
+def _render(rate, notes, decay_s, octave, volume=VOLUME):
     """Notes as (hz, seconds, silence after) to 16-bit PCM."""
     samples = []
     for hz, seconds, gap in notes:
-        samples += _pluck(rate, hz, seconds, decay_s, octave)
+        samples += _pluck(rate, hz, seconds, decay_s, octave, volume)
         samples += [0.0] * int(rate * gap)
     return array.array("h", (round(32767 * s) for s in samples)).tobytes()
 
@@ -66,3 +68,12 @@ def error(rate):
     """Couldn't answer: two low notes falling a minor third (G4, E♭4), out of
     the key the others share, ringing long enough to be heard."""
     return _render(rate, [(392, 0.12, 0.03), (311, 0.25, 0.0)], decay_s=0.1, octave=0.25)
+
+
+@functools.cache
+def alarm(rate):
+    """A timer going off: a rising arpeggio (G5, C6, E6, G6), twice, louder
+    than the others (ALARM_VOLUME) and ringing longer, to be heard across the
+    room before what grog says of it."""
+    run = [(784, 0.09, 0.03), (1047, 0.09, 0.03), (1319, 0.09, 0.03), (1568, 0.24, 0.2)]
+    return _render(rate, run * 2, decay_s=0.12, octave=0.2, volume=ALARM_VOLUME)

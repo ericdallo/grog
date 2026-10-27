@@ -37,6 +37,7 @@ import {
   stale,
   tap,
   timeFormats,
+  timerList,
   typed,
   updateNotice,
   usage,
@@ -59,6 +60,7 @@ const EVENTS = ["snapshot", "voice", "turn", "tool", "tool-detail", "text", "don
   "connect",
   "music",
   "weather",
+  "timers",
 ]);
 // How close to its end the chat is still at its end, in pixels.
 const END_PX = 8;
@@ -80,7 +82,7 @@ const els = Object.fromEntries(
     .concat(["card-help-url", "card-buttons", "card-asked"])
     .concat(["open-actions", "close-actions", "sheet", "items", "sheet-error", "sheet-version", "notice"])
     .concat(["player", "open-music", "player-title", "player-artist", "player-time", "player-error"])
-    .concat(["player-artwork", "player-progress-track", "player-progress", "weather"])
+    .concat(["player-artwork", "player-progress-track", "player-progress", "weather", "timers"])
     .concat(["player-controls", "player-volume", "music-down", "music-up"])
     .concat(["music-sheet", "close-music", "music-note", "music-items", "music-error"])
     .concat(["speakers-sheet", "close-speakers", "speakers-note", "speakers-items", "speakers-error"])
@@ -143,10 +145,15 @@ let screenTold = null;
 
 const now = () => Date.now() + skew;
 
-function format(kind, t) {
+/** The formats for grog's time zone (view.js timeFormats). */
+function zoned() {
   const timezone = state?.timezone;
   if (formats.timezone !== timezone) formats = { timezone, ...timeFormats(timezone) };
-  return formats[kind].format(new Date(t));
+  return formats;
+}
+
+function format(kind, t) {
+  return zoned()[kind].format(new Date(t));
 }
 
 function icon(name) {
@@ -584,6 +591,31 @@ function drawWeather(t) {
   });
 }
 
+/**
+ * The timers, alarms and reminders set (view.js timerList), on a line under
+ * the clock, counting down: those going off stop at a touch.
+ */
+function drawTimers(t) {
+  const list = timerList(state, t, zoned(), offline);
+  if (els.timers.hidden === Boolean(list.length)) els.timers.hidden = !list.length;
+  once("timers", list, (items) => {
+    els.timers.replaceChildren(
+      ...items.map((item) => {
+        const li = el("li", item.ringing ? "ringing" : null);
+        const what = item.ringing ? el("button") : el("span");
+        if (item.ringing) {
+          what.type = "button";
+          what.dataset.action = "stop";
+        }
+        what.innerHTML = icon(item.icon);
+        what.append(el("span", "what", item.label), el("span", item.ringing ? "stop" : "when", item.ringing ? "Stop" : item.when));
+        li.append(what);
+        return li;
+      }),
+    );
+  });
+}
+
 /** The song's picture (https, or null), loaded once, hidden until it is or without one. */
 function drawArtwork(url) {
   const img = els["player-artwork"];
@@ -743,6 +775,7 @@ function draw() {
   drawBrand(t);
   drawCard(t);
   drawNotice(t);
+  drawTimers(t);
   drawChat(t);
   drawPipeline(t);
   drawWeather(t);
@@ -1192,6 +1225,11 @@ els["close-actions"].addEventListener("click", closeSheet);
 els.items.addEventListener("click", (e) => {
   const button = e.target.closest("button[data-action]");
   if (button) choose(button);
+});
+// Stopping the timers going off: they keep showing when that failed.
+els.timers.addEventListener("click", (e) => {
+  const button = e.target.closest("button[data-action]");
+  if (button) ask(button.dataset.action, null, () => {});
 });
 // Allowing what asks to connect, or not, or no longer connecting it.
 els["card-buttons"].addEventListener("click", (e) => {

@@ -63,6 +63,9 @@
                :link the page on the network, with its token; nil before any
     :weather   the weather the model last looked up (grog.weather/card):
                {:place :now :days :at}; nil before
+    :timers    the timers, alarms and reminders set (grog.timers/view):
+               [{:id :kind :label :at :ringing}], soonest first, :label only
+               with captions
     :music     what grog's player plays, as grog.music last saw it:
                {:state :title :artist :album :artwork :position-s
                :duration-s :volume :ducked :index :count :error :error-at
@@ -93,8 +96,10 @@
 (def ^:private history-max 20)
 
 (def voice-states
-  "What grog-voice says it's doing (voice/grog_voice/reporter.py)."
-  #{"loading" "listening" "hearing" "awake" "asked" "answering" "speaking" "error" "no-mic" "muted"})
+  "What grog-voice says it's doing (voice/grog_voice/reporter.py):
+  announcing is saying what grog asked it to, not a turn (grog.timers)."
+  #{"loading" "listening" "hearing" "awake" "asked" "answering" "speaking" "announcing" "error" "no-mic"
+    "muted"})
 
 (defn now-ms
   "The clock (tests redefine it)."
@@ -272,12 +277,14 @@
     :connect (assoc state :connect (:connect event))
     :music (assoc state :music (:music event))
     :weather (assoc state :weather (:weather event))
+    :timers (assoc state :timers (:timers event))
     state))
 
 (defn redact
-  "`event` without what was said in it."
+  "`event` without what was said in it: timers without their labels too."
   [event]
-  (dissoc event :question :said :text :error :heard :detail))
+  (cond-> (dissoc event :question :said :text :error :heard :detail)
+    (:timers event) (update :timers (partial mapv #(dissoc % :label)))))
 
 (defn new-hub
   "Where the state lives and who watches it. `captions?` tells whether what's
@@ -303,8 +310,9 @@
          (contains? #{"answering" "speaking"} voice-state)
          (< (- (now-ms) seen) voice-gone-ms))))
 
-;; grog-voice's states while someone talks to grog: once it heard its name.
-(def ^:private talking-states #{"awake" "asked" "answering" "speaking"})
+;; grog-voice's states while someone talks to grog: once it heard its name;
+;; and while it says a timer going off.
+(def ^:private talking-states #{"awake" "asked" "answering" "speaking" "announcing"})
 
 ;; A turn this old is over, whatever it said.
 (def ^:private turn-max-ms (* 5 60 1000))
@@ -312,7 +320,7 @@
 (defn busy?
   "Whether someone is talking to grog, as `state` says at `now`: grog-voice
   heard its name lately, and is listening, waiting for the answer or saying
-  it, or a turn is under way."
+  it (or a timer going off), or a turn is under way."
   [{:keys [voice turn]} now]
   (boolean
    (or (and (contains? talking-states (:state voice))

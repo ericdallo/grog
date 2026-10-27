@@ -12,6 +12,7 @@
             [grog.prompt :as prompt]
             [grog.provider :as provider]
             [grog.settings :as settings]
+            [grog.timers :as timers]
             [grog.tools :as tools]
             [grog.update :as update]
             [grog.usage :as usage]
@@ -24,7 +25,8 @@
   turn's number), what grog is up to, for whoever watches (grog.events),
   what it asks of grog-voice (grog.voice), what it consumed (grog.usage),
   how connecting something goes (grog.connect), the MCP servers running
-  (grog.servers) and the calls asked of the user first (grog.asks)."
+  (grog.servers), the calls asked of the user first (grog.asks) and the
+  timers set (grog.timers)."
   [config]
   (let [overrides (settings/load-overrides config)
         live-config (atom (settings/apply-overrides config overrides))]
@@ -44,7 +46,8 @@
      :quota-failing? (atom false)
      :connect (atom nil)
      :servers (atom {})
-     :asks (atom {})}))
+     :asks (atom {})
+     :timers (atom (timers/load-timers config))}))
 
 (defn publish-status!
   "Tells whoever watches (grog.events) who grog is (its revision too), how

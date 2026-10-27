@@ -38,6 +38,14 @@ said otherwise.
   (`voice/grog_voice/commands.py`). Until then grog-voice could only tell
   grog what it was doing. grog also tells it when its music plays, to
   listen for its name in short windows over it (see "Music" below).
+- Since October 27, 2026 grog can ask it to say something though no one
+  asked (`say`): a timer going off (`brain/src/grog/timers.clj`). Its
+  alarm sound (about -11 dBFS, 1.6 s, louder and longer than the other
+  earcons), then what the timer says, through the answer's path
+  (`Mouth.announce`: calmed, its echo known), once it's done answering;
+  stopped like an answer, and an answer starting stops it first. It tells
+  grog it's `announcing`, not `speaking`: no turn of grog's is said then
+  (the ReSpeaker's ring breathes amber).
 - It listens while grog answers: its name then cuts the answer off, and
   what follows it is answered instead. While grog's sounds play, only what's
   louder than their echo is heard, which with the station's speaker at full

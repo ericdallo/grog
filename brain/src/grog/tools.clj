@@ -27,13 +27,14 @@
             [grog.memory :as memory]
             [grog.music :as music]
             [grog.settings :as settings]
+            [grog.timers :as timers]
             [grog.update :as update]
             [grog.voice :as voice]
             [grog.weather :as weather]))
 
 (defn available
   "The tools for a turn: grog's own (its settings, memory and microphone,
-  and the weather unless it's off), the machine's when it has hands,
+  timers, and the weather unless it's off), the machine's when it has hands,
   `power` when it can restart itself or the machine, `update` when it can
   update itself, `computer` with computers paired with it, its capability
   tools (`music` when something plays it, grog.music; `lights` for what's
@@ -45,7 +46,7 @@
         computing (computers/tool config)
         playing (music/tool config)
         forecasting (weather/tool config)]
-    (cond-> [settings/tool memory/tool voice/tool]
+    (cond-> [settings/tool memory/tool voice/tool timers/tool]
       forecasting (conj forecasting)
       (get-in config [:hands :socket]) (into machine/tools)
       power (conj power)

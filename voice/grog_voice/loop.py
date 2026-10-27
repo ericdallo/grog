@@ -4,8 +4,9 @@ mouth.py), listening meanwhile: someone calling grog then ("Grog", or
 "Grog, ...") cuts the answer off at once, and what they say is answered
 instead. While grog's own sound plays, what the mic hears of it isn't
 taken for speech (see echo.py): only someone heard over it. grog may also
-ask it to listen now, to stop answering, or to turn its mic off, and tells
-it when it plays music (see commands.py)."""
+ask it to listen now, to stop answering, to turn its mic off, or to say
+something though no one asked (a timer going off), and tells it when it
+plays music (see commands.py)."""
 
 import logging
 import threading
@@ -22,12 +23,17 @@ log = logging.getLogger("grog_voice")
 # said next needs none.
 AWAKE_S = 8.0
 
-# What it tells grog while it answers.
-ANSWERING = ("answering", "speaking")
+# What it tells grog while it answers, or says what grog asked it to.
+ANSWERING = ("answering", "speaking", "announcing")
 
 # How often, at most, its sound says grog is back: grog may come and go a few
 # times as it restarts.
 BACK_EVERY_S = 60.0
+
+# What grog asks it to say waits this long, at most, for it to be done
+# answering, looking this often (see Voice.say).
+SAY_WAIT_S = 60.0
+SAY_POLL_S = 0.2
 
 
 @dataclass
@@ -95,6 +101,9 @@ class Voice:
         self.cut_off = None
         self._telling = threading.Lock()
         self._back_at = None  # when its sound last said grog is back
+        self._saying = threading.Lock()
+        self._to_say = []  # what grog asked it to say, still to: (text, sound, until when)
+        self._announcing = False  # a thread says it
         self.mouth = Mouth(
             tts=tts,
             player=lambda rate: player(rate, self.speaker),
@@ -218,8 +227,10 @@ class Voice:
         return turn, then
 
     def _called(self):
-        """Someone turned out to talk to grog: what it answers, if anything,
-        is cut off at once."""
+        """Someone turned out to talk to grog: what it answers or announces,
+        if anything, is cut off at once, and what it was to announce goes
+        (grog stops its timers going off then)."""
+        self._hush()
         if self.mouth.state is not None and not self.mouth.stopping.is_set():
             log.info("called while answering: cutting it off")
             self.mouth.stop()
@@ -249,11 +260,63 @@ class Voice:
 
     def listen_now(self):
         """Listens to what's said next without its name, as if called, once
-        it stopped what it was saying, if anything: its sound says it
-        listens."""
+        it stopped what it was saying, if anything, and dropped what it was
+        to announce: its sound says it listens."""
+        self._hush()
         self.mouth.stop()
         self.wake_up("awake")
         self.mouth.chime("listening")
+
+    def say(self, text, sound=None):
+        """Says `text` though no one asked (grog's timer going off), after
+        earcon `sound`, on a thread: once it's done answering, if it is
+        (SAY_WAIT_S at most, else it goes unsaid), one after the other, as
+        asked; the same thing asked again while it waits, once."""
+        with self._saying:
+            said = (text, sound)
+            self._to_say = [s for s in self._to_say if s[:2] != said]
+            self._to_say.append((text, sound, time.monotonic() + SAY_WAIT_S))
+            if self._announcing:
+                return
+            self._announcing = True
+        threading.Thread(target=self._announce, daemon=True, name="say").start()
+
+    def _announce(self):
+        """Says what grog asked it to (see say), until there's nothing left."""
+        while (said := self._next_to_say()) is not None:
+            if not self.mouth.announce(*said):
+                time.sleep(SAY_POLL_S)
+                continue
+            with self._saying:
+                self._to_say = [s for s in self._to_say if s[:2] != said]
+            self._spoke()
+
+    def _next_to_say(self):
+        """What it says next, (text, sound), dropping what waited too long; or
+        None, the thread saying it gone then."""
+        with self._saying:
+            now = time.monotonic()
+            if late := [s for s in self._to_say if s[2] <= now]:
+                log.info("not announcing %d: still answering", len(late))
+            self._to_say = [s for s in self._to_say if s[2] > now]
+            if not self._to_say:
+                self._announcing = False
+                return None
+            return self._to_say[0][:2]
+
+    def _hush(self):
+        """Drops what it was to announce."""
+        with self._saying:
+            self._to_say = []
+
+    def _spoke(self):
+        """An announcement is over: grog is told what it does now, unless it
+        was told something else meanwhile (someone talking to grog, say), as
+        no frame may come from the mic to tell it (switched off)."""
+        with self._telling:
+            announcing = self.told == "announcing"
+        if announcing:
+            self.tell(self.mouth.state or self.awake() or "listening")
 
     def back(self):
         """grog answers, at first or again after it was away (it restarted,
@@ -268,7 +331,9 @@ class Voice:
         self.mouth.chime("back")
 
     def stop(self):
-        """Stops answering, if it is: what it says is cut off."""
+        """Stops answering or announcing, if it is: what it says is cut off,
+        and what it was to announce goes."""
+        self._hush()
         self.mouth.stop()
 
     def set_mic(self, on):

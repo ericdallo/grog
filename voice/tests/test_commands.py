@@ -26,6 +26,9 @@ class FakeVoice:
     def stop(self):
         self.did.append("stop")
 
+    def say(self, text, sound=None):
+        self.did.append(("say", text, sound))
+
     def back(self):
         self.did.append("back")
 
@@ -113,6 +116,31 @@ class CommandsTest(unittest.TestCase):
             "once while it fails",
         )
 
+    def test_what_grog_asks_to_say_as_it_comes(self):
+        attached = threading.Event()
+        connect = grog(
+            [
+                ("snapshot", {"mic": "on"}),
+                ("say", {"text": "O macarrão está pronto.", "sound": "alarm"}),
+                ("say", {"text": "Hora do remédio."}),
+            ],
+            gate=attached,
+        )
+        c = self.commands(connect)
+        v = FakeVoice()
+        c.attach(v)
+        attached.set()
+        self.assertTrue(connect.said_all.wait(5))
+        self.assertEqual(
+            [
+                ("mic", True),
+                "back",
+                ("say", "O macarrão está pronto.", "alarm"),
+                ("say", "Hora do remédio.", None),
+            ],
+            v.did,
+        )
+
     def test_what_makes_no_sense_is_ignored(self):
         connect = grog(
             [
@@ -123,6 +151,8 @@ class CommandsTest(unittest.TestCase):
                 ("music", {"music": "yes"}),
                 ("music", [True]),
                 ("mic", {"music": True}),
+                ("say", {"sound": "alarm"}),
+                ("say", ["O chá"]),
             ]
         )
         c = self.commands(connect)

@@ -6,8 +6,9 @@ nothing happens at all: grog works with any mic.
 At rest the ring is off. While someone talks to grog, or it waits for them
 (called, or asking), it points at them, as the XVF3800 knows where speech
 comes from; while grog thinks it spins, while it speaks it stays lit green,
-in the skin's colors (skin/web/skin.css); red a moment when something
-went wrong, dim red while grog's mic is off, amber without a mic. grog's
+in the skin's colors (skin/web/skin.css); it breathes amber while it says
+a timer going off; red a moment when something went wrong, dim red while
+grog's mic is off, amber without a mic. grog's
 mic off mutes its mics in hardware (its red LED lights), and its button
 switches grog's mic off or on through grog (POST /v1/actions/mic), which
 tells grog-voice back. Its own mute is off meanwhile, and on again once
@@ -218,6 +219,8 @@ def look(state, frame=0, spins=True):
         return (("LED_RING_COLOR", spinner(frame)), ("LED_EFFECT", (RING,))) if spins else breathing(THINKING)
     if state == "speaking":
         return solid(scaled(SPEAKING, 0.6))
+    if state == "announcing":
+        return breathing(AMBER)
     if state == "error":
         return solid(scaled(RED, 0.6))
     if state == "muted":

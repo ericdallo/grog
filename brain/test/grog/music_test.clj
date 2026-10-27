@@ -279,6 +279,9 @@
             (is (h/eventually 2000 #(= ["duck" "unduck" "duck"] (sent))))
             (voice! "muted")
             (is (h/eventually 2000 #(= ["duck" "unduck" "duck" "unduck"] (sent)))))
+          (testing "and while it says a timer going off"
+            (voice! "announcing")
+            (is (h/eventually 2000 #(= ["duck" "unduck" "duck" "unduck" "duck"] (sent)))))
           (finally (music/unwatch-voice! ctx))))))
   (testing "nothing without a player, and nothing goes wrong"
     (let [ctx (context nil)]

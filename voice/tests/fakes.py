@@ -21,7 +21,9 @@ SETTINGS = {
 # Partials: what was said so far, transcribed while they talk.
 PARTIAL = {**SETTINGS, "partialMs": 300}
 HEARD, ANSWER = "que horas são", "São dez e quinze. Mais alguma coisa?"
-ACK, LISTENING, ERROR, BACK = (s(22050) for s in (sounds.ack, sounds.listening, sounds.error, sounds.back))
+ACK, LISTENING, ERROR, BACK, ALARM = (
+    s(22050) for s in (sounds.ack, sounds.listening, sounds.error, sounds.back, sounds.alarm)
+)
 # What PausingTts says after a text: a second of sound, then, after a
 # sentence, a pause of 0.4 s.
 SOUND, PAUSE = b"\x01\x00" * 22050, Silence(2 * 8820)

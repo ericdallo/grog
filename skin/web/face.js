@@ -230,6 +230,10 @@ function act(face, state) {
     case "loading":
       peeks(face);
       break;
+    case "ringing":
+      face.react(".fx", JINGLE, 640);
+      face.loop(1500, 2000, () => face.react(".fx", JINGLE, 640));
+      break;
   }
 }
 
@@ -324,6 +328,16 @@ const HOP = [
   { transform: "translateY(-11px) scale(0.97, 1.04)", offset: 0.46 },
   { transform: "translateY(2px) scale(1.03, 0.97)", offset: 0.76 },
   { transform: "translateY(0) scale(1, 1)" },
+];
+// A timer going off: it shakes like an alarm clock.
+const JINGLE = [
+  { transform: "rotate(0deg)" },
+  { transform: "rotate(-8deg)", offset: 0.12 },
+  { transform: "rotate(7deg)", offset: 0.3 },
+  { transform: "rotate(-6deg)", offset: 0.48 },
+  { transform: "rotate(4deg)", offset: 0.66 },
+  { transform: "rotate(-2deg)", offset: 0.84 },
+  { transform: "rotate(0deg)" },
 ];
 // Touched: pressed in, and back.
 const POKE = [

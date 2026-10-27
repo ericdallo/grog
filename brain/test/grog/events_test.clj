@@ -61,6 +61,13 @@
   (testing "never without captions"
     (is (= {:type :tool-detail :name "shell"} (events/redact {:type :tool-detail :name "shell" :detail "uptime"})))))
 
+(deftest timers-without-their-labels-without-captions
+  (let [timers [{:id "a" :kind "timer" :label "remédio" :at 1000 :ringing false}]]
+    (is (= timers (:timers (run [500 {:type :timers :timers timers}]))))
+    (is (= {:type :timers :timers [{:id "a" :kind "timer" :at 1000 :ringing false}]}
+           (events/redact {:type :timers :timers timers})))
+    (is (= {:type :timers :timers []} (events/redact {:type :timers :timers []})))))
+
 (deftest spoken-only-once-grog-voice-said-it
   (testing "not a typed turn"
     (let [state (run [1000 {:type :voice :state "listening" :conversation "voice"}]
@@ -75,7 +82,18 @@
                      [2000 {:type :done :conversation "voice" :n 1 :ms 1000}]
                      [2500 {:type :turn :conversation "default" :n 2}]
                      [3000 {:type :voice :state "listening" :conversation "voice"}])]
-      (is (not (contains? (:turn state) :spoken-at))))))
+      (is (not (contains? (:turn state) :spoken-at)))))
+  (testing "nor by a timer going off, said later"
+    (let [said [[1000 {:type :turn :conversation "voice" :n 1}]
+                [1500 {:type :voice :state "speaking" :conversation "voice"}]
+                [2000 {:type :done :conversation "voice" :n 1 :ms 1000}]
+                [2500 {:type :voice :state "listening" :conversation "voice"}]
+                [9000 {:type :voice :state "announcing" :conversation "voice"}]
+                [9900 {:type :voice :state "listening" :conversation "voice"}]]]
+      (is (= 2500 (:spoken-at (:turn (apply run said)))))
+      (is (= [["thinking" 1000] ["speaking" 1500]] (steps (apply run said))))
+      (is (= [["thinking" 1000]] (steps (apply run (concat (take 1 said) (drop 3 said)))))
+          "not a step of a turn it didn't say"))))
 
 (deftest heard-only-for-its-own-conversation-and-just-before
   (let [heard [[2000 {:type :voice :state "hearing" :conversation "voice"}]]]
@@ -299,8 +317,8 @@
 (deftest whether-someone-talks-to-grog
   (let [voice (fn [state seen] {:voice {:state state :seen seen}})]
     (is (false? (events/busy? events/initial-state 1000)))
-    (testing "grog-voice heard its name lately, and listens, waits for the answer, or says it"
-      (doseq [s ["awake" "asked" "answering" "speaking"]]
+    (testing "grog-voice heard its name lately, and listens, waits for the answer, or says it (or a timer)"
+      (doseq [s ["awake" "asked" "answering" "speaking" "announcing"]]
         (is (true? (events/busy? (voice s 1000) 2000)) s))
       (is (false? (events/busy? (voice "speaking" 1000) 60000)) "not once it's gone"))
     (testing "not when it only hears someone, or listens"

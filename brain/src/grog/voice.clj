@@ -4,7 +4,8 @@
   whether its mic is on, whether grog's music plays, and the speaker it
   speaks on (a `snapshot` first, then `mic`, `music` or `speaker` when one
   changes), and as they come, to `listen` now, without its name, to `stop`
-  answering, or which `speakers` its session has (`speakers!`: it answers
+  answering, to `say` something though no one asked (`say!`: a timer going
+  off), or which `speakers` its session has (`speakers!`: it answers
   through `POST /v1/voice/speakers`). Whether the mic is on, and the speaker
   picked for it, stay in voice.json, in the state directory: off, grog-voice
   hears nothing until it's turned on again, even after restarts."
@@ -143,6 +144,15 @@
   [{:keys [lock] :as channel} command]
   (locking lock
     (send-all! channel (sse/message (name command) {}))))
+
+(defn say!
+  "Asks grog-voice to say `text` now, after its `sound` (an earcon's name),
+  though no one asked anything: a timer going off. Whether grog-voice is
+  there to."
+  [{:keys [lock] :as channel} text sound]
+  (locking lock
+    (send-all! channel (sse/message "say" {:text text :sound sound})))
+  (there? channel))
 
 (defn set-music!
   "Tells grog-voice whether grog's music plays (`playing?`), only when that

@@ -114,6 +114,10 @@ class LookTest(unittest.TestCase):
     def test_lit_green_while_speaking(self):
         self.assertEqual(ring.solid(scaled(0x2ED573, 0.6)), look("speaking"), "steady, not breathing")
 
+    def test_breathing_amber_while_a_timer_goes_off(self):
+        shown = dict(look("announcing"))
+        self.assertEqual(((ring.AMBER,), (ring.BREATH,)), (shown["LED_COLOR"], shown["LED_EFFECT"]))
+
     def test_red_and_amber(self):
         self.assertEqual(ring.solid(scaled(ring.RED, 0.6)), look("error"))
         self.assertEqual(ring.solid(scaled(ring.RED, 0.35)), look("muted"))

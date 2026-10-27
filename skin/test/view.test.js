@@ -52,6 +52,7 @@ import {
   STILL_MS,
   tap,
   timeFormats,
+  timerList,
   tool,
   typed,
   UPDATE_FAILED_MS,
@@ -319,6 +320,76 @@ describe("the weather", () => {
     assert.deepEqual([w.icon, w.days[0].icon], ["cloud", "cloud"]);
     for (const i of ["sun", "moon", "cloud", "cloud-sun", "rain", "snow", "storm", "fog"]) assert.ok(ICONS[i], i);
     assert.equal(tool("weather").icon, "cloud-sun");
+  });
+});
+
+describe("timers, alarms and reminders", () => {
+  const HOUR = 3_600_000;
+  // NOW is 21:16:40 on Wednesday, December 31, 1969, in São Paulo.
+  const formats = timeFormats("America/Sao_Paulo");
+  const tea = { id: "t", kind: "timer", label: "chá", at: NOW + 581_000, ringing: false };
+  const timers = [
+    { id: "r", kind: "reminder", at: NOW + 3 * HOUR, ringing: false },
+    { id: "a", kind: "alarm", at: NOW + HOUR, ringing: false },
+    tea,
+  ];
+  const going = { ...tea, at: NOW - 1000, ringing: true };
+
+  it("lists what's set, soonest first: a timer counting down, the others' time", () => {
+    assert.deepEqual(timerList(state({ timers }), NOW, formats), [
+      { id: "t", icon: "timer", label: "Chá", when: "9:41", ringing: false },
+      { id: "a", icon: "alarm", label: "Alarm", when: "22:16", ringing: false },
+      { id: "r", icon: "reminder", label: "Reminder", when: "Thu 00:16", ringing: false },
+    ]);
+    assert.equal(timerList(state({ timers: [tea] }), tea.at - 1500, formats)[0].when, "0:02", "rounded up");
+    const [now] = timerList(state({ timers: [going] }), NOW, formats);
+    assert.deepEqual(now, { id: "t", icon: "timer", label: "Chá", when: "now", ringing: true });
+  });
+
+  it("none before grog says, or offline", () => {
+    assert.deepEqual(timerList(state(), NOW, formats), []);
+    assert.deepEqual(timerList(state({ timers }), NOW, formats, true), []);
+    assert.deepEqual(timerList(state({ timers: [{ id: "x", kind: "timer" }] }), NOW, formats), [], "nor without a time");
+  });
+
+  it("one going off shows, amber, and stops at a touch", () => {
+    assert.deepEqual(mode(state({ timers: [going] }), NOW), {
+      mode: "ringing",
+      label: "Chá",
+      detail: "timer · tap to stop",
+      icon: "timer",
+    });
+    const unlabeled = { ...going, label: undefined, kind: "alarm" };
+    const alarm = { mode: "ringing", label: "Alarm", detail: "tap to stop", icon: "alarm" };
+    assert.deepEqual(mode(state({ timers: [unlabeled] }), NOW), alarm);
+    assert.equal(mode(state({ timers: [going, unlabeled] }), NOW).label, "2 going off");
+    const said = state({ timers: [going], voice: voiceIn("announcing") });
+    assert.equal(mode(said, NOW).mode, "ringing", "said by grog-voice");
+    const stopped = state({ voice: voiceIn("announcing"), actions: ["listen", "stop"] });
+    assert.equal(mode(stopped, NOW).mode, "speaking", "still saying it, once stopped");
+    assert.equal(tap(stopped, NOW).action, "stop");
+    const asked = state({ timers: [going], turn: turn([["thinking", NOW]]) });
+    assert.equal(mode(asked, NOW).mode, "thinking", "not over a turn");
+    assert.equal(mode(state({ timers }), NOW).mode, "idle", "not before");
+    const ringing = mode(state({ timers: [going] }), NOW);
+    assert.deepEqual(face(ringing, state(), NOW), { state: "ringing", icon: "timer" });
+    const stop = { action: "stop", label: "Stop" };
+    assert.deepEqual(tap(state({ timers: [going], actions: ["listen", "stop"] }), NOW), stop);
+    assert.deepEqual(tap(state({ timers: [going], actions: ["stop"], voice: voiceIn("loading") }), NOW), stop);
+    assert.equal(tap(state({ timers: [going], actions: ["listen"] }), NOW), null);
+  });
+
+  it("keeps the screen awake while one goes off", () => {
+    const listening = { ...voiceIn("listening"), since: NOW - HOUR };
+    const quiet = state({ screenOffMinutes: 10, startedAt: NOW - HOUR, voice: listening });
+    assert.equal(screenOn({ ...quiet, timers }, NOW), false);
+    assert.equal(screenOn({ ...quiet, timers: [going] }, NOW), true);
+    assert.equal(screenOn({ ...quiet, voice: { ...listening, state: "announcing" } }, NOW), true, "and says it");
+  });
+
+  it("with icons of its own", () => {
+    for (const i of ["timer", "alarm", "reminder"]) assert.ok(ICONS[i], i);
+    assert.equal(tool("timers").icon, "timer");
   });
 });
 

@@ -61,6 +61,15 @@ const TOOLS = {
   lights: { label: "Seeing to the lights", done: "Saw to the lights", short: "Lights", icon: "bulb" },
   music: { label: "Seeing to the music", done: "Saw to the music", short: "Music", icon: "music" },
   weather: { label: "Checking the weather", done: "Checked the weather", short: "Weather", icon: "cloud-sun" },
+  timers: { label: "Seeing to the timers", done: "Saw to the timers", short: "Timers", icon: "timer" },
+};
+
+// What can be set to go off (brain/src/grog/timers.clj): its name, without
+// its label (only sent with captions), and its icon.
+const TIMERS = {
+  timer: { name: "Timer", icon: "timer" },
+  alarm: { name: "Alarm", icon: "alarm" },
+  reminder: { name: "Reminder", icon: "reminder" },
 };
 
 // What grog says going away (POST /v1/actions/<action>) is about.
@@ -246,7 +255,10 @@ export function mode(state, now, offline = false) {
       ? { mode: "still", label: "Still thinking", detail: "" }
       : { mode: "thinking", label: "Thinking", detail: "" };
   }
-  if (voice === "speaking") return { mode: "speaking", label: "Speaking", detail: "" };
+  const off = ringing(state);
+  if (off.length) return ringingMode(off);
+  // Saying an answer, or what grog asked it to (a timer, stopped meanwhile).
+  if (voice === "speaking" || voice === "announcing") return { mode: "speaking", label: "Speaking", detail: "" };
   if (voice === "answering") {
     // Before its turn starts, grog thinks; after it ends, grog-voice gets its
     // answer ready to say.
@@ -287,6 +299,24 @@ export function mode(state, now, offline = false) {
   return now - state.startedAt < VOICE_GRACE_MS ? waking : { mode: "idle", label: "Ready", detail: "" };
 }
 
+/** The timers, alarms and reminders going off (state.timers), or none. */
+function ringing(state) {
+  return (Array.isArray(state?.timers) ? state.timers : []).filter((t) => t?.ringing);
+}
+
+/**
+ * What grog shows while timers (`going`, ringing()) go off, as a mode():
+ * the one's label (with captions) or what it is, or how many.
+ */
+function ringingMode(going) {
+  const kind = TIMERS[going[0].kind] ?? TIMERS.timer;
+  const label = trimmed(going[0].label);
+  const ringing = { mode: "ringing", detail: "tap to stop", icon: kind.icon };
+  if (going.length > 1) return { ...ringing, label: `${going.length} going off`, icon: "alarm" };
+  if (!label) return { ...ringing, label: kind.name };
+  return { ...ringing, label: capitalize(label), detail: `${kind.name.toLowerCase()} · tap to stop` };
+}
+
 /**
  * grog's face for what it's doing (a mode()): {state, icon}, its state one of
  * its poses (skin.css), its pupil turned into `icon` when there's one.
@@ -301,6 +331,8 @@ export function face(m, state, now, night = false) {
       return { state: "writing", icon: null };
     case "tool":
       return { state: "tool", icon: m.icon ?? "tool" };
+    case "ringing":
+      return { state: "ringing", icon: m.icon ?? "alarm" };
     case "no-mic":
       return { state: "no-mic", icon: "no-mic" };
     case "muted":
@@ -339,13 +371,13 @@ function idleSince(state) {
   return times.length ? Math.max(...times) : null;
 }
 
-// What grog-voice says while someone talks to grog, its name heard
-// (voice/grog_voice/reporter.py).
-const TALKING = ["hearing", "awake", "asked", "answering", "speaking"];
+// What grog-voice says while someone talks to grog, its name heard, or
+// while it says a timer going off (voice/grog_voice/reporter.py).
+const TALKING = ["hearing", "awake", "asked", "answering", "speaking", "announcing"];
 
 /**
  * Whether the screen showing the skin is awake: while someone talks to grog,
- * a card waits for someone, or grog is going away; and for
+ * a timer goes off, a card waits for someone, or grog is going away; and for
  * `state.screenOffMinutes` (the `skin.screenOffMinutes` setting) after
  * anything else happened (see happened()), someone touching the screen
  * (`touchedAt`) included. Awake for good without the setting, and before
@@ -354,7 +386,8 @@ const TALKING = ["hearing", "awake", "asked", "answering", "speaking"];
 function awake(state, now, touchedAt) {
   const minutes = state?.screenOffMinutes;
   if (!state || !Number.isFinite(minutes) || minutes <= 0) return true;
-  if (TALKING.includes(voiceState(state, now)) || waiting(state, now) || goingAway(state, now)) return true;
+  if (TALKING.includes(voiceState(state, now)) || ringing(state).length) return true;
+  if (waiting(state, now) || goingAway(state, now)) return true;
   return now - happened(state, touchedAt) < minutes * 60_000;
 }
 
@@ -576,15 +609,17 @@ export function wordChanges(shown, text) {
 /**
  * What touching grog's face does, by what it's doing: {action, label}, the
  * action one of grog's (POST /v1/actions/<action>): to listen without its
- * name (its mic off, grog turns it on first), or to stop answering. null
- * when it does nothing: grog, or its voice, isn't there or ready.
+ * name (its mic off, grog turns it on first), or to stop answering, or the
+ * timers going off. null when it does nothing: grog, or its voice, isn't
+ * there or ready.
  */
 export function tap(state, now, offline = false) {
   if (!state || offline || goingAway(state, now)) return null;
   const voice = voiceState(state, now);
   const can = (action) => (state.actions ?? []).includes(action);
+  if (ringing(state).length) return can("stop") ? { action: "stop", label: "Stop" } : null;
   if (!voice || voice === "loading" || voice === "no-mic") return null;
-  if (voice === "answering" || voice === "speaking") return can("stop") ? { action: "stop", label: "Stop" } : null;
+  if (["answering", "speaking", "announcing"].includes(voice)) return can("stop") ? { action: "stop", label: "Stop" } : null;
   if (!can("listen")) return null;
   if (voice === "muted" || state.mic === "off") return { action: "listen", label: "Turn the mic on and listen" };
   return { action: "listen", label: state.name ? `Talk to ${state.name}` : "Talk" };
@@ -855,6 +890,34 @@ export function weatherCard(state, now, offline = false) {
   };
 }
 
+/**
+ * The timers, alarms and reminders set (state.timers, see
+ * brain/src/grog/timers.clj), soonest first, for a line under the clock:
+ * [{id, icon, label, when, ringing}], `when` a timer's countdown ("9:41"),
+ * or else its time, in grog's time zone (`formats`, timeFormats()), with
+ * its weekday when it isn't today ("Tue 07:00"); "now" going off. Labeled
+ * as set with captions, else by what they are. None offline.
+ */
+export function timerList(state, now, formats, offline = false) {
+  if (offline || !Array.isArray(state?.timers)) return [];
+  const day = (t) => formats.date.format(new Date(t));
+  return state.timers
+    .filter((t) => Number.isFinite(t?.at))
+    .sort((a, b) => a.at - b.at)
+    .map((t) => {
+      const kind = TIMERS[t.kind] ?? TIMERS.timer;
+      const clock = formats.clock.format(new Date(t.at));
+      const at = day(t.at) === day(now) ? clock : `${formats.weekday.format(new Date(t.at))} ${clock}`;
+      return {
+        id: String(t.id ?? ""),
+        icon: kind.icon,
+        label: capitalize(trimmed(t.label)) || kind.name,
+        when: t.ringing ? "now" : t.kind === "timer" ? songTime(Math.ceil((t.at - now) / 1000)) : at,
+        ringing: Boolean(t.ringing),
+      };
+    });
+}
+
 /** How many songs a playlist has, in words, or "" when it isn't known. */
 function songs(count) {
   if (!Number.isFinite(count)) return "";
@@ -1107,13 +1170,14 @@ export function wifiSheet(answer, form = null, joining = null) {
 /**
  * Formats for grog's time zone (an IANA name), or this browser's without
  * one or with one it doesn't know: {clock: 14:05, date: Saturday, October
- * 17, hour: 14}, in English like the rest of the skin.
+ * 17, hour: 14, weekday: Sat}, in English like the rest of the skin.
  */
 export function timeFormats(timezone) {
   const make = (timeZone) => ({
     clock: new Intl.DateTimeFormat("en", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
     date: new Intl.DateTimeFormat("en", { timeZone, weekday: "long", month: "long", day: "numeric" }),
     hour: new Intl.DateTimeFormat("en", { timeZone, hour: "numeric", hourCycle: "h23" }),
+    weekday: new Intl.DateTimeFormat("en", { timeZone, weekday: "short" }),
   });
   try {
     return make(timezone || undefined);

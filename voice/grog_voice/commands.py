@@ -1,8 +1,9 @@
 """What grog asks of grog-voice (grog's GET /v1/voice/commands): whether
 its mic is on, whether grog plays music, the speaker it speaks on (grog's
 pick, or none), and as they come, to listen now, without its name (someone
-touched grog's face on its screen, say), to stop answering, or which
-speakers there are (see speakers.py), making one the music's first, maybe.
+touched grog's face on its screen, say), to stop answering, to say
+something though no one asked (a timer going off), or which speakers there
+are (see speakers.py), making one the music's first, maybe.
 
 From a thread of its own, which connects again, less and less often, while
 grog is away: the mic, the music and the speaker stay as grog last said
@@ -22,9 +23,9 @@ UNSAID = object()
 class Commands:
     """Takes what grog asks: `connect()` yields it as (type, data), raising
     GrogError once it can't. It goes to the Voice `attach`ed (set_mic,
-    set_music, set_speaker, listen_now, stop, and back: grog answers, at
-    first or again after it was away); until then, only whether the mic is
-    on, whether music plays, the speaker, and whether grog is back, are
+    set_music, set_speaker, listen_now, stop, say, and back: grog answers,
+    at first or again after it was away); until then, only whether the mic
+    is on, whether music plays, the speaker, and whether grog is back, are
     kept: `mic_on` and `music`, None until grog said, and `speaker`, a
     speaker's name or None, UNSAID until it did. Asked which speakers there
     are, `speakers(request)` answers on a thread of its own, if given."""
@@ -131,3 +132,6 @@ class Commands:
             voice.listen_now()
         elif kind == "stop":
             voice.stop()
+        elif kind == "say" and isinstance(text := data.get("text"), str):
+            sound = data.get("sound")
+            voice.say(text, sound if isinstance(sound, str) else None)

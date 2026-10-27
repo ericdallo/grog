@@ -5,6 +5,7 @@ from unittest import mock
 
 from fakes import (
     ACK,
+    ALARM,
     ANSWER,
     BACK,
     ECHO,
@@ -94,6 +95,14 @@ def voice(
 
 def written(v):
     return [p.written for p in v.players.made]
+
+
+def wait_for(condition, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while not condition():
+        if time.monotonic() > deadline:
+            raise AssertionError("never happened")
+        time.sleep(0.005)
 
 
 class TurnTest(unittest.TestCase):
@@ -595,6 +604,74 @@ class AskedByGrogTest(unittest.TestCase):
         self.assertTrue(result.turn.stopped)
         self.assertIsNone(v.awake())
         self.assertTrue(ask.conn.hung_up.is_set())
+
+
+@mock.patch.object(loop, "SAY_POLL_S", 0.01)
+class SayTest(unittest.TestCase):
+    """Saying what grog asks to though no one asked: a timer going off."""
+
+    TEA, CAKE = "O chá está pronto.", "O bolo está pronto."
+
+    def test_says_it_and_tells_grog(self):
+        v = voice()
+        v.tell("listening")
+        with self.assertLogs("grog_voice", "INFO") as logs:
+            v.say(self.TEA, "alarm")
+            wait_for(lambda: v.reported[-1] == "listening" and written(v))
+        self.assertEqual([[ALARM, self.TEA.encode()]], written(v))
+        self.assertEqual(
+            ["listening", "announcing", "listening"], v.reported, "though no frame came from the mic"
+        )
+        self.assertEqual(["INFO:grog_voice:announcing"], logs.output, "never what it says")
+
+    def test_once_its_done_answering_one_after_the_other(self):
+        v = voice()
+        v.mouth.state = "answering"
+        with self.assertLogs("grog_voice", "INFO"):
+            v.say(self.TEA, "alarm")
+            v.say(self.CAKE, "alarm")
+            v.say(self.TEA, "alarm")
+            time.sleep(0.1)
+            self.assertEqual([], written(v), "not while it answers")
+            v.mouth.state = None
+            wait_for(lambda: len(written(v)) == 2 and not v._announcing)
+        self.assertEqual(
+            [[ALARM, self.CAKE.encode()], [ALARM, self.TEA.encode()]], written(v), "the tea's once"
+        )
+
+    @mock.patch.object(loop, "SAY_WAIT_S", 0.05)
+    def test_unsaid_once_it_waited_too_long(self):
+        v = voice()
+        v.mouth.state = "answering"
+        with self.assertLogs("grog_voice", "INFO") as logs:
+            v.say(self.TEA, "alarm")
+            wait_for(lambda: not v._announcing)
+        v.mouth.state = None
+        self.assertEqual([], written(v))
+        self.assertEqual(["INFO:grog_voice:not announcing 1: still answering"], logs.output)
+
+    @mock.patch.object(loop, "log")
+    def test_what_waits_goes_once_someone_talks_to_grog_or_stops_it(self, _):
+        for hush in (Voice.stop, Voice.listen_now, Voice._called):
+            v = voice()
+            v.mouth.state = "answering"
+            v.say(self.TEA, "alarm")
+            hush(v)
+            v.mouth.state = None
+            wait_for(lambda v=v: not v._announcing)
+            v.mouth.quiet()
+            self.assertNotIn([ALARM, self.TEA.encode()], written(v), hush.__name__)
+
+    def test_cut_off_when_someone_talks_to_grog(self):
+        players = Speaking()
+        v = voice(players=players, turns=False)
+        with self.assertLogs("grog_voice", "INFO") as logs:
+            v.say("Primeira frase. Segunda frase.", None)
+            self.assertTrue(players.speaking.wait(5))
+            v._called()
+            wait_for(lambda: not v._announcing)
+        self.assertIn("INFO:grog_voice:called while answering: cutting it off", logs.output)
+        self.assertTrue(players.made[0].stopped)
 
 
 class WatchedMic(FakeMic):

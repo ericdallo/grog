@@ -67,7 +67,8 @@ body[data-mode="speaking"] { --mode: #ff7f50; }
 body[data-mode="error"] { --mode: var(--red); }
 body[data-mode="no-mic"],
 body[data-mode="deaf"],
-body[data-mode="login"] { --mode: var(--amber); }
+body[data-mode="login"],
+body[data-mode="ringing"] { --mode: var(--amber); }
 body[data-mode="loading"],
 body[data-mode="restarting"] { --mode: #a4b0be; }
 body[data-mode="muted"] { --mode: #747d8c; }
@@ -369,6 +370,66 @@ ol {
 .notice.failed svg,
 .notice.failed .what {
   color: var(--red);
+}
+
+/* The timers, alarms and reminders set (view.js timerList), a line under
+   the time: what each is and when, counting down; one going off, amber
+   like what needs someone, stops at a touch. */
+.timers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.2vmin;
+  margin-top: 1.6vmin;
+}
+
+.timers li > * {
+  display: flex;
+  align-items: center;
+  gap: 1vmin;
+  max-width: 100%;
+  padding: 0.8vmin 1.8vmin 0.8vmin 1.4vmin;
+  border-radius: 999px;
+  background: var(--card);
+  font-size: max(2.2vmin, var(--small));
+}
+
+.timers svg {
+  flex: none;
+  width: 2.8vmin;
+  height: 2.8vmin;
+  color: var(--muted);
+}
+
+.timers .what {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timers .when {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.timers .ringing > button {
+  min-height: var(--finger);
+  background: var(--amber);
+  color: #111621;
+  font-weight: 600;
+}
+
+.timers .ringing svg {
+  color: inherit;
+}
+
+.timers .stop {
+  padding-left: 1vmin;
+  border-left: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  font-weight: 800;
 }
 
 /* Connecting something to grog (view.js card), in place of what was said and
@@ -1549,7 +1610,8 @@ ol {
 .face[data-state="tool"] .sym,
 .face[data-state="no-mic"] .sym,
 .face[data-state="muted"] .sym,
-.face[data-state="login"] .sym {
+.face[data-state="login"] .sym,
+.face[data-state="ringing"] .sym {
   opacity: 1;
   transform: none;
 }
@@ -1557,7 +1619,8 @@ ol {
 .face[data-state="tool"] .pupil,
 .face[data-state="no-mic"] .pupil,
 .face[data-state="muted"] .pupil,
-.face[data-state="login"] .pupil {
+.face[data-state="login"] .pupil,
+.face[data-state="ringing"] .pupil {
   --pupil: 0.3;
   opacity: 0;
 }
@@ -1700,6 +1763,13 @@ ol {
   --smile: -4px;
   --pupil: 0.62;
   --head: -4deg;
+}
+
+/* A timer going off: wide-eyed, its pupil the timer, shaking now and then
+   like an alarm clock (face.js). */
+.face[data-state="ringing"] {
+  --lid: 2px;
+  --smile: -6px;
 }
 
 /* No credentials: puzzled, its pupil a key. */

@@ -4,6 +4,7 @@ import unittest
 
 from fakes import (
     ACK,
+    ALARM,
     ANSWER,
     ERROR,
     HEARD,
@@ -18,6 +19,7 @@ from fakes import (
     OneSecond,
     PausingTts,
     Players,
+    Speaking,
     StreamingTts,
     answering,
     hanging,
@@ -515,6 +517,68 @@ class CutOffTest(unittest.TestCase):
             answering.turn()
         self.assertTrue(answering.done.is_set())
         self.assertIsNone(m.state)
+
+
+class AnnounceTest(unittest.TestCase):
+    """Saying what grog asks to though no one asked: a timer going off."""
+
+    def announcing(self, m, *args):
+        """Announces on a thread: what it returned goes in the list returned."""
+        result = []
+        thread = threading.Thread(target=lambda: result.append(m.announce(*args)))
+        thread.start()
+        self.addCleanup(thread.join, 5)
+        return result
+
+    def test_says_it_after_its_sound(self):
+        m = mouth()
+        with self.assertLogs("grog_voice", "INFO") as logs:
+            self.assertTrue(m.announce("O chá está pronto!", "alarm"))
+        self.assertEqual([ALARM, "O chá está pronto.".encode()], played(m.player), "calmed")
+        self.assertEqual(["announcing"], m.told, "not an answer: grog's turns know nothing of it")
+        self.assertIsNone(m.state)
+        self.assertEqual(["INFO:grog_voice:announcing"], logs.output, "never what it says")
+
+    def test_without_a_sound_it_knows(self):
+        m = mouth()
+        with self.assertLogs("grog_voice", "INFO"):
+            m.announce("Hora do remédio.", "trumpet")
+            m.announce("", "alarm")
+        self.assertEqual(["Hora do remédio.".encode(), ALARM], played(m.player))
+
+    def test_not_while_it_answers(self):
+        ask = hanging("Primeira frase. ")
+        m = mouth(ask=ask)
+        answering_ = m.start(heard(), HEARD)
+        self.assertTrue(ask.answered.wait(5))
+        self.assertFalse(m.announce("O chá está pronto.", "alarm"))
+        m.stop()
+        answering_.turn()
+        self.assertNotIn(ALARM, played(m.player))
+
+    def test_stopped_like_an_answer(self):
+        players = Speaking()
+        m = Mouth(tts=OneSecond(), player=players, ask=answering())
+        with self.assertLogs("grog_voice", "INFO"):
+            result = self.announcing(m, "Primeira frase. Segunda frase.", None)
+            self.assertTrue(players.speaking.wait(5))
+            self.assertEqual("announcing", m.state)
+            m.stop()
+            wait_for(lambda: result == [True])
+        self.assertIsNone(m.state)
+        self.assertEqual([SOUND, SOUND], played(players), "cut off in its second sentence")
+
+    def test_an_answer_stops_it_first(self):
+        players = Speaking()
+        m = Mouth(tts=OneSecond(), player=players, ask=answering("Dez e quinze."))
+        with self.assertLogs("grog_voice", "INFO"):
+            result = self.announcing(m, "Primeira frase. Segunda frase.", None)
+            self.assertTrue(players.speaking.wait(5))
+            turn = m.answer(heard(), HEARD)
+        self.assertEqual([True], result)
+        self.assertFalse(turn.stopped)
+        self.assertEqual("Dez e quinze.", turn.said)
+        self.assertEqual([ACK, SOUND], players.made[-1].written, "after the announcement, cut off")
 
 
 class SoundsTest(unittest.TestCase):

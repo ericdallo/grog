@@ -74,6 +74,12 @@ screen: to listen now, without its name (touching its face), to stop
 answering, or to switch its mic off. Off, it records nothing at all until
 it's switched on again, even after restarts: the brain keeps that.
 
+And to say something though no one asked (`say`): a timer going off. It
+plays its alarm sound, louder and longer than the others, then says it,
+once it's done answering if it is (a minute at most), one after the
+other. Calling grog, touching its face or stopping it cuts it off, and
+what was still to be said goes. Its mic off, it still says it.
+
 And which speakers its session has: it reads them with `pw-dump` (PipeWire's
 sinks, without its echo canceller's nor HDMI ports with no screen) and
 tells the brain (`POST /v1/voice/speakers`), for its screen to pick from

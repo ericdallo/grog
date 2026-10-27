@@ -2,8 +2,9 @@
 (grog's POST /v1/voice): loading, listening, hearing (someone talks to grog:
 its name came first, or none was needed), awake (it was called, what's said
 next needs no wake word), asked (its answer asked something: the reply needs
-no wake word either), answering, speaking, error, no-mic. And what it
-heard that was for grog, as it comes, while grog shows it (its
+no wake word either), answering, speaking, announcing (saying what grog
+asked it to, though no one asked: a timer going off), error, no-mic. And
+what it heard that was for grog, as it comes, while grog shows it (its
 `skin.captions` setting): grog says whether it does, and its name, the wake
 word. Never what anyone else said.
 

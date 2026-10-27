@@ -1,7 +1,8 @@
 """grog-voice's mouth: asks grog what was heard for it and speaks the answer
 as it streams in, a chunk at a time, on a thread of its own, and plays its
 earcons (see sounds.py). Asked to stop, it cuts the answer off, knowing how
-much of it was said."""
+much of it was said. It also says what grog asks it to though no one asked
+(a timer going off: announce)."""
 
 import logging
 import queue
@@ -25,7 +26,12 @@ SOUNDS = {
     "listening": sounds.listening,
     "error": sounds.error,
     "back": sounds.back,
+    "alarm": sounds.alarm,
 }
+
+# How long, at most, an answer waits for an announcement it stopped to be
+# over (see Mouth.start).
+HUSHED_S = 5.0
 
 # What a turn's line says of its marks, in the order they came.
 _MARKS = {
@@ -219,8 +225,9 @@ class Mouth:
     `captions` whether grog shows what's said (its skin.captions), and
     `played(seconds, speech)` is told of its sound as it's written to a
     speaker, its speech or not (see echo.py); `clock` tells the time, in
-    seconds. `state`: what it does, answering or speaking, while it answers;
-    None otherwise."""
+    seconds. `state`: what it does, answering or speaking while it answers,
+    announcing while it says what grog asked it to (see announce); None
+    otherwise."""
 
     def __init__(
         self,
@@ -245,6 +252,8 @@ class Mouth:
         self._stopped_at = None  # when the answer under way was asked to stop
         self._conn = None  # to grog, while it answers
         self._playing = None  # the player of the answer under way
+        self._starting = threading.Lock()  # an answer or an announcement starting
+        self._announced = None  # set once the announcement under way, if any, is over
 
     @property
     def sample_rate(self):
@@ -265,12 +274,59 @@ class Mouth:
         played, and a sound right after it would only confuse. Asked to stop
         meanwhile (see stop), it cuts it off, without a sound. `cut_off`:
         how much of grog's last answer was said before it was cut off, if it
-        was."""
-        self.stopping.clear()
-        self._stopped_at = None
-        self.state = "answering"
+        was. What it was announcing, if anything, stops first (see
+        announce)."""
+        late = False
+        while True:
+            with self._starting:
+                announced = self._announced
+                if late or announced is None or announced.is_set():
+                    self._announced = None
+                    self.stopping.clear()
+                    self._stopped_at = None
+                    self.state = "answering"
+                    break
+            self.stop()
+            if not announced.wait(HUSHED_S):
+                log.warning("an announcement didn't stop: answering anyway")
+                late = True
         self.tell("answering")
         return Answering(lambda: self._answer(heard, command, cut_off))
+
+    def announce(self, text, sound=None):
+        """Says `text` though no one asked (a timer going off, say), after
+        earcon `sound` (its name, or None), returning once it's over: True;
+        False at once while it answers or announces something else, saying
+        nothing. Asked to stop meanwhile, it cuts it off (see stop), as an
+        answer starting does (see start)."""
+        with self._starting:
+            if self.state is not None:
+                return False
+            self.stopping.clear()
+            self._stopped_at = None
+            self.state = "announcing"
+            announced = self._announced = threading.Event()
+        log.info("announcing")
+        try:
+            self.tell("announcing")
+            chunks, chunker = queue.Queue(), Chunker(streams=self.streams)
+            if sound in SOUNDS:
+                chunks.put((sound, self.sound(sound)))
+            for chunk in [*chunker.add(text), *chunker.flush()]:
+                chunks.put(chunk)
+            chunks.put(None)
+            # After its sounds while it listens, if any: not over them.
+            if (chiming := self.chiming) is not None:
+                chiming.join()
+            now = time.monotonic()
+            self._speak(chunks, Turn(speech_end=now, speech_s=0.0, peak_db=float("-inf"), speculated=False))
+        finally:
+            with self._starting:
+                # Unless an answer took over, as it stopped too late.
+                if self._announced is announced:
+                    self._announced = self.state = None
+                announced.set()
+        return True
 
     def _answer(self, heard, command, cut_off):
         try:
@@ -463,8 +519,9 @@ class Mouth:
                             for held in cushion(sound):
                                 if "first_audio" not in turn.marks:
                                     turn.mark("first_audio")
-                                    self.state = "speaking"
-                                    self.tell("speaking")
+                                    if self.state == "answering":  # not announcing
+                                        self.state = "speaking"
+                                        self.tell("speaking")
                                 audio.put(held)
                     else:
                         for held in cushion.flush():

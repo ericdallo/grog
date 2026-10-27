@@ -384,6 +384,22 @@ nearest home within 150 km (a neighborhood, a park, a town nearby), or else
 the first (Paris). A forecast is kept 10 minutes. The skin shows a card of
 it for a while.
 
+## Timers
+
+The model has a `timers` tool ([`timers.clj`](src/grog/timers.clj)): a
+timer (after a while), an alarm or a reminder (at a time, in grog's time
+zone, up to a week ahead), with a label and what to say when it goes off;
+listing them, and cancelling one. Each goes off on time, whether or not
+anyone talks to grog: grog-voice plays its alarm sound and says it (`say`,
+over `GET /v1/voice/commands`, once it's done answering if it is), again
+every 20 s, 3 times at most, until someone stops it: by saying grog's
+name, touching its face or Stop on the screen (the `listen` and `stop`
+actions). Several going off together are said together. They're kept in
+`timers.json`, in the state directory: one that went off while grog was
+away goes off once it's back, if that was less than 10 minutes ago. The
+skin shows them, counting down, their labels only with captions. Never
+logged: their labels, nor what they say.
+
 ## Music
 
 The model has one tool for music, `music` ([`music.clj`](src/grog/music.clj)),
@@ -609,11 +625,11 @@ JSON keys are lowerCamelCase.
 | `GET /v1/qr?text=...` | Its QR code, as SVG, for the skin |
 | `GET /v1/events` | What it's up to, as server-sent events: a `snapshot`, then each change ([`events.clj`](src/grog/events.clj)), what its player plays included (`music`, [on its screen](#on-its-screen)) |
 | `POST /v1/voice` `{"state", "conversationId", "heard"}` | grog-voice saying what it's doing, and with captions what it heard. Answers `{"captions", "name"}` |
-| `GET /v1/voice/commands` | What grog-voice is asked, as server-sent events: a `snapshot` with whether its `mic` is `"on"` or `"off"`, whether grog's `music` plays (`true` or `false`) and the `speaker` it speaks on (a name, or `null`: its own), then `mic`, `music` or `speaker` when one changes, `listen` (now, without its name), `stop` (answering) and `speakers` `{"id", "music"}` (which there are, making `music` the default first, if given) |
+| `GET /v1/voice/commands` | What grog-voice is asked, as server-sent events: a `snapshot` with whether its `mic` is `"on"` or `"off"`, whether grog's `music` plays (`true` or `false`) and the `speaker` it speaks on (a name, or `null`: its own), then `mic`, `music` or `speaker` when one changes, `listen` (now, without its name), `stop` (answering), `say` `{"text", "sound"}` (now, though no one asked, after an earcon: a [timer](#timers) going off) and `speakers` `{"id", "music"}` (which there are, making `music` the default first, if given) |
 | `POST /v1/voice/speakers` `{"id", "speakers"}` or `{"id", "error"}` | grog-voice saying which [speakers](#speakers) there are, as asked: `[{"name", "label", "kind", "default"}]`, `kind` being `bluetooth`, `usb`, `hdmi`, `headphones` or `speaker` |
 | `POST /v1/music` `{"action", "query", "kind", "shuffle", "level", "change", "id"}` | Does it through what plays [music](#music), as the `music` tool takes them: `{"provider", "text"}`, `text` saying what it did. `id`, with its `kind` (`song`, `album`, `playlist` or `my-playlist`), plays exactly that, like one from the library. A 400 without a known `action`, with a bad `id`, or saying why it can't |
 | `GET /v1/music/library?kind=playlists` | The user's playlists (or `kind=liked`, their liked songs) through what plays [music](#music), with their account: `{"items": [{"kind", "id", "title", "artist", "count"}]}`. A 409 without it (`{"error", "connect": "youtube-music"}`), or without a player; a 502 when YouTube doesn't answer |
-| `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice; `stop` also pauses the music), `mic` `{"on"}`, `speakers` (`{}` tells which there are, `{"music": name}` plays the music on one, `{"voice": name}` grog's voice, `null` back with the music: `{"speakers", "voice"}`, see [Speakers](#speakers)), `volume` (of the speaker grog speaks on: `{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `wifi` (with hands: `{}` tells it, `{"rescan": true}` after looking again, `{"on": true}` after turning it on, `{"connect": a network's name, "password"}` after joining it: `{"radio": "on" or "off", "devices": [{"device", "state", "connection"}], "networks": [{"ssid", "signal", "security", "device", "active", "saved"}], "joined"}`, `security` being `open`, `password` or `enterprise`, see [Wi-Fi](#wi-fi)), `new-conversation` (forgets them all), `connect` `{"integration", "way"}` (opens a session, like `POST /v1/integrations/<id>/connect`), `update` (starts [updating](#updating), unless it is: `{"started"}`), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
+| `POST /v1/actions/<name>` | Does it now: `listen` and `stop` (grog-voice; both stop the [timers](#timers) going off, `stop` also pauses the music), `mic` `{"on"}`, `speakers` (`{}` tells which there are, `{"music": name}` plays the music on one, `{"voice": name}` grog's voice, `null` back with the music: `{"speakers", "voice"}`, see [Speakers](#speakers)), `volume` (of the speaker grog speaks on: `{"level"}`, `{"change"}`, `{"mute"}`, or `{}` to tell it), `wifi` (with hands: `{}` tells it, `{"rescan": true}` after looking again, `{"on": true}` after turning it on, `{"connect": a network's name, "password"}` after joining it: `{"radio": "on" or "off", "devices": [{"device", "state", "connection"}], "networks": [{"ssid", "signal", "security", "device", "active", "saved"}], "joined"}`, `security` being `open`, `password` or `enterprise`, see [Wi-Fi](#wi-fi)), `new-conversation` (forgets them all), `connect` `{"integration", "way"}` (opens a session, like `POST /v1/integrations/<id>/connect`), `update` (starts [updating](#updating), unless it is: `{"started"}`), `restart` (grog, as a systemd service), `reboot` or `power-off` (the machine). Answers `{"ok": true}` or what changed, or a 400 saying why it can't here. `/v1/events` has the ones it can (`actions`) |
 | `GET /` | The skin, with `skin.dir` |
 | `GET /health` | `ok` |
 

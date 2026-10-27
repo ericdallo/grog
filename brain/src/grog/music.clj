@@ -463,8 +463,9 @@
         (check-playing! ctx)))))
 
 ;; grog-voice's states while someone talks to grog: hearing them, after its
-;; name, waiting for them, and answering.
-(def ^:private ducking-states #{"hearing" "awake" "asked" "answering" "speaking"})
+;; name, waiting for them, and answering; and while it says a timer going
+;; off.
+(def ^:private ducking-states #{"hearing" "awake" "asked" "answering" "speaking" "announcing"})
 
 (defn ducks?
   "Whether the music goes down while grog-voice is in `voice-state`."
