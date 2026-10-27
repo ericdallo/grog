@@ -1107,6 +1107,22 @@ same answers, said by the station's grog-voice that way:
   only what was already made ahead waits for its gain. Making long pieces
   ahead too would have made them start later.
 
+## While grog looks something up
+
+On October 27, 2026, the station's turns took ~2.9 s from the end of
+speech to grog's first sound without a tool (0.6 s of silence ending it,
+~0.2 s in grog, ~1.4 s to the model's first words, ~0.7 s to their sound),
+and ~5.4 s with one, silent after the tick unless grog said something
+first. So when grog starts using a tool that looks something up before it
+said anything, grog-voice says so, as the user asked: "Buscando." or
+"Procurando." for a web search, "Checando." or "Tô vendo." for the
+weather, its machine's state or Home Assistant's (GetLiveContext), taking
+turns (`fillers.py`). Once a turn, and none for tools that act (the
+lights, music, timers): their answer says what was done. They're made
+with its voice when it starts, leveled like the rest, so they play at
+once, their echo known like its speech (`echo.py`); its turn line says
+when one played (`filler`).
+
 ## Where to go from here
 
 ### Ears

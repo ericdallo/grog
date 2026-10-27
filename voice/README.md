@@ -21,7 +21,11 @@ up to it.
    doesn't need it. What isn't known to be for grog is only transcribed as
    far as its name could be, its first 3 s: a TV, or people talking, can go
    on for the 15 s an utterance lasts at most, many times an hour.
-4. A short tick says it got it, and the brain answers, streamed.
+4. A short tick says it got it, and the brain answers, streamed. When grog
+   looks something up before saying anything (the web, the weather, the
+   home's state), it says so meanwhile, "Buscando." or "Checando.", phrases
+   made with its voice as it starts (`fillers`,
+   [`fillers.py`](grog_voice/fillers.py)).
 5. [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) speaks the
    answer, a sentence at a time while the rest is still coming, in a voice
    cloned from a recording: deep-calm, a deep, calm Brazilian voice designed
@@ -206,6 +210,7 @@ or `$GROG_VOICE_CONFIG`), merged over the defaults in
 | `speculateMs` | `250` | A pause this long starts transcribing, in case it's the end. `0`: wait for the end |
 | `partialMs` | `300` | How much more you have to say before what you've said so far is transcribed again. `0`: only at pauses, without the second model |
 | `maxUtteranceSeconds` | `15` | Longer is cut |
+| `fillers` | `true` | What it says while grog looks something up before saying anything, taking turns: "Buscando." or "Procurando." for the web, "Checando." or "Tô vendo." for the weather, its machine or Home Assistant's state (in English with an English voice; nothing in other languages). `false`: nothing. Or its own: `{"search": [...], "check": [...]}`, a kind left out getting none |
 | `musicUtteranceSeconds` | `4` | While grog plays music, until it hears its name: how long each window it looks for the name in is. They overlap by 1 s. From 2 to `maxUtteranceSeconds` |
 | `ring.front` | `null` | A ReSpeaker XVF3800's angle for whoever faces grog's screen, from 0 to 359: seen from above, clockwise from its USB port (180 with the port toward the screen's back). grog's face looks at who talks to it as they're to the side of it. `null`: where people talked to grog from lately |
 

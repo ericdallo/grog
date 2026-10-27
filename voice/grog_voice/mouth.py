@@ -37,6 +37,7 @@ HUSHED_S = 5.0
 _MARKS = {
     "ack": "got it",
     "transcript": "transcript",
+    "filler": "filler",
     "first_text": "first words",
     "first_audio": "speaking",
     "done": "done",
@@ -224,7 +225,9 @@ class Mouth:
     grog.ask), to hang up when it stops; `tell` tells grog what it's doing,
     `captions` whether grog shows what's said (its skin.captions), and
     `played(seconds, speech)` is told of its sound as it's written to a
-    speaker, its speech or not (see echo.py); `clock` tells the time, in
+    speaker, its speech or not (see echo.py); `filler(tool)` gives what to
+    say while grog uses a tool before saying anything, made ahead (16-bit
+    audio at its rate), or None (see fillers.py); `clock` tells the time, in
     seconds. `state`: what it does, answering or speaking while it answers,
     announcing while it says what grog asked it to (see announce); None
     otherwise."""
@@ -238,10 +241,11 @@ class Mouth:
         tell=lambda state: None,
         captions=lambda: False,
         played=lambda seconds, speech=False: None,
+        filler=lambda tool: None,
         clock=time.monotonic,
     ):
         self.tts, self.player, self.ask, self.tell, self.captions = tts, player, ask, tell, captions
-        self.played, self.clock = played, clock
+        self.played, self.filler, self.clock = played, filler, clock
         # Its speech plays as it's made (Pocket TTS): it's given whole
         # sentences (see chunks.py), together when several are waiting, as
         # it reads a whole text better than its sentences one by one.
@@ -271,7 +275,9 @@ class Mouth:
         time, after an earcon saying it got it (unless that played as it
         ended), and another when grog can't answer, on a thread of its own:
         an Answering. Its tools (like web search) have none: the ack just
-        played, and a sound right after it would only confuse. Asked to stop
+        played, and a sound right after it would only confuse. But while
+        one looks something up before grog said anything, it says a short
+        phrase made ahead, once a turn (see fillers.py). Asked to stop
         meanwhile (see stop), it cuts it off, without a sound. `cut_off`:
         how much of grog's last answer was said before it was cut off, if it
         was. What it was announcing, if anything, stops first (see
@@ -353,6 +359,7 @@ class Mouth:
         def produce():
             chunker = Chunker(streams=self.streams)
             answer = self.ask(command, said, cut_off=cut_off, on_connect=connected)
+            filled = False  # it said what it says while grog looks something up
             try:
                 for kind, value in answer:
                     if self.stopping.is_set():
@@ -360,9 +367,13 @@ class Mouth:
                     if kind == "tool":
                         turn.tools.append(value)
                         # What grog said before it ("Let me check..."), said
-                        # now rather than after the search.
+                        # now rather than after the search; when it said
+                        # nothing yet, what it says meanwhile, if anything.
                         for chunk in chunker.flush():
                             chunks.put(chunk)
+                        if not filled and not turn.answer.strip() and (pcm := self.filler(value)) is not None:
+                            filled = True
+                            chunks.put(("filler", Spoken(pcm)))
                         continue
                     turn.mark("first_text")
                     turn.answer += value
@@ -503,8 +514,8 @@ class Mouth:
                 if isinstance(item, tuple):
                     name, pcm = item
                     turn.sounds.append(name)
-                    if name == "ack":
-                        turn.mark("ack")
+                    if name in ("ack", "filler"):
+                        turn.mark(name)
                     for sound in pauses(pcm):
                         audio.put(sound)
                     continue

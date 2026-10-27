@@ -88,6 +88,8 @@ class Piper:
         self.voice = PiperVoice.load(voice)
         self.sample_rate = self.voice.config.sample_rate
         self.config = SynthesisConfig(length_scale=self.voice.config.length_scale / speed)
+        # What it reads, like "pt": its espeak-ng voice's ("pt-br").
+        self.language = self.voice.config.espeak_voice.split("-")[0] or None
 
     def __call__(self, text):
         """Yields the 16-bit mono audio of `text`, a sentence at a time."""
@@ -135,6 +137,7 @@ class Pocket:
 
         with open(f"{model}/pocket.json", encoding="utf-8") as f:
             self.rules = json.load(f)
+        self.language = self.rules.get("language")  # what it reads, like "pt"
         # pocket_tts pads short texts with spaces for its English model, not
         # its Portuguese one, which says them better padded: fewer murmurs
         # (plans/voice.md, "Breathy short answers").
@@ -160,7 +163,7 @@ class Pocket:
         """Yields the 16-bit mono audio of `text` as it's made, in pieces of
         80 ms (long texts are read in parts, see pocket.pieces). Numbers are
         spelled out in Portuguese, for a model that reads it."""
-        if self.rules.get("language") == "pt":
+        if self.language == "pt":
             text = pocket.spell_numbers(text)
         for part in pocket.pieces(text, self._tokens, self.rules["max_tokens"]):
             said, guess = pocket.prepare(part, self.rules)

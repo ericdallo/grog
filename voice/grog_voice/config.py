@@ -5,7 +5,7 @@ import json
 import os
 import re
 
-from . import pocket, supertonic
+from . import fillers, pocket, supertonic
 from .speech import parakeet_files
 
 # The text to speech engines (tts.engine).
@@ -85,6 +85,11 @@ DEFAULTS = {
     "partialMs": 300,
     # Longer utterances are cut.
     "maxUtteranceSeconds": 15,
+    # What it says while grog looks something up before saying anything (see
+    # fillers.py): true, the built-in phrases in the language its voice
+    # reads; false, nothing; or its own, by kind ({"search": [...], "check":
+    # [...]}, a kind left out getting none).
+    "fillers": True,
     # While grog plays music, the VAD takes it for speech: what it hears then,
     # until it hears its name, is cut into windows this long, each starting a
     # second before the one before ends, and its name looked for in each.
@@ -150,6 +155,16 @@ def _number(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
 
 
+def _fillers(v):
+    return isinstance(v, bool) or (
+        isinstance(v, dict)
+        and all(
+            kind in fillers.KINDS and isinstance(said, list) and all(_non_blank(s) for s in said)
+            for kind, said in v.items()
+        )
+    )
+
+
 CHECKS = [
     (
         "grogUrl",
@@ -186,6 +201,11 @@ CHECKS = [
     ("speculateMs", lambda v: _int(v, 0), "an integer, 0 or more"),
     ("partialMs", lambda v: _int(v, 0), "an integer, 0 or more"),
     ("maxUtteranceSeconds", _number, "a positive number"),
+    (
+        "fillers",
+        _fillers,
+        'true, false, or phrases by kind, like {"search": ["Buscando."], "check": ["Checando."]}',
+    ),
     (
         "ring.front",
         lambda v: v is None or (isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v < 360),

@@ -136,11 +136,13 @@ def build(settings, open_mic, play, report=None, name=lambda: None, partials=Tru
     transcribed by a Parakeet of its own (stt.partialModel, on
     stt.partialThreads), in a process of its own (see worker.py), loaded
     once the rest is. It listens while grog answers, but for the echo of
-    grog's own sound (see echo.py). `ring`: a ReSpeaker's ring and mute
-    button, if any (see ring.py)."""
+    grog's own sound (see echo.py). What it says while grog looks something
+    up is made then too, when it `play`s its sound (see fillers.py). `ring`:
+    a ReSpeaker's ring and mute button, if any (see ring.py)."""
     from . import grog
     from .audio import FRAME_S, NullPlayer, Player
     from .echo import Echo
+    from .fillers import Fillers, phrases
     from .loop import Voice
     from .speech import Parakeet, SileroVad
     from .worker import Worker
@@ -157,6 +159,9 @@ def build(settings, open_mic, play, report=None, name=lambda: None, partials=Tru
     for _ in tts("Ok."):  # the first run is slower
         pass
     log.info("models loaded in %.1f s", time.monotonic() - started)
+    fillers = Fillers(phrases(settings["fillers"], getattr(tts, "language", None)))
+    if play:
+        fillers.make(tts)
     if partial_stt is not None:
         # Now rather than when someone first talks, while the rest loads.
         threading.Thread(target=load_partials, args=(partial_stt,), daemon=True, name="partials").start()
@@ -181,6 +186,7 @@ def build(settings, open_mic, play, report=None, name=lambda: None, partials=Tru
         captions=lambda: report is not None and report.captions,
         partial_stt=partial_stt,
         echo=Echo(FRAME_S),
+        filler=fillers,
         ring=ring,
     )
 

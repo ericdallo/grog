@@ -56,6 +56,7 @@ def voice(
     players=None,
     turns=True,
     ring=None,
+    filler=lambda tool: None,
 ):
     """A Voice with fakes, with partials by `partials` (a speech to text) when
     given; what it tells grog it's doing is in .reported, what it heard for
@@ -63,7 +64,8 @@ def voice(
     `turns`, what's said next comes once grog is done answering: the mic
     holds its frames meanwhile. Without, grog's speech plays as it does
     (Speaking), told apart from someone talking by an Echo. `ring`: a
-    ReSpeaker's, if any."""
+    ReSpeaker's, if any; `filler`, what it says while grog looks something
+    up."""
     reported, heard = [], []
     players = players or (Players() if turns else Speaking())
     mic = mic or FakeMic(mic_frames)
@@ -82,6 +84,7 @@ def voice(
         captions=lambda: captions,
         partial_stt=Held(partials) if partials is not None else None,
         echo=None if turns else Echo(FRAME_S, clock=clock),
+        filler=filler,
         clock=clock,
         ring=ring,
         frame_bytes=FRAME,
@@ -113,6 +116,13 @@ class TurnTest(unittest.TestCase):
         self.assertEqual(ANSWER, result.turn.answer)
         self.assertEqual([[ACK], [t.encode() for t in v.mouth.tts.texts]], written(v))
         self.assertEqual(["listening", "hearing", "answering", "speaking"], v.reported, "what it told grog")
+
+    def test_says_a_filler_while_grog_looks_something_up(self):
+        ask = answering(("tool", "web_search"), "Sol amanhã.")
+        v = voice(mic=slow_mic(("S", 1.0), (".", 1.0)), ask=ask, filler=lambda tool: b"Buscando.")
+        result = v.turn()
+        self.assertEqual([[ACK], [b"Buscando.", "Sol amanhã.".encode()]], written(v))
+        self.assertEqual(["ack", "filler"], result.turn.sounds)
 
     def test_just_the_wake_word_wakes_it(self):
         v = voice(

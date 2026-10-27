@@ -277,6 +277,37 @@ class ConfigTest(unittest.TestCase):
             expected = f"ring.front: expected an angle from 0 to 359, or null, got {json.dumps(front)}"
             self.assertEqual([expected], problems(front))
 
+    def test_fillers(self):
+        def problems(fillers):
+            models = {"stt": {"model": self.model}, "tts": {"model": self.pocket}}
+            return config.problems(config.deep_merge(config.DEFAULTS, {**models, "fillers": fillers}))
+
+        self.assertIs(True, config.DEFAULTS["fillers"])
+        for ok in [
+            True,
+            False,
+            {},
+            {"search": ["Pesquisando."]},
+            {"search": [], "check": ["Já vejo.", "Hm."]},
+        ]:
+            self.assertEqual([], problems(ok), ok)
+        for bad in [
+            None,
+            "Buscando.",
+            ["Buscando."],
+            {"act": ["Feito."]},
+            {"search": "Buscando."},
+            {"check": [""]},
+        ]:
+            self.assertEqual(
+                [
+                    'fillers: expected true, false, or phrases by kind, like {"search": ["Buscando."], '
+                    f'"check": ["Checando."]}}, got {"nothing" if bad is None else json.dumps(bad)}'
+                ],
+                problems(bad),
+                bad,
+            )
+
     def test_wake_words(self):
         def problems(wake_word):
             settings = config.deep_merge(

@@ -66,7 +66,9 @@ class Voice:
     it hears for grog reported, and are its partials made to its end.
     `partial_stt` transcribes partials (None: none, see Ears). `echo` (an
     Echo) keeps grog's own sound from being taken for someone talking (None:
-    nothing does); `clock` tells the time, as the mic stamps its frames.
+    nothing does); `filler(tool)`, what to say while grog uses a tool before
+    saying anything (see fillers.py); `clock` tells the time, as the mic
+    stamps its frames.
     `ring` (a Ring, or None) is shown what it does and told whether grog's
     mic is on: a ReSpeaker's ring and mute button (see ring.py)."""
 
@@ -86,6 +88,7 @@ class Voice:
         captions=lambda: False,
         partial_stt=None,
         echo=None,
+        filler=lambda tool: None,
         clock=time.monotonic,
         ring=None,
         frame_bytes=FRAME_BYTES,
@@ -115,6 +118,7 @@ class Voice:
             tell=self.tell,
             captions=captions,
             played=echo.played if echo is not None else lambda seconds, speech=False: None,
+            filler=filler,
             clock=clock,
         )
         self.ears = Ears(

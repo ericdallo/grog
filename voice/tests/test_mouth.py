@@ -40,7 +40,7 @@ def heard(text=HEARD, **more):
     return Heard(pcm=pcm, text=text, **(fields | more))
 
 
-def mouth(ask=None, captions=False, players=None):
+def mouth(ask=None, captions=False, players=None, filler=lambda tool: None):
     """A Mouth with fakes: what it tells grog is in .told."""
     told = []
     m = Mouth(
@@ -49,6 +49,7 @@ def mouth(ask=None, captions=False, players=None):
         ask=ask or answering("São dez ", "e quinze. Mais ", "alguma coisa?"),
         tell=told.append,
         captions=lambda: captions,
+        filler=filler,
     )
     m.told = told
     return m
@@ -297,11 +298,48 @@ class AnswerTest(unittest.TestCase):
             said_meanwhile.extend(m.tts.texts)
             yield ("text", " Amanhã faz sol.")
 
-        m = mouth(ask=ask)
+        m = mouth(ask=ask, filler=lambda tool: b"Buscando.")
         turn = m.answer(heard(), HEARD)
         self.assertEqual(["Vou ver o tempo."], said_meanwhile)
-        self.assertEqual([ACK, b"Vou ver o tempo.", "Amanhã faz sol.".encode()], played(m.player))
+        self.assertEqual(
+            [ACK, b"Vou ver o tempo.", "Amanhã faz sol.".encode()], played(m.player), "no filler then"
+        )
         self.assertEqual((["ack"], ["web_search"]), (turn.sounds, turn.tools))
+
+    def test_says_a_filler_while_a_tool_looks_something_up_before_grog_said_anything(self):
+        m = mouth(ask=answering(("tool", "web_search"), "Sol amanhã."), filler=lambda tool: b"Buscando.")
+        turn = m.answer(heard(), HEARD)
+        self.assertEqual([ACK, b"Buscando.", "Sol amanhã.".encode()], played(m.player))
+        self.assertEqual((["ack", "filler"], ["web_search"]), (turn.sounds, turn.tools))
+        self.assertRegex(str(turn), r"filler [\d.]+ s")
+        self.assertEqual("Sol amanhã.", turn.said, "not part of the answer")
+        self.assertEqual(["answering", "speaking"], m.told, "speaking once the answer is")
+
+    def test_a_filler_a_turn_only_for_tools_that_look_something_up(self):
+        asked = []
+
+        def filler(tool):
+            asked.append(tool)
+            return None if tool == "lights" else tool.encode()
+
+        ask = answering(("tool", "lights"), ("tool", "weather"), ("tool", "web_search"), "Pronto.")
+        m = mouth(ask=ask, filler=filler)
+        turn = m.answer(heard(), HEARD)
+        self.assertEqual([ACK, b"weather", b"Pronto."], played(m.player))
+        self.assertEqual(["lights", "weather"], asked, "none once one was said")
+        self.assertEqual(["ack", "filler"], turn.sounds)
+
+    def test_a_filler_is_speech_to_the_echo(self):
+        speech = []
+        m = Mouth(
+            tts=FakeTts(),
+            player=Players(),
+            ask=answering(("tool", "weather"), "Sol."),
+            played=lambda seconds, is_speech=False: speech.append(is_speech),
+            filler=lambda tool: b"Checando.",
+        )
+        m.answer(heard(), HEARD)
+        self.assertEqual([False, True, True], speech, "got it, the filler, then the answer")
 
     def test_beeps_when_grog_cant_answer(self):
         m = mouth(ask=answering(GrogError("grog is down")))
