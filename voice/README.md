@@ -69,6 +69,11 @@ A low sound means something went wrong, and the log says what. A rising
 one means the brain is there: at start, or back after it restarted (after
 an update, say).
 
+Under systemd, it says it's ready once its models are loaded, then that
+it's alive while it takes what its mic hears, or has nothing to take (its
+mic off, or none): stuck, systemd starts it again
+([`watchdog.py`](grog_voice/watchdog.py)).
+
 The brain can also ask it (`GET /v1/voice/commands`), for someone at grog's
 screen: to listen now, without its name (touching its face), to stop
 answering, or to switch its mic off. Off, it records nothing at all until

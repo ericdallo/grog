@@ -674,6 +674,27 @@ class SayTest(unittest.TestCase):
         self.assertTrue(players.made[0].stopped)
 
 
+class HealthTest(unittest.TestCase):
+    """Whether it takes what the mic hears, for systemd's watchdog."""
+
+    def test_while_it_takes_what_the_mic_hears(self):
+        v = voice(mic=slow_mic(("S", 1.0), (".", 1.0)))
+        self.assertTrue(v.healthy())
+        v.ears.heard_at -= loop.STUCK_S
+        self.assertFalse(v.healthy(), "stuck")
+        v.turn()
+        self.assertTrue(v.healthy(), "it took frames again")
+
+    def test_with_nothing_to_take(self):
+        v = voice(mic=WatchedMic(missing=True))
+        v.ears.heard_at -= loop.STUCK_S
+        self.assertTrue(v.healthy(), "no mic")
+        v.no_mic = False
+        with self.assertLogs("grog_voice", "INFO"):
+            v.set_mic(False)
+        self.assertTrue(v.healthy(), "its mic off")
+
+
 class WatchedMic(FakeMic):
     """A FakeMic saying when there's no mic, and when it's back."""
 

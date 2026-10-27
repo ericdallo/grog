@@ -95,7 +95,21 @@ On grognix:
 - `journalctl -u grog -f` shows the brain's log, and
   `journalctl --user -u grog-voice -f` the voice's. Neither has what was said.
   `journalctl --user -u grog-music -f` shows the player's, without what it
-  played.
+  played. grog-voice tells systemd it's alive while it takes what its mic
+  hears: stuck a minute, it's started again.
+- grog's state (its memory, settings, conversations, what's connected and
+  its tokens) is copied every day to `/var/backups/grog`, for root only, the
+  last 7 kept (`services.grog.backup`): a way back from a mistake, not from a
+  lost disk. To go back to one, stop grog and unpack it as root: `sudo
+  systemctl stop grog && sudo tar --zstd -xf /var/backups/grog/grog-<date>.tar.zst
+  -C / && sudo systemctl start grog`. More can be copied with it:
+
+  ```nix
+  services.grog.backup = {
+    paths = [ "/var/lib/hass" ];                         # Home Assistant's
+    exclude = [ "/var/lib/hass/home-assistant_v2.db*" ]; # its history, written all the time
+  };
+  ```
 - Wi-Fi, in the actions on its screen, joins another network, its password
   typed there; what it saves works with any Wi-Fi dongle, on any port. A
   profile made in GNOME only works on the USB port the dongle was in.

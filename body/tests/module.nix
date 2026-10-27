@@ -403,6 +403,21 @@ pkgs.testers.runNixOSTest {
         journal = voice_journal()
         assert "previsão" not in journal and "messages=" not in journal, journal
 
+    with subtest("it told systemd it was ready, and keeps telling it it's alive"):
+        shown = machine.succeed(
+            "systemctl --user -M grog@ show -p Type -p WatchdogUSec -p WatchdogTimestampMonotonic grog-voice.service"
+        )
+        assert "Type=notify" in shown and "WatchdogUSec=1min" in shown, shown
+        assert "WatchdogTimestampMonotonic=0" not in shown, shown
+
+    with subtest("its state is copied, for root only"):
+        machine.succeed("systemctl start grog-backup.service")
+        machine.succeed("stat -c %a /var/backups/grog | grep -qx 700")
+        machine.succeed("stat -c %a /var/backups/grog/grog-*.tar.zst | grep -qx 600")
+        copied = machine.succeed("${pkgs.zstd}/bin/zstd -dc /var/backups/grog/grog-*.tar.zst | tar -tf -").split()
+        assert any(m.startswith("var/lib/private/grog/") and not m.endswith("/") for m in copied), copied
+        machine.succeed("systemctl list-timers grog-backup.timer | grep -q grog-backup")
+
     with subtest("asked to, it changes its own settings, for good, until reset"):
         # The model calls the settings tool, then answers.
         assert (out := grog('ask --new "de agora em diante, seu nome é Jarvis"')) == "Pronto.", out

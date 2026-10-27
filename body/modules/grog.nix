@@ -249,6 +249,48 @@ in
       };
     };
 
+    backup = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Whether to copy grog's state (its memory, settings, conversations,
+          what's connected and its tokens) every day, to `directory`, on this
+          machine: a way back from a mistake, not from a lost disk. Only
+          root can read the copies.
+        '';
+      };
+
+      directory = lib.mkOption {
+        type = lib.types.str;
+        default = "/var/backups/grog";
+        description = "Where the copies go.";
+      };
+
+      keep = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 7;
+        description = "How many copies to keep, the newest.";
+      };
+
+      paths = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        example = [ "/var/lib/hass" ];
+        description = "More to copy with grog's state: Home Assistant's, say.";
+      };
+
+      exclude = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        example = [ "/var/lib/hass/home-assistant_v2.db*" ];
+        description = ''
+          What not to copy of `paths`, as tar patterns: a database written
+          all the time, which a copy would catch half written, say.
+        '';
+      };
+    };
+
     voice = {
       enable = lib.mkEnableOption ''
         grog-voice, grog's ears and mouth: it listens to a microphone and
@@ -599,6 +641,44 @@ in
       };
     })
 
+    (lib.mkIf (cfg.enable && cfg.backup.enable) {
+      # Every day, or once the machine is back on when it was off then, with
+      # the CPU and the disk grog-voice leaves.
+      systemd.services.grog-backup = {
+        description = "Copying grog's state";
+        startAt = "daily";
+        path = [ pkgs.gnutar pkgs.zstd pkgs.coreutils ];
+        serviceConfig = {
+          Type = "oneshot";
+          Nice = 19;
+          IOSchedulingClass = "idle";
+          UMask = "0077";
+        };
+        script =
+          let
+            members = map (lib.removePrefix "/") ([ "/var/lib/private/grog" ] ++ cfg.backup.paths);
+            excludes = map (p: "--exclude=${lib.removePrefix "/" p}") cfg.backup.exclude;
+          in
+          ''
+            dir=${lib.escapeShellArg cfg.backup.directory}
+            install -d -m 0700 "$dir"
+            name="grog-$(date +%Y-%m-%d).tar.zst"
+            # A file that changed as it was copied (exit 1) is no failure.
+            tar --zstd --create --file "$dir/.$name" --ignore-failed-read --warning=no-file-changed \
+              ${lib.escapeShellArgs excludes} --directory / ${lib.escapeShellArgs members} || [ $? -eq 1 ]
+            mv "$dir/.$name" "$dir/$name"
+            # The newest ones only.
+            ls -1t "$dir"/grog-*.tar.zst | tail -n +${toString (cfg.backup.keep + 1)} | while read -r old; do
+              rm -f -- "$old"
+            done
+          '';
+      };
+      systemd.timers.grog-backup.timerConfig = {
+        Persistent = true;
+        RandomizedDelaySec = "1h";
+      };
+    })
+
     (lib.mkIf cfg.voice.enable {
       assertions = [{
         assertion = config.services.pipewire.enable;
@@ -635,6 +715,14 @@ in
         unitConfig.ConditionUser = cfg.voice.user;
         serviceConfig = {
           ExecStart = "${lib.getExe cfg.voice.package} --config ${voiceConfigFile} run";
+          # Ready once its models are loaded and its mic open; then it says
+          # it's alive while it takes what the mic hears, or has nothing to
+          # take (its mic off, or none). Stuck, it's killed and started again
+          # (voice/grog_voice/watchdog.py): no core dump of its models.
+          Type = "notify";
+          TimeoutStartSec = 300;
+          WatchdogSec = 60;
+          WatchdogSignal = "SIGKILL";
           # Also when the mic goes away (unplugged, say): it picks it up again.
           Restart = "always";
           RestartSec = 5;

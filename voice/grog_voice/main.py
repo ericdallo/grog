@@ -203,7 +203,9 @@ def stopped(signum, frame):
 
 
 def run(settings):
-    from . import grog
+    """The service: what grog asks, its ring, and the voice, systemd told
+    once it's ready, and while it's healthy (see watchdog.py)."""
+    from . import grog, watchdog
     from .audio import Mic
     from .commands import Commands
     from .ring import Ring
@@ -232,9 +234,16 @@ def run(settings):
         ring.close()  # its button mutes it by itself again
         raise
     commands.attach(voice)
+    watchdog.notify("READY=1")
+    dog = None
+    if (every_s := watchdog.interval()) is not None:
+        dog = watchdog.Watchdog(voice.healthy, every_s)
+        dog.start()
     try:
         voice.run()
     finally:
+        if dog is not None:
+            dog.close()
         commands.close()
         voice.close()
 

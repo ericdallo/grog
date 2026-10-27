@@ -180,6 +180,7 @@ class Ears:
         self.head_bytes = round(HEAD_S / frame_s) * frame_bytes
         self.held = False  # partials, since the last utterance ended
         self.forgetting = False  # what was being said is to be forgotten (see forget)
+        self.heard_at = time.monotonic()  # when it last took a frame from the mic, or found none
         self.endpointer = Endpointer(
             frame_bytes,
             frame_s,
@@ -229,7 +230,9 @@ class Ears:
                 return None
             # While grog answers, it can be over with no frame coming (the
             # mic switched off, say).
-            if (read := self.mic.read(timeout=None if until is None else UNTIL_S)) is None:
+            read = self.mic.read(timeout=None if until is None else UNTIL_S)
+            self.heard_at = time.monotonic()
+            if read is None:
                 continue
             t, frame = read
             if self.forgetting:

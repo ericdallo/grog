@@ -35,6 +35,10 @@ BACK_EVERY_S = 60.0
 SAY_WAIT_S = 60.0
 SAY_POLL_S = 0.2
 
+# It takes a frame of what the mic hears every 32 ms: this long without
+# one, with its mic on and there, it's stuck (see healthy).
+STUCK_S = 30.0
+
 
 @dataclass
 class Result:
@@ -257,6 +261,12 @@ class Voice:
         self.ears.close()
         if self.ring is not None:
             self.ring.close()
+
+    def healthy(self):
+        """Whether it takes what the mic hears, as it should (see
+        watchdog.py): lately, or there's nothing to take, its mic switched
+        off or none."""
+        return self.muted or self.no_mic or time.monotonic() - self.ears.heard_at < STUCK_S
 
     def listen_now(self):
         """Listens to what's said next without its name, as if called, once
