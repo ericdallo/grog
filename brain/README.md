@@ -157,8 +157,9 @@ latest grog pushed. On NixOS that's `services.grog.update`: a root service
 in a lock of its own, and builds the system with it, as the flake's owner.
 With something new, once nobody is talking to grog, it switches to it
 (staying in the specialisation the machine runs, if it's one), and waits for
-the new grog to answer, as its new revision. Then the flake gets the new
-lock; otherwise the machine goes back to the previous system.
+the new grog to answer, as its new revision, and for grog-voice, when it
+was there, to be done loading its models. Then the flake gets the new lock;
+otherwise the machine goes back to the previous system.
 
 Asked by voice, it only says it's updating, unless there was nothing new or
 it failed, and grog-voice plays a sound once it's back. `grog update`
@@ -608,7 +609,7 @@ JSON keys are lowerCamelCase.
 | Request | Does |
 | --- | --- |
 | `POST /v1/chat` `{"message", "conversationId", "new", "said", "cutOff"}` | Answers as streamed text, or as server-sent events with `Accept: text/event-stream` (`text`, `tool`, then `done` or `error`). `new` starts over; `said` is the question as heard, shown with captions; `cutOff`, what of the last answer was said aloud before it was cut off: the conversation keeps only that of it. Hanging up stops the turn, as stopped rather than failed, keeping what was asked and answered so far |
-| `GET /v1/status` | `name`, its `revision`, `provider`, `model`, the account, `changed` settings, `usage`, whether someone is talking to it (`busy`), and how the last update goes (`update`) |
+| `GET /v1/status` | `name`, its `revision`, `provider`, `model`, the account, `changed` settings, `usage`, whether someone is talking to it (`busy`), what grog-voice is doing (`voice`, `null` when it isn't there), and how the last update goes (`update`) |
 | `DELETE /v1/settings` | Puts the settings changed by asking back |
 | `GET /v1/models` | `{"models": [{"id", "description", "current"...}]}` |
 | `GET /v1/integrations` | `{"integrations": [{"id", "title", "heading", "about", "icon", "ways", "multiple", "connections"}], "connect"}`: what it can [connect to](#connecting-things), [MCP servers](#mcp-servers) with `"mcp": true`, `added` (you added it) and `cloud`; what's connected (`{"id", "name", "detail", "status", "addedAt"}`, `status` being `connected` or `signed-out`, `detail` like `12 tools`); and the last session |

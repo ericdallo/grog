@@ -305,6 +305,13 @@
   [{:keys [captions?]}]
   (boolean (and captions? (captions?))))
 
+(defn voice-now
+  "What grog-voice is doing, as `state` says at `now`: what it last said,
+  while it says it still is (every 10 s); nil before, and once it's gone."
+  [{:keys [voice]} now]
+  (when (and voice (< (- now (or (:seen voice) 0)) voice-gone-ms))
+    (:state voice)))
+
 (defn saying?
   "Whether grog-voice, as it last said, is answering in `conversation`, or
   saying the answer."

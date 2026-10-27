@@ -245,8 +245,9 @@
                 (let [{:keys [status body]} (post "update")]
                   (is (= 400 status))
                   (is (str/includes? body "can't update itself here"))))
-              (testing "its status tells, for updates, whether someone talks to it, and how the last one went"
-                (is (= {:busy false :update nil} (select-keys (status url) [:busy :update]))))
+              (testing "its status tells, for updates, whether someone talks to it, whether grog-voice is there,
+                        and how the last one went"
+                (is (= {:busy false :voice nil :update nil} (select-keys (status url) [:busy :voice :update]))))
               (testing "right away"
                 (let [{:keys [status body]} (post "restart")]
                   (is (= [200 {:ok true}] [status (json/parse-string body true)])))
@@ -479,7 +480,8 @@
                      (select-keys state [:name :provider :auth :captions :screenOffMinutes :screenOff])))))
           (testing "grog-voice says what it's doing"
             (is (= 200 (report-voice url {:state "hearing" :conversationId "voice"} "application/json")))
-            (is (eventually #(= ["voice" "hearing"] ((juxt first (comp :state :event second)) (last @got))))))
+            (is (eventually #(= ["voice" "hearing"] ((juxt first (comp :state :event second)) (last @got)))))
+            (is (= "hearing" (:voice (status url))) "its status says, for updates"))
           (testing "and what it heard for grog, which only goes out with captions"
             ;; Without what it heard, the same report in the same millisecond
             ;; would change nothing, and go to no one.

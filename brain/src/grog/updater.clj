@@ -8,8 +8,9 @@
   open someone else's git repository as root). Once nobody is talking to
   grog, it switches to it, staying in the specialisation the machine runs,
   if it runs one; and once the new grog answers, as the revision it was
-  updated to, the flake gets the new lock. Should it not answer, the
-  machine goes back to the previous system.
+  updated to, and grog-voice, when it was there before, says it's done
+  loading, the flake gets the new lock. Should either not, the machine goes
+  back to the previous system.
 
   How it goes is in its status file, for grog (and whoever watches it) to
   read, {:stage :from :to :to-date :started-at :at :error :rolled-back}: its
@@ -166,27 +167,35 @@
   [to status]
   (boolean (and status (or (nil? to) (nil? (:revision status)) (= to (:revision status))))))
 
+(defn ^:private voice-back?
+  "Whether grog's `status` says grog-voice is there, done loading its
+  models."
+  [status]
+  (boolean (and (string? (:voice status)) (not= "loading" (:voice status)))))
+
 (defn ^:private switch!
   "Switches to `system`, then waits for the new grog to answer (as revision
-  `to`, when known), going back to the previous system when it doesn't and
-  the previous grog did (`answered?`)."
-  [{:keys [sh grog profile current] :as sys} say! {:keys [system to answered? done!]}]
+  `to`, when known), and grog-voice to be back when it was there
+  (`voiced?`), going back to the previous system when they aren't and the
+  previous grog answered (`answered?`)."
+  [{:keys [sh grog profile current] :as sys} say! {:keys [system to answered? voiced? done!]}]
   (let [previous (real profile)
         spec (some-> previous (specialisation current))]
     (say! {:stage "switching"})
     (let [switched (run-all! sh (switch-commands profile system spec))]
       (say! {:stage "verifying"})
       (cond
-        (wait-for sys #(updated? to %) answer-timeout-ms)
+        (wait-for sys #(and (updated? to %) (or (not voiced?) (voice-back? %))) answer-timeout-ms)
         (do (done!) (say! {:stage "done"}))
 
         (and answered? previous)
-        (do (run-all! sh (switch-commands profile previous spec))
-            (say! {:stage "failed"
-                   :rolled-back true
-                   :error (str "The new grog didn't answer"
-                               (when-not (zero? (:exit switched)) (str " (" (tail switched) ")"))
-                               ": back to the previous system.")}))
+        (let [voiceless? (updated? to (grog))]
+          (run-all! sh (switch-commands profile previous spec))
+          (say! {:stage "failed"
+                 :rolled-back true
+                 :error (str (if voiceless? "The new grog-voice didn't start" "The new grog didn't answer")
+                             (when-not (zero? (:exit switched)) (str " (" (tail switched) ")"))
+                             ": back to the previous system.")}))
 
         :else
         (say! {:stage "failed"
@@ -247,6 +256,7 @@
                         (switch! sys say! {:system system
                                            :to to
                                            :answered? (some? before)
+                                           :voiced? (some? (:voice before))
                                            :done! #(write-lock! sh lock-file fresh-file owner)}))))))))
       (catch Exception e
         (say! {:stage "failed" :error (str "Couldn't update: " (or (ex-message e) (.getName (class e))))}))
@@ -264,13 +274,13 @@
       {:exit 127 :out "" :err (or (ex-message e) (.getName (class e)))})))
 
 (defn ^:private status-of
-  "What grog at `url` says of itself ({:revision :busy}), or nil when it
-  doesn't answer."
+  "What grog at `url` says of itself ({:revision :busy :voice}), or nil when
+  it doesn't answer."
   [url]
   (try
     (let [resp (http/get (str url "/v1/status") {:throw false :timeout 5000})]
       (when (= 200 (:status resp))
-        (select-keys (config/parse (:body resp)) [:revision :busy])))
+        (select-keys (config/parse (:body resp)) [:revision :busy :voice])))
     (catch Exception _ nil)))
 
 (defn system

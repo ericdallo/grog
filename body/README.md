@@ -115,8 +115,8 @@ grog updates itself when asked, by voice, on its screen, or with `grog
 update` (`services.grog.update`, on in grognix). It builds the system from
 its flake with grog's input at the latest grog pushed, as the flake's owner,
 switches to it once nobody is talking to grog, and goes back to the previous
-system if the new grog doesn't answer. Only then does the flake get the new
-lock. On another machine:
+system if the new grog doesn't answer, or grog-voice, there before, doesn't
+come back. Only then does the flake get the new lock. On another machine:
 
 ```nix
 services.grog.update = {

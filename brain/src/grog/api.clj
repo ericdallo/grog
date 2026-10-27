@@ -473,8 +473,10 @@
                          :revision (update/revision)
                          :changed (settings/changed ctx)
                          :usage (usage/summary ctx)
-                         ;; For updates: whether someone is talking to it, and how the last one goes.
+                         ;; For updates: whether someone is talking to it, whether
+                         ;; grog-voice is there, and how the last one goes.
                          :busy (events/busy? (events/snapshot (:events ctx)) (events/now-ms))
+                         :voice (events/voice-now (events/snapshot (:events ctx)) (events/now-ms))
                          :update (update/status config)))
 
        (= [:delete "/v1/settings"] [request-method uri])

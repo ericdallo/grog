@@ -31,8 +31,10 @@
   `running` and answering (unless :silent), the latest grog being `latest`.
   Fetching or building fail with :fetch-fails or :build-fails; switching
   makes grog the latest, unless :stays; :busy polls say someone talks to
-  grog; :spec: the machine runs that specialisation."
-  [{:keys [locked running latest silent fetch-fails build-fails stays busy spec]}]
+  grog; :spec: the machine runs that specialisation. grog says grog-voice
+  does :voice, and once switched, :voice-after (the same by default)."
+  [{:keys [locked running latest silent fetch-fails build-fails stays busy spec voice]
+    :as how}]
   (let [dir (str (fs/real-path (h/temp-dir)))
         flake (str (fs/create-dirs (fs/path dir "flake")))
         owner (str (fs/owner flake))
@@ -43,7 +45,8 @@
                                          (if spec (fs/path previous "specialisation" spec) previous)))
         passwd (str (fs/path dir "passwd"))
         commands (atom [])
-        grog (atom (when-not silent {:revision running :busy false}))
+        grog (atom (when-not silent {:revision running :busy false :voice voice}))
+        voice-after (get how :voice-after voice)
         busy (atom (or busy 0))
         clock (atom 0)]
     (spit (str flake "/flake.lock") (json/generate-string (lock locked)))
@@ -72,7 +75,7 @@
                      :else
                      (do (when-let [[_ action] (stc argv)]
                            (when (and (#{"switch" "test"} action) (not stays))
-                             (swap! grog #(some-> % (assoc :revision latest)))))
+                             (swap! grog #(some-> % (assoc :revision latest :voice voice-after)))))
                          {:exit 0 :out "" :err ""}))))
            :grog (fn []
                    (when-let [g @grog]
@@ -206,6 +209,20 @@
       (is (= [["/nix/store/new-system" "switch"] [(:previous w) "switch"]] (switches w)))
       (is (some #(= ["nix-env" "-p" (get-in w [:sys :profile]) "--set" (:previous w)] %) @(:commands w)))
       (is (= "abc" (flake-rev w)))))
+  (testing "when grog-voice, there before, doesn't come back, done loading"
+    (doseq [after ["loading" nil]]
+      (let [w (world {:locked "abc" :running "abc" :latest "def" :voice "listening" :voice-after after})
+            result (update! w "abc")]
+        (is (= {:stage "failed" :rolled-back true} (select-keys result [:stage :rolled-back])) (pr-str after))
+        (is (str/starts-with? (:error result) "The new grog-voice didn't start: back to the previous system"))
+        (is (= "abc" (flake-rev w))))))
+  (testing "not when it does, muted or not"
+    (doseq [after ["listening" "muted"]]
+      (let [w (world {:locked "abc" :running "abc" :latest "def" :voice "listening" :voice-after after})]
+        (is (= "done" (:stage (update! w "abc"))) after))))
+  (testing "nor when it wasn't there"
+    (let [w (world {:locked "abc" :running "abc" :latest "def" :voice nil :voice-after nil})]
+      (is (= "done" (:stage (update! w "abc"))))))
   (testing "not when the previous one didn't answer either"
     (let [w (world {:locked "abc" :running "abc" :latest "def" :silent true})
           result (update! w "abc")]
