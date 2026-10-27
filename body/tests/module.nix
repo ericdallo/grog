@@ -620,8 +620,10 @@ pkgs.testers.runNixOSTest {
             ("null-other", "Other speaker", False),
         ], listed
         assert listed["voice"] is None, listed
-        # Its voice on the other one, and the volume that one's.
-        assert speakers({"voice": "null-other"})["voice"] == {"name": "null-other", "label": "Other speaker"}
+        # Its voice on the other one, and the volume that one's; its kind kept,
+        # for its screen to know its own speakers.
+        other = {"name": "null-other", "label": "Other speaker", "kind": "speaker"}
+        assert (picked := speakers({"voice": "null-other"})["voice"]) == other, picked
         assert voice_told()["speaker"] == "null-other"
         machine.wait_until_succeeds(
             "journalctl -o cat _SYSTEMD_USER_UNIT=grog-voice.service | grep -qx 'INFO speaking on null-other'"
@@ -640,7 +642,7 @@ pkgs.testers.runNixOSTest {
         machine.succeed("systemctl restart grog")
         machine.wait_for_open_port(8484)
         assert voice_told()["speaker"] == "null-other"
-        assert seen_state()["speaker"] == {"name": "null-other", "label": "Other speaker"}
+        assert (seen := seen_state()["speaker"]) == other, seen
         # Back as they were.
         speakers({"music": "null-speaker"})
         assert speakers({"voice": None})["voice"] is None
