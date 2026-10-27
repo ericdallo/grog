@@ -128,6 +128,28 @@ class SteadiestTest(unittest.TestCase):
         self.assertTrue(pocket.checked("Pronto! A luz da cozinha está apagada."))
         self.assertFalse(pocket.checked("Amanhã deve fazer vinte e oito graus em São Paulo."))
 
+    def test_flawed_up_to_one_by_default(self):
+        attempts = iter([iter([2.0] * 12), iter([1.0] * 12)])
+        self.assertEqual([1.0] * 12, list(pocket.steadiest(attempts, max)))
+
+
+class ReverberationTest(unittest.TestCase):
+    def test_gaps_between_syllables_filled(self):
+        dry = [-80.0, -20.0, -20.0, -60.0, -60.0, -20.0, -20.0, -80.0]
+        self.assertEqual(0.0, pocket.reverberation(dry), "quiet gaps")
+        wet = [-80.0, -20.0, -20.0, -40.0, -40.0, -20.0, -20.0, -80.0]
+        self.assertAlmostEqual(2 / 6, pocket.reverberation(wet), msg="gaps 20 dB under: 2 of its 6 windows")
+
+    def test_only_within_its_speech(self):
+        self.assertAlmostEqual(
+            0.5,
+            pocket.reverberation([-80.0, -40.0, -20.0, -40.0, -20.0, -80.0, -80.0]),
+            msg="silence around it",
+        )
+
+    def test_no_speech(self):
+        self.assertEqual(0.0, pocket.reverberation([]))
+
 
 class LevelerTest(unittest.TestCase):
     """Levels of 40 ms windows, two a frame; speech brought to -19 dB."""

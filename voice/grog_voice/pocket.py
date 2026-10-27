@@ -113,18 +113,21 @@ class Ending:
 
 # Pocket TTS says some short texts as if several voices murmured at once, or
 # only murmurs them, quietly, whatever the voice (4 to 6 of 20 short
-# answers; lower temperatures, more), where other noise says them well. So
-# a piece of CHECK_WORDS words or fewer is made CHECK_FRAMES frames ahead
-# (800 ms, most of it) before it plays, up to ATTEMPTS times while those
-# sound like noise: past NOISY (speech is ~0.01; what was heard as several
-# voices, 0.025), or quieter than QUIET dBFS at their loudest (a voice
-# speaks at ~-18, murmurs at -40). Measured in plans/voice.md ("Breathy
-# short answers").
+# answers; lower temperatures, more), where other noise says them well, and
+# some as if in a hall. So a piece of CHECK_WORDS words or fewer is made
+# CHECK_FRAMES frames ahead (800 ms, most of it) before it plays, up to
+# ATTEMPTS times while those sound flawed: like noise, past NOISY (speech is
+# ~0.01; in deep-calm, no try up to 0.03 was heard as murmured, where in a
+# carioca voice "De boa!" at 0.025 sounded like several voices), or quieter
+# than QUIET dBFS at their loudest (a voice speaks at ~-18, murmurs at -40);
+# or reverberant, past REVERBERANT (see reverberation). Measured in
+# plans/voice.md ("Breathy short answers").
 CHECK_WORDS = 8
 CHECK_FRAMES = 10
 ATTEMPTS = 3
-NOISY = 0.015
+NOISY = 0.03
 QUIET = -32.0
+REVERBERANT = 0.45
 
 
 def checked(text):
@@ -133,15 +136,29 @@ def checked(text):
     return len(text.split()) <= CHECK_WORDS
 
 
-def steadiest(attempts, noisiness, check=CHECK_FRAMES, limit=NOISY):
+def reverberation(levels, span=30.0, under=15.0):
+    """How reverberant speech whose 10 ms windows' levels (dB) are `levels`
+    sounds: the share of its windows, from its first to its last within
+    `span` dB of its loudest, that are `under` to `span` dB under its
+    loudest, as reverb fills the gaps between syllables (speech ~0.25;
+    heard as reverberant, 0.5 to 0.8). 0 without speech."""
+    if not levels:
+        return 0.0
+    loudest = max(levels)
+    speech = [i for i, level in enumerate(levels) if level > loudest - span]
+    within = levels[speech[0] : speech[-1] + 1]
+    return sum(loudest - span <= level < loudest - under for level in within) / len(within)
+
+
+def steadiest(attempts, flaw, check=CHECK_FRAMES, limit=1.0):
     """The frames of the first of `attempts` (iterators of frames, each made
     only once the one before it is turned down) whose first `check` frames'
-    `noisiness` is `limit` at most, else of the least noisy one: the frames
-    it already made, then the rest of it."""
+    `flaw` is `limit` at most, else of the least flawed one: the frames it
+    already made, then the rest of it."""
     best = None
     for attempt in attempts:
         head = list(itertools.islice(attempt, check))
-        score = noisiness(head)
+        score = flaw(head)
         if score <= limit:
             return itertools.chain(head, attempt)
         if best is None or score < best[0]:

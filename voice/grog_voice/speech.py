@@ -115,7 +115,8 @@ class Pocket:
     GHz, its 24-layer model takes 0.5 s per second of speech, its first
     sound in 0.15 s (the 6-layer one, with turbo: 0.17 s, and 0.03 s). A
     short piece (8 words or fewer) starts once its first 800 ms are made, as
-    they're made again when they come out murmured (see pocket.steadiest);
+    they're made again when they come out murmured or reverberant (see
+    pocket.steadiest);
     each is said as loud as the rest (see pocket.Leveler); one that ends a
     sentence is followed by a pause (see pocket.pause).
     `model` has the graphs (flow_lm.onnx, mimi_decoder.onnx),
@@ -225,11 +226,24 @@ class Pocket:
 
     def _synthesize(self, text, guess):
         """The frames of `text`: a short one's made ahead, and again with
-        other noise while it comes out murmured (see pocket.steadiest)."""
+        other noise while it comes out murmured or reverberant (see
+        pocket.steadiest)."""
         if not pocket.checked(text):
             return self._frames(text, guess, 0)
         attempts = (self._frames(text, guess, attempt) for attempt in range(pocket.ATTEMPTS))
-        return pocket.steadiest(attempts, self._noisiness)
+        return pocket.steadiest(attempts, self._flaw)
+
+    def _flaw(self, frames):
+        """How flawed `frames` (16-bit mono audio) sound, by the worst of how
+        much like noise they sound (see _noisiness) and how reverberant (see
+        pocket.reverberation), each against its limit: 1 or less is fine."""
+        import numpy as np
+
+        x = np.frombuffer(b"".join(frames), dtype=np.int16).astype(np.float32) / 32768
+        window = self.sample_rate // 100
+        n = len(x) // window
+        levels = (10 * np.log10((x[: n * window].reshape(n, window) ** 2).mean(axis=1) + 1e-12)).tolist()
+        return max(self._noisiness(frames) / pocket.NOISY, pocket.reverberation(levels) / pocket.REVERBERANT)
 
     def _noisiness(self, frames):
         """How much like noise `frames` (16-bit mono audio, 80 ms each) sound:

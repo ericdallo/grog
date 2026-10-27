@@ -687,6 +687,20 @@ every frame came in time, even after a minute idle. Pocket TTS itself:
   Over 27 short answers, renderings past 0.015: 9 to 3 (the worst 0.076 to
   0.026, "De boa!" 0.029 to 0.002). Their first sound comes 0.6 s after
   their text (the median, in the lab), 1.8 s at most (three tries).
+- That made most short answers wait: on October 27, 2026, of 14 short
+  pieces of typical answers in deep-calm, 8 were made three times, each
+  try 0.45 s more on the station. In a blind listen of 22 short renderings
+  (16 between 0.015 and 0.03), the user heard none as murmured, but 5 as
+  much more reverberant, odd: one at 0.007, the rest 0.019 to 0.038, so
+  noisiness doesn't tell those. Over their first 800 ms, the share of 10
+  ms windows 15 to 30 dB under the loudest, between the first and last
+  within 30 dB of it (reverb fills the gaps between syllables,
+  `pocket.reverberation`), was 0.49 to 0.78 for 3 of them, 0.44 at most
+  for the 17 others.
+- So a try is now made again past 0.03, quieter than -32 dBFS at its
+  loudest, or past 0.45 of that: over those 14 pieces, 9 tries more
+  rather than 18 (0.29 s more per short piece, the mean, rather than
+  0.58).
 
 ## Pauses between sentences
 
