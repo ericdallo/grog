@@ -3,10 +3,12 @@ grog ("Grog, ..."), asks grog and speaks the answer as it streams in (see
 mouth.py), listening meanwhile: someone calling grog then ("Grog", or
 "Grog, ...") cuts the answer off at once, and what they say is answered
 instead. While grog's own sound plays, what the mic hears of it isn't
-taken for speech (see echo.py): only someone heard over it. grog may also
-ask it to listen now, to stop answering, to turn its mic off, or to say
-something though no one asked (a timer going off), and tells it when it
-plays music (see commands.py)."""
+taken for speech (see echo.py): only someone heard over it. After an
+answer, what's said from where whoever grog answered talked from needs no
+wake word for a while, as far as a ReSpeaker tells where speech comes from
+(see follow). grog may also ask it to listen now, to stop answering, to
+turn its mic off, or to say something though no one asked (a timer going
+off), and tells it when it plays music (see commands.py)."""
 
 import logging
 import threading
@@ -16,12 +18,19 @@ from dataclasses import dataclass
 from .audio import FRAME_BYTES, FRAME_S, MicError
 from .ears import Ears, Heard
 from .mouth import Mouth, Turn, where
+from .ring import turned
 
 log = logging.getLogger("grog_voice")
 
 # After just the wake word, or a question from grog ("Posso?"), how long what's
 # said next needs none.
 AWAKE_S = 8.0
+
+# After an answer, what's said from at most this many degrees off where
+# whoever grog answered talked from (as a ReSpeaker hears it) needs no wake
+# word, for followUpSeconds: two people a meter apart, 2 m away, are ~30°
+# apart.
+FOLLOW_DEGREES = 30
 
 # What it tells grog while it answers, or says what grog asked it to.
 ANSWERING = ("answering", "speaking", "announcing")
@@ -70,7 +79,8 @@ class Voice:
     saying anything (see fillers.py); `clock` tells the time, as the mic
     stamps its frames.
     `ring` (a Ring, or None) is shown what it does and told whether grog's
-    mic is on: a ReSpeaker's ring and mute button (see ring.py)."""
+    mic is on: a ReSpeaker's ring and mute button (see ring.py), which also
+    says where speech comes from (see follow)."""
 
     def __init__(
         self,
@@ -98,6 +108,9 @@ class Voice:
         self.ring = ring
         self.awake_until = 0.0
         self.awake_why = None  # why what's said until then needs no wake word (see awake)
+        self.follow_s = settings["followUpSeconds"]
+        self.follow_until = 0.0
+        self.followed = None  # where whoever grog last answered talked from (see follow)
         self.told = None  # what it last told grog it's doing
         self.no_mic = False
         self.muted = False  # its mic is switched off (see set_mic)
@@ -137,6 +150,8 @@ class Voice:
             echo=echo,
             busy=lambda: self.mouth.state,
             called=self._called,
+            follows=self.follows,
+            where=ring.angle if ring is not None else lambda start, end: None,
             frame_bytes=frame_bytes,
             frame_s=frame_s,
         )
@@ -178,13 +193,17 @@ class Voice:
         """Listens for an utterance, unless given one (`heard`, heard while
         grog answered), and answers it when it's for grog (see answer), or
         after just the wake word, listens without it for a while (awake), as
-        after an answer asking something (asked). Returns once its sounds are
-        over, or once someone called grog while it answered."""
+        after an answer asking something (asked), and after any other from
+        where whoever grog answered talked from (see follow). Returns once
+        its sounds are over, or once someone called grog while it
+        answered."""
         if heard is None:
             heard = self.ears.listen()
         if heard.said:
             self.awake_until = 0.0
         command = self.ears.address(heard)
+        if command is None and self._follows_up(heard):
+            command = self.ears.address(heard, follows=True)
         if command is None:
             self.mouth.quiet()
             return Result("ignored", heard)
@@ -204,9 +223,11 @@ class Voice:
         hears how much of an answer cut off was said, with what's asked
         next. An answer asking something wakes it up (asked): the reply
         needs no wake word, even when it started as grog finished asking.
-        Returns the turn, and what was heard while it answered to take next,
-        if anything: what was for grog, or what was still being said once
-        the answer was over."""
+        Any other lets what's said next from where `heard` came from go
+        without it for a while (see follow). Returns the turn, and what was
+        heard while it answered to take next, if anything: what was for
+        grog, or what was still being said once the answer was over."""
+        self.follow_until = 0.0
         answering = self.mouth.start(heard, command, self.cut_off)
         self.cut_off = None
         then = None
@@ -232,7 +253,38 @@ class Voice:
             self.wake_up("asked")
             if then is not None:
                 then.needs_name = False
+        elif heard.angle is not None:
+            self.follow(heard.angle)
         return turn, then
+
+    def follow(self, angle):
+        """For followUpSeconds from now, what's said from about `angle`
+        (where whoever grog just answered talked from, FOLLOW_DEGREES at
+        most off it) needs no wake word: a follow-up ("e amanhã?"). It
+        doesn't say so: music isn't ducked meanwhile, nor is grog's screen
+        woken."""
+        self.follow_until = time.monotonic() + self.follow_s
+        self.followed = angle
+
+    def follows(self):
+        """Whether what's said now could follow grog's last answer, without
+        its name (see follow): not while music plays, which the VAD takes for
+        speech."""
+        return not self.music and time.monotonic() < self.follow_until
+
+    def _follows_up(self, heard):
+        """Whether `heard`, without grog's name, follows its last answer: it
+        started while it could (see follows), from about where whoever grog
+        answered talked from. Says how far off it was, never what was
+        said."""
+        if not (heard.said and heard.follows) or heard.angle is None or self.followed is None:
+            return False
+        off = round(abs(turned(heard.angle - self.followed)))
+        if off > FOLLOW_DEGREES:
+            log.info("not a follow-up: %d° off where grog was asked from", off)
+            return False
+        log.info("a follow-up, %d° off where grog was asked from", off)
+        return True
 
     def _called(self):
         """Someone turned out to talk to grog: what it answers or announces,

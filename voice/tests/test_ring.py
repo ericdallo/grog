@@ -462,6 +462,22 @@ class DirectionTest(unittest.TestCase):
         self.speech(r, device, 230)
         self.assertEqual(-30, r.heard_from[-1], "to the left of where the first one was")
 
+    def test_where_an_utterance_came_from(self):
+        r, device = self.connected(front=180)
+        start = r.clock.now
+        self.speech(r, device, 100, seconds=1.0)
+        middle = r.clock.now
+        self.speech(r, device, 300, seconds=1.0, speech=0)
+        self.speech(r, device, 120, seconds=1.0)
+        end = r.clock.now
+        self.assertAlmostEqual(110, r.angle(start, end), msg="speech only")
+        self.assertAlmostEqual(100, r.angle(start, middle))
+        self.assertIsNone(r.angle(middle - ring.DOA_S / 2, middle), "a single angle doesn't tell")
+        self.assertIsNone(r.angle(end + 1, end + 5), "nothing heard then")
+        self.speech(r, device, 200, seconds=ring.ANGLES_KEEP_S)
+        self.assertIsNone(r.angle(start, end), "forgotten after a while")
+        self.assertIsNone(ringed(None).angle(0, 1e9), "without a ReSpeaker")
+
     def test_a_firmware_that_doesnt_say_is_let_be(self):
         device = FakeDevice()
         device.refused = {"DOA_VALUE"}

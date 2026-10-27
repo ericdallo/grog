@@ -17,6 +17,7 @@ from fakes import (
     Held,
     OverMusic,
     Saying,
+    SimMic,
     frames,
     numbered,
     seconds,
@@ -61,11 +62,14 @@ def ears(
     music=lambda: False,
     echo=None,
     busy=lambda: None,
+    follows=lambda: False,
+    where=lambda start, end: None,
 ):
     """Ears with fakes, with partials by `partials` (a speech to text) when
     given, awake for a reason when `awake` says one (awake, asked), music
     playing while `music()`, grog's own sound told apart by `echo`, and
-    grog answering while `busy()` says how; what they tell grog is in .told,
+    grog answering while `busy()` says how; what's said could follow its
+    answer while `follows()`, and came from where `where` says; what they tell grog is in .told,
     the earcons they chime in .chimes, what they heard for grog in
     .heard_reports ((text, final)), how many times someone turned out to
     talk to grog as they went on in .called."""
@@ -86,6 +90,8 @@ def ears(
         echo=echo,
         busy=busy,
         called=lambda: setattr(e, "called_count", e.called_count + 1),
+        follows=follows,
+        where=where,
         frame_bytes=FRAME,
         frame_s=FRAME_S,
     )
@@ -363,6 +369,36 @@ class HeadTest(unittest.TestCase):
         e = ears(mic=slow_mic(*self.TALK), wake=GROG, awake="asked", stt=FakeStt("sim, e depois mais coisa"))
         heard = e.listen()
         self.assertEqual(heard.pcm, e.stt.calls[-1])
+
+    def test_what_could_follow_grogs_answer_all_of_it_and_where_it_came_from(self):
+        spans = []
+        e = ears(
+            mic=SimMic(frames(*self.TALK)),
+            wake=GROG,
+            stt=FakeStt("e amanhã, vai chover lá em Pinheiros?"),
+            follows=lambda: True,
+            where=lambda start, end: spans.append((start, end)) or 120.0,
+        )
+        heard = e.listen()
+        self.assertEqual(heard.pcm, e.stt.calls[-1], "all of it")
+        self.assertTrue(heard.follows and heard.needs_name)
+        self.assertEqual(120.0, heard.angle)
+        [(start, end)] = spans
+        self.assertEqual(heard.speech_end, end, "from when its speech started to when it ended")
+        self.assertAlmostEqual(heard.speech_end - start, 6.8, delta=0.5)
+        self.assertIsNone(e.address(heard), "for the voice to decide")
+        self.assertEqual(["listening"], e.told)
+        self.assertEqual("e amanhã, vai chover lá em Pinheiros?", e.address(heard, follows=True))
+        self.assertEqual(["listening", "hearing"], e.told)
+
+    def test_with_a_name_needed_only(self):
+        for awake in (None, "awake"):
+            e = ears(frames(("S", 1.0), (".", 1.0)), wake=GROG, awake=awake, follows=lambda: True)
+            self.assertEqual(awake is None, e.listen().follows, awake)
+        e = ears(frames(("S", 1.0), (".", 1.0)), wake=GROG)
+        heard = e.listen()
+        self.assertFalse(heard.follows)
+        self.assertIsNone(heard.angle)
 
 
 def over_music(*parts):

@@ -751,10 +751,15 @@ class TellTest(unittest.TestCase):
 
 class FakeRing:
     """What a ReSpeaker's ring was shown (.shown) and told of grog's mic
-    (.mics), and whether it was closed."""
+    (.mics), and whether it was closed. Where each utterance came from is
+    the next of `angles`, the last one over and over."""
 
-    def __init__(self):
+    def __init__(self, angles=(None,)):
         self.shown, self.mics, self.closed = [], [], False
+        self.angles = list(angles)
+
+    def angle(self, start, end):
+        return self.angles.pop(0) if len(self.angles) > 1 else self.angles[0]
 
     def show(self, state):
         self.shown.append(state)
@@ -788,6 +793,69 @@ class RingTest(unittest.TestCase):
         ring = FakeRing()
         voice(ring=ring).close()
         self.assertTrue(ring.closed)
+
+
+class FollowUpTest(unittest.TestCase):
+    """After an answer, what's said from where whoever grog answered talked
+    from needs no name for a while."""
+
+    THREE = tuple(part for _ in range(3) for part in (("S", 1.0), (".", 1.0)))
+
+    def run_voice(self, said, angles, settings=SETTINGS):
+        """Runs a Voice hearing three utterances, `said` in turn, each from
+        the next of `angles` (none, without a ReSpeaker): what grog was
+        asked, what it told grog, and its log."""
+        ask = answering("Dez e quinze.")
+        ring = FakeRing(angles) if angles is not None else None
+        v = voice(frames(*self.THREE), ask=ask, wake=GROG, stt=FakeStt(*said), ring=ring, settings=settings)
+        with self.assertLogs("grog_voice", "INFO") as logs, self.assertRaises(MicError):
+            v.run()
+        return ask.asked, v.reported, logs.output
+
+    def test_from_about_where_grog_was_asked_it_needs_no_name(self):
+        said = ("Grog, que horas são?", "e em Lisboa?", "Não era comigo.")
+        asked, reported, logs = self.run_voice(said, [100, 120, 200])
+        self.assertEqual(["que horas são?", "e em Lisboa?"], asked)
+        self.assertIn("INFO:grog_voice:a follow-up, 20° off where grog was asked from", logs)
+        self.assertIn(
+            "INFO:grog_voice:not a follow-up: 80° off where grog was asked from", logs, "the second's"
+        )
+        for words in ("Lisboa", "comigo"):
+            self.assertNotIn(words, "\n".join(logs))
+        self.assertEqual(
+            ["listening", "hearing", "answering", "speaking"] * 2 + ["listening"],
+            reported,
+            "it doesn't say it listens without its name: music isn't ducked meanwhile",
+        )
+
+    def test_without_where_it_came_from_it_needs_its_name(self):
+        said = ("Grog, que horas são?", "e em Lisboa?", "")
+        for angles in (None, [None], [100, None], [None, 100]):
+            asked, _, logs = self.run_voice(said, angles)
+            self.assertEqual(["que horas são?"], asked, angles)
+            self.assertFalse([line for line in logs if "follow-up" in line], angles)
+
+    def test_not_once_its_time_is_up(self):
+        said = ("Grog, que horas são?", "e em Lisboa?", "")
+        asked, _, _ = self.run_voice(said, [100], settings={**SETTINGS, "followUpSeconds": 0})
+        self.assertEqual(["que horas são?"], asked)
+
+    def test_after_a_question_its_reply_from_anywhere_then_follow_ups_from_there(self):
+        ask = answers(answering("Desligo a luz?"), answering("Pronto."))
+        stt = FakeStt("Grog, desliga a luz.", "Pode.", "e a da cozinha?")
+        v = voice(frames(*self.THREE), ask=ask, wake=GROG, stt=stt, ring=FakeRing([100, 200, 205]))
+        with self.assertLogs("grog_voice", "INFO") as logs, self.assertRaises(MicError):
+            v.run()
+        self.assertEqual(["desliga a luz.", "Pode.", "e a da cozinha?"], ask.asked)
+        self.assertIn("INFO:grog_voice:a follow-up, 5° off where grog was asked from", logs.output)
+
+    def test_not_while_music_plays(self):
+        v = voice()
+        v.follow(100)
+        self.assertTrue(v.follows())
+        with self.assertLogs("grog_voice", "INFO"):
+            v.set_music(True)
+        self.assertFalse(v.follows())
 
 
 if __name__ == "__main__":

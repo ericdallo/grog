@@ -277,6 +277,20 @@ class ConfigTest(unittest.TestCase):
             expected = f"ring.front: expected an angle from 0 to 359, or null, got {json.dumps(front)}"
             self.assertEqual([expected], problems(front))
 
+    def test_follow_ups(self):
+        def problems(seconds):
+            models = {"stt": {"model": self.model}, "tts": {"model": self.pocket}}
+            return config.problems(config.deep_merge(config.DEFAULTS, {**models, "followUpSeconds": seconds}))
+
+        self.assertEqual(8, config.DEFAULTS["followUpSeconds"])
+        for ok in (0, 2.5, 8, 30):
+            self.assertEqual([], problems(ok), ok)
+        for bad in (-1, "8", True, None):
+            got = "nothing" if bad is None else json.dumps(bad)
+            self.assertEqual(
+                [f"followUpSeconds: expected a number, 0 or more, got {got}"], problems(bad), bad
+            )
+
     def test_fillers(self):
         def problems(fillers):
             models = {"stt": {"model": self.model}, "tts": {"model": self.pocket}}

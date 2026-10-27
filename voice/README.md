@@ -18,7 +18,11 @@ up to it.
    tomorrow?", or "Hey Grog, ...". The name is matched by how it sounds,
    since speech to text writes it as "Groga" or "Grok" and so on. After its
    name alone, or an answer asking you something, the next thing you say
-   doesn't need it. What isn't known to be for grog is only transcribed as
+   doesn't need it. With a ReSpeaker (see below), which tells where speech
+   comes from, neither does what you say within 8 s of any other answer
+   (`followUpSeconds`), from about where you asked from: "And tomorrow?".
+   Someone elsewhere in the room still has to say it, and nobody while
+   music plays. What isn't known to be for grog is only transcribed as
    far as its name could be, its first 3 s: a TV, or people talking, can go
    on for the 15 s an utterance lasts at most, many times an hour.
 4. A short tick says it got it, and the brain answers, streamed. When grog
@@ -152,7 +156,9 @@ skin's colors; red a moment when something went wrong, dim red while
 grog's mic is off. It also tells the brain where whoever talks to grog
 is, from where it hears speech (its direction of arrival), for grog's face
 to look at them: straight ahead is where people talked to grog from
-lately, or `ring.front`. Its mute button switches
+lately, or `ring.front`. And after an answer, what's said from within 30°
+of where whoever asked was is taken for a follow-up, without grog's name
+(`followUpSeconds`). Its mute button switches
 grog's mic off and on, through grog, as asking would, and grog's mic off
 mutes its mics in hardware, its red LED lit. Its own mute is off while grog-voice
 runs, and on again once it stops. grog-voice talks to it over USB, so its
@@ -210,6 +216,7 @@ or `$GROG_VOICE_CONFIG`), merged over the defaults in
 | `speculateMs` | `250` | A pause this long starts transcribing, in case it's the end. `0`: wait for the end |
 | `partialMs` | `300` | How much more you have to say before what you've said so far is transcribed again. `0`: only at pauses, without the second model |
 | `maxUtteranceSeconds` | `15` | Longer is cut |
+| `followUpSeconds` | `8` | After an answer, how long what's said from within 30° of where whoever asked was needs no name, as a ReSpeaker XVF3800 tells (without one, only after its name alone or a question). `0`: never |
 | `fillers` | `true` | What it says while grog looks something up before saying anything, taking turns: "Buscando." or "Procurando." for the web, "Checando." or "Tô vendo." for the weather, its machine or Home Assistant's state (in English with an English voice; nothing in other languages). `false`: nothing. Or its own: `{"search": [...], "check": [...]}`, a kind left out getting none |
 | `musicUtteranceSeconds` | `4` | While grog plays music, until it hears its name: how long each window it looks for the name in is. They overlap by 1 s. From 2 to `maxUtteranceSeconds` |
 | `ring.front` | `null` | A ReSpeaker XVF3800's angle for whoever faces grog's screen, from 0 to 359: seen from above, clockwise from its USB port (180 with the port toward the screen's back). grog's face looks at who talks to it as they're to the side of it. `null`: where people talked to grog from lately |

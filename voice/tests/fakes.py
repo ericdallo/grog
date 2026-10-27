@@ -17,6 +17,7 @@ SETTINGS = {
     "partialMs": 0,
     "maxUtteranceSeconds": 15,
     "musicUtteranceSeconds": 4,
+    "followUpSeconds": 8,
 }
 # Partials: what was said so far, transcribed while they talk.
 PARTIAL = {**SETTINGS, "partialMs": 300}

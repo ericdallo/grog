@@ -83,6 +83,8 @@ class Utterance:
     """What the guesses made of the utterance under way so far."""
 
     needs_name: bool  # it has to start with grog's name: not right after just that, or its question
+    follows: bool = False  # it could follow grog's answer without the name (see Ears)
+    started: float = 0.0  # time.monotonic() when its speech started, as the mic stamps it
     addressed: bool = False  # a guess showed it's for grog
     asks: bool = False  # the last guess asks grog something, more than its name
     guess: str = ""  # the text of the last guess, once one showed it's for grog
@@ -100,6 +102,10 @@ class Utterance:
         """Whether someone is known to talk to grog."""
         return self.addressed or not self.needs_name
 
+    def maybe_for_grog(self):
+        """Whether someone talks to grog, or could: it may follow its answer."""
+        return self.for_grog() or self.follows
+
 
 @dataclass(kw_only=True)
 class Heard:
@@ -114,6 +120,8 @@ class Heard:
     speculated: bool = False  # transcribed during the final pause, before it was the end
     guess: str = ""  # what the last guess made of it, once one showed it's for grog
     needs_name: bool = True  # it had to start with grog's name
+    follows: bool = False  # it could follow grog's answer without the name (see Ears)
+    angle: float | None = None  # where it came from, if known (see Ears)
     addressed: bool = False  # a guess as it went on showed it's for grog
     chimed: bool = False  # its name, heard as it went on, already got its sound
     acked: float | None = None  # when the sound saying it got it started, if it did as it ended
@@ -146,7 +154,12 @@ class Ears:
     Echo, or None) keeps grog's own sound from being taken for speech;
     `busy` says what grog-voice does while grog answers (answering,
     speaking), or None; `called` is told when someone turns out to talk to
-    grog, while they go on."""
+    grog, while they go on. `follows` says whether what's said now, without
+    its name, could follow grog's answer, if it comes from where whoever it
+    answered talked from (see loop.Voice.follow): transcribed whole then,
+    the voice deciding once it's over; `where(start, end)`, where speech
+    heard between two times came from (an angle, see ring.Ring.angle), or
+    None."""
 
     def __init__(
         self,
@@ -166,6 +179,8 @@ class Ears:
         echo=None,
         busy=lambda: None,
         called=lambda: None,
+        follows=lambda: False,
+        where=lambda start, end: None,
         frame_bytes=FRAME_BYTES,
         frame_s=FRAME_S,
     ):
@@ -173,6 +188,7 @@ class Ears:
         self.wake, self.awake, self.tell, self.chime = wake, awake, tell, chime
         self.report_heard, self.captions, self.music = report_heard, captions, music
         self.echo, self.busy, self.called = echo, busy, called
+        self.follows, self.where = follows, where
         self.frame_bytes, self.frame_s = frame_bytes, frame_s
         self.partial_s = settings["partialMs"] / 1000
         self.window_bytes = round(settings["musicUtteranceSeconds"] / frame_s) * frame_bytes
@@ -212,7 +228,8 @@ class Ears:
         it got it (see _ended). Over music, while it waits for its name, it
         looks for it in windows (see _window), on stt, one transcription at a
         time there. Longer than HEAD_S and not known to be for grog, only its
-        start is transcribed. While grog's own sound plays, what's no louder than its
+        start is transcribed, unless it could follow grog's answer (see
+        `follows`). While grog's own sound plays, what's no louder than its
         echo doesn't start one (see echo.py). Tells grog when someone talks
         to it, and when it's no longer awake: not when anyone else talks.
         While grog answers, `until` says when that's over: then, with nobody
@@ -250,7 +267,8 @@ class Ears:
                 # Nothing yet, or a click, dropped with what was made of it.
                 utterance = pause = main = partial = window = None
             elif utterance is None:
-                utterance = Utterance(needs_name=self.wake() is not None and not self.awake())
+                needs_name = self.wake() is not None and not self.awake()
+                utterance = Utterance(needs_name=needs_name, follows=needs_name and self.follows(), started=t)
             if isinstance(event, Pause):
                 pause = event.audio
             elif isinstance(event, Resume):
@@ -283,11 +301,13 @@ class Ears:
                 # or asked, maybe.
                 self.tell(self._idle())
 
-    def address(self, heard):
+    def address(self, heard, follows=False):
         """What `heard` asks grog (see command), or None when it wasn't meant
-        for grog. What's for grog is reported, all of it, after saying it
-        hears it, if it didn't yet."""
-        command = self.command(heard.said, heard.needs_name, heard.addressed, heard.anywhere)
+        for grog: all of it, without grog's name, when it `follows` grog's
+        answer (see loop.Voice.follow). What's for grog is reported, all of
+        it, after saying it hears it, if it didn't yet."""
+        needs_name = heard.needs_name and not follows
+        command = self.command(heard.said, needs_name, heard.addressed, heard.anywhere)
         if command is not None:
             if not heard.addressed:
                 self.tell("hearing")
@@ -374,10 +394,15 @@ class Ears:
 
     def _whole(self, utterance, size):
         """Whether all of what was said so far (`size` bytes) is worth
-        transcribing: it's for grog (or needs no name), it waits for its name
-        over music (see _window), or it's no longer than the start that
-        tells (HEAD_S)."""
-        return utterance.for_grog() or utterance.cut or self._over_music(utterance) or size <= self.head_bytes
+        transcribing: it's for grog (or needs no name, or could follow its
+        answer), it waits for its name over music (see _window), or it's no
+        longer than the start that tells (HEAD_S)."""
+        return (
+            utterance.maybe_for_grog()
+            or utterance.cut
+            or self._over_music(utterance)
+            or size <= self.head_bytes
+        )
 
     def _named(self, utterance, audio, main):
         """Whether `audio`, what was said, turns out to be for grog by its
@@ -513,18 +538,21 @@ class Ears:
 
     def _heard(self, t, event, utterance, audio, text, speculated):
         """What was heard of `utterance`, which ended (`event`) at `t`: its
-        `audio`, as `text`."""
+        `audio`, as `text`, and where it came from, if known (see `where`)."""
         seconds = duration(audio, self.frame_bytes, self.frame_s)
+        speech_end = t - event.silence_s
         return Heard(
             pcm=audio,
             text=text,
             seconds=seconds,
             speech_s=min(event.speech_s, seconds),
-            speech_end=t - event.silence_s,
+            speech_end=speech_end,
             transcribed=time.monotonic(),
             speculated=speculated,
             guess=utterance.guess,
             needs_name=utterance.needs_name,
+            follows=utterance.follows,
+            angle=self.where(utterance.started, speech_end),
             addressed=utterance.addressed,
             chimed=utterance.chimed,
             acked=utterance.acked,

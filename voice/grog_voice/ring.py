@@ -90,6 +90,9 @@ GONE = {errno.ENODEV, errno.ENOENT, errno.ESHUTDOWN, errno.EBADF, errno.ENXIO}
 # kept this long; while someone talks to grog, said again once it moved this
 # many degrees. The front is learned from this many utterances for grog.
 DOA_S, DOA_KEEP_S, DOA_MOVED, FRONTS = 0.25, 2.0, 10, 20
+# Where an utterance came from (see Ring.angle): its angles are kept this
+# long, longer than the longest, and it takes this many of them.
+ANGLES_KEEP_S, MIN_ANGLES = 30.0, 2
 
 
 class _ControlTransfer(ctypes.Structure):
@@ -272,6 +275,7 @@ class Ring:
     told where they are, from straight ahead (see direction), once it's
     known and again once they moved: straight ahead is the XVF3800's angle
     `front`, or where people talked to grog from lately, without one.
+    `angle(start, end)` says where speech heard between two times came from.
     `open_device()` opens the ReSpeaker (an Xvf), or returns None without
     one, raising OSError when it can't; `clock` tells the time in seconds.
     With `start` false, no thread: `tick()` does what it would, once."""
@@ -289,6 +293,8 @@ class Ring:
         self._set_mic, self._open, self._clock = set_mic, open_device, clock
         self._heard_from, self._front = heard_from, front
         self._doa = collections.deque()  # (when, angle) of what it heard as speech lately
+        self._angles = collections.deque()  # the same, for longer (see angle)
+        self._angles_lock = threading.Lock()  # written by its thread, read by the voice's
         self._doa_at = None  # when it last read where speech comes from
         self._heard = None  # where who talks to grog now is, as an angle
         self._fronts = collections.deque(maxlen=FRONTS)  # where people talked to grog from
@@ -323,6 +329,14 @@ class Ring:
     def mic(self, on):
         self._mic_on = on
         self._wake.set()
+
+    def angle(self, start, end):
+        """Where speech heard from `start` to `end` (on its clock) came from:
+        the XVF3800's angle for it (see direction), the mean of those it
+        read then, or None with fewer than MIN_ANGLES (no ReSpeaker, say)."""
+        with self._angles_lock:
+            angles = [angle for at, angle in self._angles if start <= at <= end]
+        return mean_angle(angles) if len(angles) >= MIN_ANGLES else None
 
     def close(self):
         """Stops: the ring goes off, and its button mutes it again by itself."""
@@ -481,6 +495,10 @@ class Ring:
                 return
             if speech:
                 self._doa.append((now, angle))
+                with self._angles_lock:
+                    self._angles.append((now, angle))
+                    while now - self._angles[0][0] > ANGLES_KEEP_S:
+                        self._angles.popleft()
         while self._doa and now - self._doa[0][0] > DOA_KEEP_S:
             self._doa.popleft()
         if self._state != "hearing":

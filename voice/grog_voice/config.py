@@ -85,6 +85,10 @@ DEFAULTS = {
     "partialMs": 300,
     # Longer utterances are cut.
     "maxUtteranceSeconds": 15,
+    # After an answer, for this long, what's said from where whoever grog
+    # answered talked from needs no wake word (see loop.Voice.follow), as far
+    # as a ReSpeaker XVF3800 tells where speech comes from. 0: never.
+    "followUpSeconds": 8,
     # What it says while grog looks something up before saying anything (see
     # fillers.py): true, the built-in phrases in the language its voice
     # reads; false, nothing; or its own, by kind ({"search": [...], "check":
@@ -201,6 +205,11 @@ CHECKS = [
     ("speculateMs", lambda v: _int(v, 0), "an integer, 0 or more"),
     ("partialMs", lambda v: _int(v, 0), "an integer, 0 or more"),
     ("maxUtteranceSeconds", _number, "a positive number"),
+    (
+        "followUpSeconds",
+        lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0,
+        "a number, 0 or more",
+    ),
     (
         "fillers",
         _fillers,
