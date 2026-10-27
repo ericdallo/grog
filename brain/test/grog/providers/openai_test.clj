@@ -59,6 +59,10 @@
                                          :timezone "America/Sao_Paulo"}}]}
                body))))))
 
+(deftest on-a-service-tier-when-set
+  (is (= "priority" (:service_tier (openai/request-body (assoc (cfg "http://x") :service-tier "priority") request))))
+  (is (not (contains? (openai/request-body (cfg "http://x") request) :service_tier))))
+
 (deftest tells-when-the-model-uses-a-tool
   (h/with-fake [fake [{:body (h/sse {:type "response.output_item.added" :item {:type "reasoning"}}
                                     {:type "response.output_item.added" :item {:type "web_search_call"}}
@@ -491,6 +495,12 @@
     (is (seq (problems {:prices {:models {:gpt-6-luna {:input 1}} :web-search 0.01}})))
     (is (seq (problems {:prices {:models {:gpt-6-luna {:input 1 :output 1 :typo 2}} :web-search 0.01}})))
     (is (seq (problems {:prices {:models {} :web-search "free"}})))))
+
+(deftest service-tier-is-checked
+  (let [problems #(openai/problems (merge (get-in config/defaults [:providers :openai]) %))]
+    (is (empty? (problems {:service-tier "priority"})))
+    (is (seq (problems {:service-tier " "})))
+    (is (seq (problems {:service-tier 5})))))
 
 (deftest subscription-lite-takes-grogs-tools-in-the-input
   (subscription/reset-catalog! {"gpt-6-luna" {:slug "gpt-6-luna" :use_responses_lite true}})

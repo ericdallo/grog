@@ -47,7 +47,11 @@
               :prompt_cache_key "grog"
               :store false
               :stream true}
-             (subscription/request-body settings request {:model "m" :tools [] :lite? true}))))))
+             (subscription/request-body settings request {:model "m" :tools [] :lite? true}))))
+    (testing "on a service tier, when set"
+      (is (= "priority" (:service_tier (subscription/request-body (assoc settings :service-tier "priority") request
+                                                                  {:model "m" :tools [] :lite? true}))))
+      (is (not (contains? (subscription/request-body settings request {:model "m" :tools search}) :service_tier))))))
 
 (deftest lite-detection
   (h/with-fake [fake [(h/json-response {:models [{:slug "gpt-6-luna" :use_responses_lite true}

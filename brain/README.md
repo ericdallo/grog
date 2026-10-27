@@ -75,14 +75,15 @@ this month. The spending is an estimate, at the prices in
 ## Changing it by asking
 
 Some settings change when you ask: its `name` (and so its wake word),
-`language`, `location`, `timezone`, the model and its reasoning effort,
-and what plays [music](#music) (`music.provider`). "From now on your name
-is Jarvis", "I live in Campinas", "switch to gpt-6-astra", "think harder",
-"play music on YouTube Music from now on". Without a `location`, it asks which city you
+`language`, `location`, `timezone`, the model, its reasoning effort and
+service tier, and what plays [music](#music) (`music.provider`). "From
+now on your name is Jarvis", "I live in Campinas", "switch to
+gpt-6-astra", "think harder", "answer faster", "play music on YouTube
+Music from now on". Without a `location`, it asks which city you
 live in the first time an answer needs it, like the weather, and keeps
-that. A new model gets a quick test first, and is refused if it doesn't
-answer. These stay in `settings.json`, in the state directory, until `grog
-settings reset`.
+that. A new model, effort or tier gets a quick test first, and is
+refused if it doesn't answer. These stay in `settings.json`, in the
+state directory, until `grog settings reset`.
 
 It also remembers things when asked ("the trash goes out on Tuesdays",
 "answer more briefly"): up to 50 short notes in `memory.json`, part of every
@@ -591,6 +592,7 @@ says which one.
 | `providers.openai.model` | `"gpt-6-luna"` | Model with an API key |
 | `providers.openai.subscription.model` | `"gpt-6-luna"` | Model with the subscription |
 | `providers.openai.reasoningEffort` | `"low"` | Lower is faster |
+| `providers.openai.serviceTier` | `null` | `"priority"`: faster answers (with gpt-6-sol on the subscription, the first words 0.2 to 0.3 s sooner, a tool's answer 1 s), for about 5 times as much of a ChatGPT subscription's limits, or a higher price with an API key |
 | `providers.openai.webSearch.enable` | `true` | |
 | `providers.openai.maxTokens` | `2048` | Reasoning included (API key only) |
 | `providers.openai.timeoutMs` | `60000` | How long OpenAI may take to start answering, or to send more |

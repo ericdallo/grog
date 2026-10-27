@@ -2,8 +2,9 @@
   "Settings changed while grog runs, through the model's `settings` tool:
   kept in settings.json in the state directory, over the settings grog
   started with (the defaults and its settings file), across restarts.
-  `grog settings reset` drops them. A new model, or reasoning effort, is
-  tried before it's kept: one that doesn't answer would leave grog mute."
+  `grog settings reset` drops them. A new model, reasoning effort or
+  service tier is tried before it's kept: one that doesn't answer would
+  leave grog mute."
   (:require [babashka.fs :as fs]
             [clojure.string :as str]
             [grog.config :as config]
@@ -15,10 +16,10 @@
             [grog.validation :as validation]))
 
 ;; What the tool changes, by its argument names.
-(def ^:private settable [:name :language :location :timezone :model :reasoning_effort :music_provider])
+(def ^:private settable [:name :language :location :timezone :model :reasoning_effort :service_tier :music_provider])
 
 ;; Those it tries before keeping them.
-(def ^:private tried #{:model :reasoning_effort})
+(def ^:private tried #{:model :reasoning_effort :service_tier})
 
 (defn ^:private paths
   "Where each setting the tool changes can live in `config`: changes go to
@@ -31,6 +32,7 @@
    :timezone [[:timezone]]
    :model (provider/model-paths config)
    :reasoning_effort [[:providers (keyword (:provider config)) :reasoning-effort]]
+   :service_tier [[:providers (keyword (:provider config)) :service-tier]]
    :music_provider [[:music :provider]]})
 
 (defn file [config]
@@ -222,8 +224,8 @@
   {:name "settings"
    :description (str "Your settings, which you change when the user asks you to: your name (also the word "
                      "you answer to), the language you always answer in, where the home is and its time "
-                     "zone, the AI model you run on, how much you think before answering, and what plays "
-                     "music when asked. Save where the "
+                     "zone, the AI model you run on, how much you think before answering, how fast you "
+                     "answer, and what plays music when asked. Save where the "
                      "home is whenever the user tells you, even if they don't ask you to. Changes are "
                      "kept, and take effect from the user's next message; a new model is tried first. With "
                      "no arguments, it tells the current ones and the models on offer. How the user wants "
@@ -245,6 +247,11 @@
                              :reasoning_effort {:type "string"
                                                 :enum ["low" "medium" "high"]
                                                 :description "How much you think before answering: low answers fastest."}
+                             :service_tier {:type ["string" "null"]
+                                            :enum ["priority" nil]
+                                            :description (str "How fast you answer: \"priority\", the provider's faster "
+                                                              "tier, which uses up more of the subscription's limits "
+                                                              "(or costs more); null for the usual one.")}
                              :music_provider {:type ["string" "null"]
                                               :description (str "What plays music when asked, by its id: youtube-music, "
                                                                 "or a connected integration's; null for the first "

@@ -51,7 +51,7 @@
   shape) only for requests without hosted `tools`. The input is the
   conversation, then what the model did in earlier requests of the turn
   (`items`: its tool calls and their results)."
-  [{:keys [reasoning-effort]} {:keys [system messages items tool-choice]} {:keys [model tools lite?]}]
+  [{:keys [reasoning-effort service-tier]} {:keys [system messages items tool-choice]} {:keys [model tools lite?]}]
   (cond-> {:model model
            :instructions system
            :input (into (mapv #(select-keys % [:role :content]) messages) items)
@@ -63,6 +63,7 @@
            :prompt_cache_key "grog"
            :store false
            :stream true}
+    service-tier (assoc :service_tier service-tier)
     lite? lite-body))
 
 ;; The live catalog: {:models {slug entry}} once fetched, {:failed-at ms}

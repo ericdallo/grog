@@ -99,6 +99,10 @@
                         ;; subscription backend, which rejects it.
                         :max-tokens 2048
                         :reasoning-effort "low"
+                        ;; "priority": faster answers, for more of a ChatGPT
+                        ;; subscription's limits (about 5 times as much) or
+                        ;; a higher price with an API key. nil: the usual.
+                        :service-tier nil
                         :timeout-ms 60000
                         :web-search {:enable true}
                         ;; What an API key pays, in USD, to tell what grog

@@ -26,14 +26,15 @@
     (with-redefs [settings/try-model! (fn [_ _])]
       (testing "with no arguments, it tells them, changing nothing"
         (is (= {:name "grog" :language nil :location nil :timezone (config/timezone config/defaults)
-                :model "gpt-6-luna" :reasoning_effort "low" :music_provider nil :changed []}
+                :model "gpt-6-luna" :reasoning_effort "low" :service_tier nil :music_provider nil :changed []}
                (settings/change! ctx {})))
         (is (nil? (saved ctx))))
 
       (testing "changes take effect right away"
         (is (= {:name "Jarvis" :language nil :location {:city "Campinas" :country "BR"}
                 :timezone (config/timezone config/defaults) :model "gpt-6-luna"
-                :reasoning_effort "medium" :music_provider nil :changed ["name" "location" "reasoning_effort"]}
+                :reasoning_effort "medium" :service_tier nil :music_provider nil
+                :changed ["name" "location" "reasoning_effort"]}
                (settings/change! ctx {:name " Jarvis " :location {:city "Campinas" :region " " :country "BR"}
                                       :reasoning_effort "medium"})))
         (is (= "Jarvis" (:name @(:config ctx))))
@@ -75,11 +76,17 @@
       (testing "a new reasoning effort is tried too"
         (settings/change! ctx {:reasoning_effort "high"})
         (is (= ["gpt-6-astra" "gpt-6-astra"] @tried)))
+      (testing "and a new service tier, kept with the provider's settings"
+        (is (= "priority" (:service_tier (settings/change! ctx {:service_tier "priority"}))))
+        (is (= 3 (count @tried)))
+        (is (= "priority" (get-in @(:config ctx) [:providers :openai :service-tier])))
+        (is (= "priority" (get-in (saved ctx) [:providers :openai :serviceTier]))))
       (testing "other settings aren't, nor going back"
         (settings/change! ctx {:name "Jarvis"})
-        (settings/change! ctx {:reset ["model" "reasoning_effort"]})
-        (is (= 2 (count @tried)))
-        (is (= "gpt-6-luna" (provider/model @(:config ctx))))))))
+        (settings/change! ctx {:reset ["model" "reasoning_effort" "service_tier"]})
+        (is (= 3 (count @tried)))
+        (is (= "gpt-6-luna" (provider/model @(:config ctx))))
+        (is (nil? (get-in @(:config ctx) [:providers :openai :service-tier])))))))
 
 (deftest switches-the-subscriptions-model-when-paying-with-it
   (let [state-dir (h/temp-dir)

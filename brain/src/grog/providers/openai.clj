@@ -43,7 +43,7 @@
   "The Responses API request. The input is the conversation, then what the
   model did in earlier requests of the turn (`items`: its tool calls and their
   results)."
-  [{:keys [model max-tokens reasoning-effort] :as cfg} {:keys [system messages items tool-choice] :as request}]
+  [{:keys [model max-tokens reasoning-effort service-tier] :as cfg} {:keys [system messages items tool-choice] :as request}]
   (let [functions (function-tools request)
         tools (into (web-search-tools cfg request) functions)]
     (cond-> {:model model
@@ -55,6 +55,7 @@
              :store false
              :stream true}
       reasoning-effort (assoc :reasoning {:effort reasoning-effort})
+      service-tier (assoc :service_tier service-tier)
       ;; Nothing is stored between requests: the reasoning behind tool calls
       ;; goes back with their results.
       (and reasoning-effort (seq functions)) (assoc :include ["reasoning.encrypted_content"])
@@ -387,6 +388,7 @@
           (check [:api-key-env] config/non-blank-string? "an environment variable name")
           (check [:max-tokens] pos-int? "a positive integer")
           (check [:reasoning-effort] (some-fn nil? config/non-blank-string?) "an effort, like \"low\", or null")
+          (check [:service-tier] (some-fn nil? config/non-blank-string?) "a service tier, like \"priority\", or null")
           (check [:timeout-ms] pos-int? "a positive integer")
           (check [:web-search :enable] boolean? "true or false")
           (check [:auth] #{"auto" "subscription" "api-key"} "\"auto\", \"subscription\" or \"api-key\"")
