@@ -1,5 +1,6 @@
 (ns grog.server-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [babashka.fs :as fs]
+            [clojure.test :refer [deftest is testing]]
             [grog.config :as config]
             [grog.server :as server]
             [grog.test-helpers :as h]))
@@ -24,3 +25,16 @@
     (testing "until it stops"
       (server/stop! srv)
       (is (nil? @server/current)))))
+
+(deftest says-the-model-as-changed-by-asking
+  (let [dir (h/temp-dir)
+        _ (spit (str (fs/path dir "settings.json")) "{\"providers\": {\"openai\": {\"model\": \"gpt-6-astra\"}}}")
+        log (java.io.StringWriter.)
+        srv (binding [*out* log]
+              (server/start! (-> config/defaults
+                                 (assoc :state-dir dir)
+                                 (assoc-in [:providers :openai :api-key-env] "GROG_TEST_KEY")
+                                 (assoc-in [:server :port] 0))))]
+    (try
+      (is (re-find #"listening on .* model=gpt-6-astra\)" (str log)))
+      (finally (server/stop! srv)))))

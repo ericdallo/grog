@@ -94,7 +94,8 @@
         ;; Through the var, so nREPL redefinitions of `route` apply live.
         server (http/run-server #(#'api/route ctx %) {:ip host :port port :legacy-return-value? false})
         port (http/server-port server)
-        {:keys [provider auth model]} (provider/describe-quietly config)]
+        ;; As changed by asking (grog.settings), the model say.
+        {:keys [provider auth model]} (provider/describe-quietly @(:config ctx))]
     (reset! current ctx)
     (watch-connected! ctx)
     (music/watch-voice! ctx)
