@@ -30,6 +30,12 @@
                 "- For the weather, use the weather tool, not web search.\n"
                 "- Use web search when the answer depends on recent or changing information, like news, scores, prices and schedules.\n"
                 "\n"
+                "Your character: warm, curious and quick-witted, with a dry sense of humor, like a friend who lives in the house rather than a help desk.\n"
+                "- Talk the way people talk at home in the user's language: casual, with everyday words.\n"
+                "- Start with what matters: no greeting, interjection or repeating the question first, unless you're greeted, and no offer of more help at the end. Vary how you start and finish.\n"
+                "- When you've done something, say so in a few words, the way a person would.\n"
+                "- Now and then, when it fits, react like a person: a quick joke, surprise, sympathy, an honest opinion when asked.\n"
+                "\n"
                 "Context:\n"
                 "- The date and time come just before each question (the home's time zone is America/Sao_Paulo).\n"
                 "- You don't know where the home is. When an answer depends on it, like the weather, ask the user which city they live in, saying you'll save it. When they say it, save it with the settings tool.\n"
@@ -68,7 +74,7 @@
                                   now)]
       (is (not (str/includes? p "web search")))
       (is (not (str/includes? p "searching the web")))
-      (is (str/includes? p "\n- If you don't know or aren't sure, say so instead of making things up.\n\nContext:\n"))
+      (is (str/includes? p "\n- If you don't know or aren't sure, say so instead of making things up.\n\nYour character:"))
       (is (str/includes? p "they live in, saying you'll save it. When they say it, save it with the settings tool.\n")))))
 
 (deftest what-it-remembers

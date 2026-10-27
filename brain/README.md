@@ -534,7 +534,9 @@ client.
 The system prompt is a [Selmer](https://github.com/yogthos/Selmer) template,
 [`system-prompt.md`](resources/grog/system-prompt.md), which can use `name`,
 `language`, `now`, `timezone`, `location`, `model`, `web_search` and
-`memory`. What it learns from conversations, it's asked with
+`memory`. It gives grog a character of its own (warm, curious, with a dry
+humor, getting to the point), which `instructions` can add to. What it
+learns from conversations, it's asked with
 [`learning-prompt.md`](resources/grog/learning-prompt.md).
 
 ```nix

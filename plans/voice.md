@@ -21,7 +21,9 @@ said otherwise.
 - The station spoke for a while in a carioca friend's voice, cloned with his
   OK from his recordings, then went back to deep-calm, the user not happy
   with it: see "Accents" below. Its answers kept their carioca words (the
-  `instructions` setting, in its own config).
+  `instructions` setting, in its own config) until October 27, 2026: nearly
+  every one opened or closed with one, which sounded canned, so grog's
+  built-in prompt gives it a character of its own instead.
 - grognix speaks with **Supertonic 3** (Supertone, May 2026), voice **M1**,
   in Portuguese (`pt`), on OpenVINO too: the official fp32 ONNX graphs from
   `Supertone/supertonic-3`, pinned at revision
