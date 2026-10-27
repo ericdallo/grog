@@ -1121,7 +1121,11 @@ turns (`fillers.py`). Once a turn, and none for tools that act (the
 lights, music, timers): their answer says what was done. They're made
 with its voice when it starts, leveled like the rest, so they play at
 once, their echo known like its speech (`echo.py`); its turn line says
-when one played (`filler`).
+when one played (`filler`). On the station that takes 4.8 s, after the
+models (12.4 s). Each is a short piece, so made again while it comes out
+flawed (see "Breathy short answers"): "Checando." does every time, its
+"ch" being noise-like (0.049 to 0.067 over its first 800 ms), so the
+least flawed try is kept; the others pass by their first or third try.
 
 ## Follow-ups
 
