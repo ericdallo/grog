@@ -267,6 +267,12 @@ class ReportTest(unittest.TestCase):
             requests[0]["body"],
         )
 
+    def test_and_where_who_talks_to_it_is(self):
+        url, requests = fake_grog(self)
+        report(url, "hearing", "voice", direction=-25)
+        expected = {"state": "hearing", "conversationId": "voice", "direction": -25}
+        self.assertEqual(expected, requests[0]["body"])
+
     def test_refused(self):
         url, _ = fake_grog(self, status=400, error='Send {"state": ...}')
         with self.assertRaisesRegex(GrogError, "^Send"):

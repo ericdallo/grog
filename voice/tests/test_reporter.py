@@ -52,6 +52,30 @@ class ReporterTest(unittest.TestCase):
         self.assertGreater(len(sent), 3)
         self.assertEqual({("hearing", None)}, set(sent[2:]))
 
+    def test_where_who_talks_is_goes_with_the_last_state_and_those_after(self):
+        sent = []
+
+        def send(state, heard=None, **more):
+            sent.append((state, heard, more))
+
+        report = Reporter(send, heartbeat_s=60)
+        report.direction(-20)  # nothing to say it with
+        report("hearing")
+        report.flush()
+        report.direction(30)
+        report.heard("Grog.", True)
+        report("answering")
+        report.flush()
+        self.assertEqual(
+            [
+                ("hearing", None, {"direction": -20}),
+                ("hearing", None, {"direction": 30}),
+                ("hearing", {"text": "Grog.", "final": True}, {"direction": 30}),
+                ("answering", None, {"direction": 30}),
+            ],
+            sent,
+        )
+
     def test_keeps_whether_grog_shows_what_it_hears(self):
         answers = [{"captions": True}, {}, {"captions": False}]
         report = Reporter(lambda state: answers.pop(0), heartbeat_s=60)

@@ -236,14 +236,26 @@ describe("its face", () => {
   const idle = { mode: "idle" };
 
   it("as what grog does, its pupil an icon for a tool, no mic or no login", () => {
-    assert.deepEqual(face({ mode: "thinking" }, state(), NOW), { state: "thinking", icon: null });
-    assert.deepEqual(face({ mode: "answering" }, state(), NOW), { state: "writing", icon: null });
+    assert.deepEqual(face({ mode: "thinking" }, state(), NOW), { state: "thinking", icon: null, look: 0 });
+    assert.deepEqual(face({ mode: "answering" }, state(), NOW), { state: "writing", icon: null, look: 0 });
     const volume = mode(state({ turn: turn([["tool", NOW, "volume"]]) }), NOW);
-    assert.deepEqual(face(volume, state(), NOW), { state: "tool", icon: "volume" });
-    assert.deepEqual(face({ mode: "tool" }, state(), NOW), { state: "tool", icon: "tool" });
-    assert.deepEqual(face({ mode: "no-mic" }, state(), NOW), { state: "no-mic", icon: "no-mic" });
-    assert.deepEqual(face({ mode: "login" }, state(), NOW), { state: "login", icon: "key" });
-    assert.deepEqual(face(mode(null, NOW), null, NOW), { state: "offline", icon: null });
+    assert.deepEqual(face(volume, state(), NOW), { state: "tool", icon: "volume", look: 0 });
+    assert.deepEqual(face({ mode: "tool" }, state(), NOW), { state: "tool", icon: "tool", look: 0 });
+    assert.deepEqual(face({ mode: "no-mic" }, state(), NOW), { state: "no-mic", icon: "no-mic", look: 0 });
+    assert.deepEqual(face({ mode: "login" }, state(), NOW), { state: "login", icon: "key", look: 0 });
+    assert.deepEqual(face(mode(null, NOW), null, NOW), { state: "offline", icon: null, look: 0 });
+  });
+
+  it("looks at who talks to it, where its mic says they are, while they talk or it answers them", () => {
+    const from = (s, direction) => state({ voice: { ...voiceIn(s), direction } });
+    const look = (s, direction) => face(mode(from(s, direction), NOW), from(s, direction), NOW).look;
+    assert.equal(look("hearing", 20), 6, "to the right");
+    assert.equal(look("asked", -45), -14, "to the left");
+    assert.equal(look("speaking", 120), 14, "as far as it goes");
+    assert.equal(look("awake", 0), 0);
+    assert.equal(look("hearing", undefined), 0, "not without a mic that says");
+    assert.equal(look("listening", 30), 0, "not at rest");
+    assert.equal(face({ mode: "thinking" }, from("answering", 30), NOW).look, 0, "nor while it thinks");
   });
 
   it("listening, at rest, or sleepy at night", () => {
@@ -372,7 +384,7 @@ describe("timers, alarms and reminders", () => {
     assert.equal(mode(asked, NOW).mode, "thinking", "not over a turn");
     assert.equal(mode(state({ timers }), NOW).mode, "idle", "not before");
     const ringing = mode(state({ timers: [going] }), NOW);
-    assert.deepEqual(face(ringing, state(), NOW), { state: "ringing", icon: "timer" });
+    assert.deepEqual(face(ringing, state(), NOW), { state: "ringing", icon: "timer", look: 0 });
     const stop = { action: "stop", label: "Stop" };
     assert.deepEqual(tap(state({ timers: [going], actions: ["listen", "stop"] }), NOW), stop);
     assert.deepEqual(tap(state({ timers: [going], actions: ["stop"], voice: voiceIn("loading") }), NOW), stop);
@@ -1159,7 +1171,7 @@ describe("going away, asked to", () => {
 
   it("its eye closes", () => {
     const going = state({ restarting: { action: "restart", at: NOW } });
-    assert.deepEqual(face(mode(going, NOW), going, NOW), { state: "offline", icon: null });
+    assert.deepEqual(face(mode(going, NOW), going, NOW), { state: "offline", icon: null, look: 0 });
   });
 
   it("offline otherwise", () => {
@@ -1172,7 +1184,7 @@ describe("its mic off", () => {
     const muted = state({ voice: voiceIn("muted") });
     assert.deepEqual(mode(muted, NOW), { mode: "muted", label: "Mic off", detail: "tap to turn it on" });
     assert.equal(mode(state({ mic: "off" }), NOW).mode, "muted", "before grog-voice says");
-    assert.deepEqual(face(mode(muted, NOW), muted, NOW), { state: "muted", icon: "no-mic" });
+    assert.deepEqual(face(mode(muted, NOW), muted, NOW), { state: "muted", icon: "no-mic", look: 0 });
     assert.equal(reaction("idle", "muted", null, "no-mic"), "swap");
   });
 });

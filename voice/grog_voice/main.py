@@ -88,7 +88,9 @@ def reporter(settings):
     from .reporter import Reporter
 
     return Reporter(
-        lambda state, heard=None: grog.report(settings["grogUrl"], state, settings["conversationId"], heard)
+        lambda state, heard=None, direction=None: grog.report(
+            settings["grogUrl"], state, settings["conversationId"], heard, direction
+        )
     )
 
 
@@ -213,7 +215,11 @@ def run(settings):
     commands = Commands(
         lambda: grog.commands(settings["grogUrl"]), speakers=lambda request: tell_speakers(settings, request)
     )
-    ring = Ring(lambda on: grog.set_mic(settings["grogUrl"], on))
+    ring = Ring(
+        lambda on: grog.set_mic(settings["grogUrl"], on),
+        heard_from=report.direction,
+        front=settings["ring"]["front"],
+    )
     try:
         voice = build(
             settings,

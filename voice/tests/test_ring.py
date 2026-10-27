@@ -126,18 +126,25 @@ class LookTest(unittest.TestCase):
 
 class FakeDevice:
     """A ReSpeaker's commands: what's written in .written ((name, values)),
-    what's read in .reads; press() presses its button, and .failing (errnos)
-    makes the next transfers fail."""
+    what's read in .reads; press() presses its button, .doa is where speech
+    comes from ((angle, whether it's speech)), .refused the commands it
+    answers with an error, and .failing (errnos) makes the next transfers
+    fail."""
 
     def __init__(self, version=(2, 1, 1)):
         self.version, self.written, self.reads = version, [], []
         self.pending, self.failing, self.closed = 0, [], False
+        self.doa, self.refused = (0, 0), set()
 
     def read(self, name):
         self._transfer()
         self.reads.append(name)
+        if name in self.refused:
+            raise ring.Refused(errno.EPROTO, f"{name} answered 01")
         if name == "VERSION":
             return self.version
+        if name == "DOA_VALUE":
+            return self.doa
         pending, self.pending = self.pending, 0
         return (pending,)
 
@@ -164,12 +171,13 @@ class Clock:
         return self.now
 
 
-def ringed(*devices, set_mic=None):
+def ringed(*devices, set_mic=None, front=None):
     """A Ring without its thread: `devices` are what opening it gives, in
     turn (the last one again), its clock in .clock, grog asked to switch its
-    mic in .asked, its opening counted in .opened."""
+    mic in .asked, its opening counted in .opened, where who talks to grog
+    is in .heard_from, as it was told."""
     queue = list(devices)
-    r_asked, r_opened = [], []
+    r_asked, r_opened, r_heard_from = [], [], []
 
     def open_device():
         r_opened.append(1)
@@ -179,8 +187,15 @@ def ringed(*devices, set_mic=None):
         return device
 
     clock = Clock()
-    r = Ring(set_mic or r_asked.append, open_device=open_device, clock=clock, start=False)
-    r.clock, r.asked, r.opened = clock, r_asked, r_opened
+    r = Ring(
+        set_mic or r_asked.append,
+        heard_from=r_heard_from.append,
+        front=front,
+        open_device=open_device,
+        clock=clock,
+        start=False,
+    )
+    r.clock, r.asked, r.opened, r.heard_from = clock, r_asked, r_opened, r_heard_from
     return r
 
 
@@ -252,7 +267,7 @@ class RingTest(unittest.TestCase):
             r.tick()
         self.assertNotIn("button", logs.output[0])
         self.assertEqual(list(look("answering", spins=False)), device.written)
-        self.assertEqual(["VERSION"], device.reads)
+        self.assertNotIn("GPI_EVENT_PENDING_ALL", device.reads)
 
     def test_red_a_moment_when_something_went_wrong(self):
         device = FakeDevice()
@@ -387,6 +402,79 @@ class RingTest(unittest.TestCase):
         r.close()
         self.assertEqual([("LED_EFFECT", (ring.OFF,)), ("MUTE_FUNCTION_ENABLE", (1,))], device.written[-2:])
         self.assertTrue(device.closed)
+
+
+class DirectionTest(unittest.TestCase):
+    """Where who talks to grog is, from where the XVF3800 hears speech."""
+
+    def test_angles_as_seen_facing_the_screen(self):
+        self.assertAlmostEqual(0, ring.turned(ring.mean_angle([350, 10])))
+        self.assertAlmostEqual(90, ring.mean_angle([80, 100]))
+        # Seen from above, its angles go clockwise: lower ones are to the right.
+        self.assertEqual(90, ring.direction(90, front=180))
+        self.assertEqual(-90, ring.direction(270, front=180))
+        self.assertEqual(-20, ring.direction(10, front=350), "past 0")
+        self.assertEqual(0, ring.direction(359.6, front=0))
+
+    def connected(self, front=None):
+        device = FakeDevice()
+        r = ringed(device, front=front)
+        with self.assertLogs("grog_voice", "INFO"):
+            r.tick()
+        return r, device
+
+    def speech(self, r, device, angle, seconds=ring.DOA_KEEP_S + ring.DOA_S, speech=1):
+        """`device` hears speech from `angle` for `seconds`, the ring looking
+        every DOA_S."""
+        device.doa = (angle, speech)
+        for _ in range(round(seconds / ring.DOA_S)):
+            r.clock.now += ring.DOA_S
+            r.tick()
+
+    def test_said_while_someone_talks_to_grog_once_it_moved(self):
+        r, device = self.connected(front=180)
+        self.speech(r, device, 180)
+        self.assertEqual([], r.heard_from, "not before someone talks to grog")
+        r.show("hearing")
+        r.tick()
+        self.assertEqual([0], r.heard_from, "but what was heard just before counts")
+        self.speech(r, device, 185)
+        self.assertEqual([0], r.heard_from, "not for a few degrees")
+        self.speech(r, device, 90)
+        self.assertEqual(90, r.heard_from[-1], "to the right")
+
+    def test_only_speech_lately(self):
+        r, device = self.connected(front=180)
+        self.speech(r, device, 90)
+        self.speech(r, device, 180, speech=0)
+        r.show("hearing")
+        r.tick()
+        self.assertEqual([], r.heard_from)
+
+    def test_without_a_front_it_learns_where_people_talk_to_grog_from(self):
+        r, device = self.connected()
+        r.show("hearing")
+        self.speech(r, device, 200)
+        self.assertEqual([], r.heard_from, "not before")
+        r.show("listening")
+        self.speech(r, device, 0, speech=0)
+        r.show("hearing")
+        self.speech(r, device, 230)
+        self.assertEqual(-30, r.heard_from[-1], "to the left of where the first one was")
+
+    def test_a_firmware_that_doesnt_say_is_let_be(self):
+        device = FakeDevice()
+        device.refused = {"DOA_VALUE"}
+        r = ringed(device, front=180)
+        r.show("hearing")
+        with self.assertLogs("grog_voice", "INFO") as logs:
+            r.tick()
+            r.clock.now += ring.DOA_S
+            r.tick()
+        self.assertEqual(1, device.reads.count("DOA_VALUE"), "asked once")
+        self.assertIn("the ReSpeaker doesn't say where speech comes from", logs.output[-1])
+        self.assertFalse(device.closed)
+        self.assertEqual(list(look("hearing")), device.written[1:], "its ring goes on")
 
 
 class ThreadTest(unittest.TestCase):

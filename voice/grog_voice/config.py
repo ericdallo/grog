@@ -89,6 +89,14 @@ DEFAULTS = {
     # until it hears its name, is cut into windows this long, each starting a
     # second before the one before ends, and its name looked for in each.
     "musicUtteranceSeconds": 4,
+    # A ReSpeaker XVF3800's (see ring.py).
+    "ring": {
+        # Its angle for whoever faces grog's screen, from 0 to 359 (seen from
+        # above, clockwise from its USB port): grog's face looks at who talks
+        # to it as they're to its side of it. null: where people talked to
+        # grog from lately.
+        "front": None,
+    },
 }
 
 # The shortest musicUtteranceSeconds: windows overlap by a second
@@ -178,6 +186,11 @@ CHECKS = [
     ("speculateMs", lambda v: _int(v, 0), "an integer, 0 or more"),
     ("partialMs", lambda v: _int(v, 0), "an integer, 0 or more"),
     ("maxUtteranceSeconds", _number, "a positive number"),
+    (
+        "ring.front",
+        lambda v: v is None or (isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v < 360),
+        "an angle from 0 to 359, or null",
+    ),
 ]
 
 # What a Supertonic model directory holds (see speech.Supertonic).

@@ -46,14 +46,17 @@ def status(url, timeout=5):
         conn.close()
 
 
-def report(url, state, conversation_id, heard=None, timeout=2):
+def report(url, state, conversation_id, heard=None, direction=None, timeout=2):
     """Tells grog what grog-voice is doing (`state`, see reporter.py) in its
-    conversation, and what it `heard` for grog ({"text", "final"}), if
-    anything. Returns grog's answer: whether it shows that, and its name
-    ({"captions", "name"}). Raises GrogError when it can't."""
+    conversation, what it `heard` for grog ({"text", "final"}), and where
+    who talks to grog is (`direction`, see ring.py), if anything. Returns
+    grog's answer: whether it shows what's heard, and its name ({"captions",
+    "name"}). Raises GrogError when it can't."""
     conn, path = _connect(url, timeout)
     body = json.dumps(
-        {"state": state, "conversationId": conversation_id} | ({"heard": heard} if heard is not None else {})
+        {"state": state, "conversationId": conversation_id}
+        | ({"heard": heard} if heard is not None else {})
+        | ({"direction": direction} if direction is not None else {})
     )
     try:
         conn.request("POST", path + "/v1/voice", body, {"Content-Type": "application/json"})

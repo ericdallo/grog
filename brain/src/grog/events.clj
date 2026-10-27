@@ -29,8 +29,11 @@
     :started-at  when grog started: until grog-voice says anything, it may
                be on its way
     :voice     grog-voice's state: {:state :since :seen :conversation
-               :error-at}, nil until it says; :error-at: when it last went
-               into \"error\", if it did
+               :error-at :direction}, nil until it says; :error-at: when it
+               last went into \"error\", if it did; :direction: where who
+               talked to grog last is, in degrees to the right of straight
+               ahead as seen facing its screen, when its mic says (a
+               ReSpeaker XVF3800)
     :heard     what grog-voice last heard for grog (its name first, or a
                reply to it), as it comes: {:text :final :at}, a guess at
                what was said so far until it's final
@@ -155,7 +158,7 @@
   words in a turn are a step of it: when it started hearing them is kept
   for the turn (:heard-at, not sent). Once it said the turn's answer, the
   turn says when (:spoken-at)."
-  [{:keys [voice turn] :as state} {voice-state :state :keys [at conversation heard]}]
+  [{:keys [voice turn] :as state} {voice-state :state :keys [at conversation heard direction]}]
   (let [changed? (not= voice-state (:state voice))
         error-at (if (and changed? (= "error" voice-state)) at (:error-at voice))
         said? (spoken? state voice-state conversation)
@@ -163,7 +166,8 @@
                                                    :since (if changed? at (:since voice))
                                                    :seen at
                                                    :conversation conversation}
-                                            error-at (assoc :error-at error-at)))
+                                            error-at (assoc :error-at error-at)
+                                            direction (assoc :direction direction)))
                 (and changed? (= "hearing" voice-state)) (assoc :heard-at at)
                 heard (assoc :heard (assoc heard :at at))
                 said? (assoc-in [:turn :spoken-at] at))]

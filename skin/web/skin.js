@@ -191,7 +191,7 @@ function drawMode(t) {
   setText(els.label, m.label);
   setText(els.detail, m.detail ?? "");
   const f = face(m, offline ? null : state, t, night);
-  eye.set(f.state, f.icon);
+  eye.set(f.state, f.icon, f.look);
   setText(els.timer, offline ? "" : elapsed(state, t));
   const touch = tap(state, t, offline);
   const label = touch?.label ?? "";

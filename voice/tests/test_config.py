@@ -265,6 +265,18 @@ class ConfigTest(unittest.TestCase):
             problems(musicUtteranceSeconds=1, maxUtteranceSeconds=0),
         )
 
+    def test_the_respeakers_front(self):
+        def problems(front):
+            models = {"stt": {"model": self.model}, "tts": {"model": self.pocket}}
+            return config.problems(config.deep_merge(config.DEFAULTS, {**models, "ring": {"front": front}}))
+
+        self.assertIsNone(config.DEFAULTS["ring"]["front"])
+        for front in (None, 0, 180, 359.5):
+            self.assertEqual([], problems(front), front)
+        for front in (360, -1, "180", True):
+            expected = f"ring.front: expected an angle from 0 to 359, or null, got {json.dumps(front)}"
+            self.assertEqual([expected], problems(front))
+
     def test_wake_words(self):
         def problems(wake_word):
             settings = config.deep_merge(

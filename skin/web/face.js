@@ -55,6 +55,8 @@ export class Face {
     this.timers = [];
     this.state = null;
     this.icon = null;
+    // How far it looks to the right, at who talks to grog (px).
+    this.look = 0;
     // Until when a reaction plays (performance.now()): no blinks meanwhile.
     this.busy = 0;
     if (!this.quiet) this.blinks();
@@ -62,13 +64,22 @@ export class Face {
 
   /**
    * Goes to `state` (view.js's face()), its pupil turned into `icon` if any,
-   * with what plays on the way. The pupil and an icon swap behind a blink.
+   * looking `look` px to the right (at who talks to grog), with what plays
+   * on the way. The pupil and an icon swap behind a blink.
    */
-  set(state, icon = null) {
-    if (state === this.state && icon === this.icon) return;
+  set(state, icon = null, look = 0) {
+    if (state === this.state && icon === this.icon) {
+      if (look !== this.look) {
+        this.look = look;
+        const [x, y] = GAZE[state] ?? [0, 0];
+        this.gaze(x + look, y);
+      }
+      return;
+    }
     const move = this.quiet ? null : reaction(this.state, state, this.icon, icon);
     this.state = state;
     this.icon = icon;
+    this.look = look;
     this.stop();
     if (move === "swap") {
       this.react(".blinkT", BLINK, 260, "ease-in-out");
@@ -195,10 +206,10 @@ const GAZE = {
   offline: [0, 8],
 };
 
-/** What it does in `state`, besides its pose. */
+/** What it does in `state`, besides its pose: it looks where it does, and at who talks to grog. */
 function act(face, state) {
   const [x, y] = GAZE[state] ?? [0, 0];
-  face.gaze(x, y);
+  face.gaze(x + face.look, y);
   if (face.quiet) return;
   switch (state) {
     case "idle":

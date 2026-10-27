@@ -137,8 +137,12 @@ grog works with any mic. With a ReSpeaker XVF3800 plugged in (Seeed's USB
 4-mic array), its ring also shows what grog-voice does
 ([`ring.py`](grog_voice/ring.py)): off at rest, pointing at whoever talks
 to grog, or whoever it waits for, spinning while grog thinks, lit green
-while it speaks, in the skin's colors; red a moment when something
-went wrong, dim red while grog's mic is off. Its mute button switches
+while it speaks, breathing amber while it says a timer going off, in the
+skin's colors; red a moment when something went wrong, dim red while
+grog's mic is off. It also tells the brain where whoever talks to grog
+is, from where it hears speech (its direction of arrival), for grog's face
+to look at them: straight ahead is where people talked to grog from
+lately, or `ring.front`. Its mute button switches
 grog's mic off and on, through grog, as asking would, and grog's mic off
 mutes its mics in hardware, its red LED lit. Its own mute is off while grog-voice
 runs, and on again once it stops. grog-voice talks to it over USB, so its
@@ -197,6 +201,7 @@ or `$GROG_VOICE_CONFIG`), merged over the defaults in
 | `partialMs` | `300` | How much more you have to say before what you've said so far is transcribed again. `0`: only at pauses, without the second model |
 | `maxUtteranceSeconds` | `15` | Longer is cut |
 | `musicUtteranceSeconds` | `4` | While grog plays music, until it hears its name: how long each window it looks for the name in is. They overlap by 1 s. From 2 to `maxUtteranceSeconds` |
+| `ring.front` | `null` | A ReSpeaker XVF3800's angle for whoever faces grog's screen, from 0 to 359: seen from above, clockwise from its USB port (180 with the port toward the screen's back). grog's face looks at who talks to it as they're to the side of it. `null`: where people talked to grog from lately |
 
 ## Development
 

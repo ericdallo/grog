@@ -7,7 +7,8 @@ grog's skin: a page showing what grog is up to, for a screen next to it.
   mic off, restarting, or something wrong. Big enough to read from across
   the room. It looks pleased when a turn went well, dozes when nobody
   talked to it for a while, and gets sleepy at night, when the screen goes
-  dark.
+  dark. With a ReSpeaker XVF3800 as its mic, it looks at whoever talks to
+  it, as the ReSpeaker hears where they are.
 - The time, and the steps of the last turn with how long each took.
 - Under the time, how an update goes while it does, and how it went.
 - The last turns, as a chat: with captions, what you say as you say it,

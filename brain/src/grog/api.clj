@@ -181,24 +181,34 @@
        (<= (count (:text heard)) max-said-chars)
        (boolean? (:final heard))))
 
+(defn ^:private direction?
+  "Whether `d` is where who talks to grog is, as grog-voice says: degrees to
+  the right of straight ahead (negative: left)."
+  [d]
+  (and (number? d) (<= -180 d 180)))
+
 (defn ^:private voice-report
   "grog-voice saying what it's doing, in which conversation, and maybe what
-  it heard for grog (kept only with captions, see grog.events). The answer
-  says whether there are captions (grog-voice only sends what it hears for
-  grog, and transcribes it to its end while someone talks, to show it), and
-  grog's name, which it answers to."
+  it heard for grog (kept only with captions, see grog.events) and where
+  who talks to grog is. The answer says whether there are captions
+  (grog-voice only sends what it hears for grog, and transcribes it to its
+  end while someone talks, to show it), and grog's name, which it answers
+  to."
   [ctx req]
   (let [body (read-json req)
-        {:keys [state conversation-id heard]} (when (map? body) body)]
+        {:keys [state conversation-id heard direction]} (when (map? body) body)]
     (if (and (contains? events/voice-states state)
              (or (nil? conversation-id) (conversation-id? conversation-id))
-             (or (nil? heard) (heard? heard)))
+             (or (nil? heard) (heard? heard))
+             (or (nil? direction) (direction? direction)))
       (do (events/publish! (:events ctx) (cond-> {:type :voice :state state :conversation conversation-id}
-                                           heard (assoc :heard (select-keys heard [:text :final]))))
+                                           heard (assoc :heard (select-keys heard [:text :final]))
+                                           direction (assoc :direction (long (Math/round (double direction))))))
           (json-response 200 {:captions (events/captions? (:events ctx))
                               :name (:name @(:config ctx))}))
       (json-response 400 {:error (format (str "Send {\"state\": one of %s, \"conversationId\": its conversation,"
-                                              " and maybe \"heard\": {\"text\", \"final\": true or false}}.")
+                                              " and maybe \"heard\": {\"text\", \"final\": true or false} and"
+                                              " \"direction\": degrees to the right, from -180 to 180}.")
                                          (str/join ", " (sort events/voice-states)))}))))
 
 ;; What a speaker can be (voice/grog_voice/speakers.py), and how many.

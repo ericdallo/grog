@@ -25,17 +25,21 @@ HEARTBEAT_S = 10.0
 
 
 class Reporter:
-    """Call it with a state, and `heard` with what was heard for grog.
-    `send(state)` tells grog, and `send(state, heard)` what was heard too
-    ({"text", "final"}), returning grog's answer, raising GrogError when it
-    can't. `captions`: whether grog shows what's heard for it, as it last
-    said; `name`: grog's name, as it last said (None before it did)."""
+    """Call it with a state, `heard` with what was heard for grog, and
+    `direction` with where who talks to grog is (see ring.py). `send(state)`
+    tells grog, and `send(state, heard)` what was heard too ({"text",
+    "final"}), with `direction=` once it's known, returning grog's answer,
+    raising GrogError when it can't. `captions`: whether grog shows what's
+    heard for it, as it last said; `name`: grog's name, as it last said
+    (None before it did)."""
 
     def __init__(self, send, *, heartbeat_s=HEARTBEAT_S, keep=8):
         self._send, self._heartbeat_s = send, heartbeat_s
-        # (state, None), or (None, heard): that goes with the last state.
+        # (state, None), or (None, heard): that goes with the last state;
+        # (None, None): the last state again.
         self._queue = collections.deque(maxlen=keep)
         self._last = None
+        self._direction = None
         self._busy = self._failing = False
         self.captions = False
         self.name = None
@@ -52,6 +56,15 @@ class Reporter:
         `final` text."""
         with self._cond:
             self._queue.append((None, {"text": text, "final": final}))
+            self._cond.notify_all()
+
+    def direction(self, degrees):
+        """Where who talks to grog is, in degrees to the right of straight
+        ahead: it goes with the last state, now, and with what's told from
+        then on."""
+        with self._cond:
+            self._direction = degrees
+            self._queue.append((None, None))
             self._cond.notify_all()
 
     def flush(self, timeout=2.0):
@@ -77,8 +90,9 @@ class Reporter:
             if (report := self._next()) is None:
                 continue
             state, heard = report
+            more = {} if self._direction is None else {"direction": self._direction}
             try:
-                answer = self._send(state) if heard is None else self._send(state, heard)
+                answer = self._send(state, **more) if heard is None else self._send(state, heard, **more)
             except Exception as e:  # a bug too: the thread goes on, and only says its type
                 if not self._failing:
                     self._failing = True

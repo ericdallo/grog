@@ -317,13 +317,31 @@ function ringingMode(going) {
   return { ...ringing, label: capitalize(label), detail: `${kind.name.toLowerCase()} · tap to stop` };
 }
 
+// How far grog's face looks to the side at most (px), and how far to the
+// side of straight ahead who talks to grog is when it does (degrees).
+const LOOK_PX = 14;
+const LOOK_DEGREES = 45;
+// Its faces looking at who talks to it.
+const LOOKING = ["hearing", "awake", "asked", "speaking", "pleased"];
+
 /**
- * grog's face for what it's doing (a mode()): {state, icon}, its state one of
- * its poses (skin.css), its pupil turned into `icon` when there's one.
+ * grog's face for what it's doing (a mode()): {state, icon, look}, its state
+ * one of its poses (skin.css), its pupil turned into `icon` when there's
+ * one, `look` how far it looks to the right (negative: left), in px: at who
+ * talks to it, where grog-voice's mic says they are (voice.direction, in
+ * degrees), while it listens to them, waits for them or answers them.
  * Listening, it's pleased just after a turn that went well, dozes once nobody
  * talked to it for a long while, and is sleepy at `night`.
  */
 export function face(m, state, now, night = false) {
+  const f = pose(m, state, now, night);
+  const d = state?.voice?.direction;
+  const look = LOOKING.includes(f.state) && Number.isFinite(d) ? Math.max(-1, Math.min(1, d / LOOK_DEGREES)) : 0;
+  return { ...f, look: Math.round(look * LOOK_PX) };
+}
+
+/** grog's face for what it's doing, but where it looks (see face()). */
+function pose(m, state, now, night) {
   switch (m?.mode) {
     case "idle":
       return { state: resting(state, now, night), icon: null };

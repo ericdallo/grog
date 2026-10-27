@@ -8,7 +8,8 @@ At rest the ring is off. While someone talks to grog, or it waits for them
 comes from; while grog thinks it spins, while it speaks it stays lit green,
 in the skin's colors (skin/web/skin.css); it breathes amber while it says
 a timer going off; red a moment when something went wrong, dim red while
-grog's mic is off, amber without a mic. grog's
+grog's mic is off, amber without a mic. While someone talks to grog, it
+also says where they are, for grog's face to look at them. grog's
 mic off mutes its mics in hardware (its red LED lights), and its button
 switches grog's mic off or on through grog (POST /v1/actions/mic), which
 tells grog-voice back. Its own mute is off meanwhile, and on again once
@@ -21,11 +22,13 @@ the NixOS module's udev rule gives it). From a thread of its own, the only
 one ever waiting on the USB, and on grog while it asks: only the latest
 state counts."""
 
+import collections
 import ctypes
 import errno
 import fcntl
 import glob
 import logging
+import math
 import os
 import struct
 import threading
@@ -49,6 +52,7 @@ COMMANDS = {
     "LED_COLOR": (20, 16, 1, "I"),
     "LED_DOA_COLOR": (20, 17, 2, "I"),
     "LED_RING_COLOR": (20, 19, 12, "I"),
+    "DOA_VALUE": (20, 18, 2, "H"),
     "GPI_EVENT_PENDING_ALL": (36, 7, 1, "I"),
     "MUTE_FUNCTION_ENABLE": (36, 8, 1, "B"),
 }
@@ -82,6 +86,10 @@ FAILURES = 5
 # while it doesn't say it did.
 ASK_AGAIN_S = 3.0
 GONE = {errno.ENODEV, errno.ENOENT, errno.ESHUTDOWN, errno.EBADF, errno.ENXIO}
+# Where speech comes from (DOA_VALUE): read this often at most, its angles
+# kept this long; while someone talks to grog, said again once it moved this
+# many degrees. The front is learned from this many utterances for grog.
+DOA_S, DOA_KEEP_S, DOA_MOVED, FRONTS = 0.25, 2.0, 10, 20
 
 
 class _ControlTransfer(ctypes.Structure):
@@ -122,6 +130,11 @@ class Usb:
         os.close(self._fd)
 
 
+class Refused(OSError):
+    """The XVF3800 answered a command with an error: its firmware may not
+    have it."""
+
+
 class Xvf:
     """An XVF3800's control commands (COMMANDS), over `usb`'s endpoint 0 (a
     Usb). `sleep` waits while it's busy answering."""
@@ -138,7 +151,7 @@ class Xvf:
             if data[:1] == bytes([OK]) and len(data) == 1 + size:
                 return struct.unpack(f"<{count}{kind}", data[1:])
             if data[:1] != bytes([BUSY]):
-                raise OSError(errno.EPROTO, f"{name} answered {data[:1].hex() or 'nothing'}")
+                raise Refused(errno.EPROTO, f"{name} answered {data[:1].hex() or 'nothing'}")
             self._sleep(0.01)
         raise OSError(errno.EBUSY, f"{name} stayed busy")
 
@@ -185,6 +198,27 @@ def open_respeaker(root=SYSFS):
 def scaled(color, k):
     """`color` (0xRRGGBB) at `k` of its brightness."""
     return sum(round((color >> shift & 0xFF) * k) << shift for shift in (16, 8, 0))
+
+
+def mean_angle(angles):
+    """The mean of `angles`, in degrees, as directions (350 and 10: 0), from
+    0 to 360."""
+    radians = [math.radians(a) for a in angles]
+    return math.degrees(math.atan2(sum(map(math.sin, radians)), sum(map(math.cos, radians)))) % 360
+
+
+def turned(degrees):
+    """`degrees` as a turn from -180 to 180."""
+    return (degrees + 180) % 360 - 180
+
+
+def direction(angle, front):
+    """Where speech heard from `angle` (the XVF3800's DoA) is, from straight
+    ahead (`front`, its angle for whoever faces grog's screen), in degrees to
+    the right as seen facing the screen (negative: left). Seen from above,
+    its angles go clockwise, from 0 at its USB port (Seeed's diagram, its
+    LEDs up): to the right of the front, they're lower."""
+    return round(-turned(angle - front))
 
 
 def breathing(color):
@@ -234,13 +268,31 @@ class Ring:
     """A ReSpeaker XVF3800's ring and mute (see above), on a thread of its
     own: `show(state)` what grog-voice does, `mic(on)` whether grog's mic is
     on, as grog says. `set_mic(on)` asks grog to switch it, raising
-    GrogError when it can't. `open_device()` opens the ReSpeaker (an Xvf),
-    or returns None without one, raising OSError when it can't; `clock`
-    tells the time in seconds. With `start` false, no thread: `tick()` does
-    what it would, once."""
+    GrogError when it can't. While someone talks to grog, `heard_from` is
+    told where they are, from straight ahead (see direction), once it's
+    known and again once they moved: straight ahead is the XVF3800's angle
+    `front`, or where people talked to grog from lately, without one.
+    `open_device()` opens the ReSpeaker (an Xvf), or returns None without
+    one, raising OSError when it can't; `clock` tells the time in seconds.
+    With `start` false, no thread: `tick()` does what it would, once."""
 
-    def __init__(self, set_mic, *, open_device=open_respeaker, clock=time.monotonic, start=True):
+    def __init__(
+        self,
+        set_mic,
+        *,
+        heard_from=lambda degrees: None,
+        front=None,
+        open_device=open_respeaker,
+        clock=time.monotonic,
+        start=True,
+    ):
         self._set_mic, self._open, self._clock = set_mic, open_device, clock
+        self._heard_from, self._front = heard_from, front
+        self._doa = collections.deque()  # (when, angle) of what it heard as speech lately
+        self._doa_at = None  # when it last read where speech comes from
+        self._heard = None  # where who talks to grog now is, as an angle
+        self._fronts = collections.deque(maxlen=FRONTS)  # where people talked to grog from
+        self._direction = None  # where who talked to grog was, as last told
         self._state = "listening"
         self._error_until = 0.0
         self._mic_on = None  # as grog says: None until it does
@@ -314,6 +366,7 @@ class Ring:
             self._button(now)
             self._mute()
             self._light(now)
+            self._where(now)
             self._failures = 0
         except OSError as e:
             self._failed(e, now)
@@ -341,7 +394,7 @@ class Ring:
             return False
         self._device, self._version, self._failures = device, version, 0
         self._shown, self._pin = {}, None
-        self._warned.difference_update({"open", "setup"})
+        self._warned.difference_update({"open", "setup", "doa"})
         log.info(
             "a ReSpeaker XVF3800 (firmware %s): its ring shows what grog-voice does%s",
             ".".join(map(str, version)),
@@ -410,6 +463,41 @@ class Ring:
             if self._shown.get(name) != values:
                 self._device.write(name, values)
                 self._shown[name] = values
+
+    def _where(self, now):
+        """Where speech comes from (DOA_VALUE: its angle, and whether it's
+        speech), every DOA_S, its angles kept DOA_KEEP_S. While someone
+        talks to grog, where they are is told (see direction); once they're
+        done, it's where people talk to grog from, for the front. A firmware
+        that doesn't say is let be."""
+        if "doa" in self._warned:
+            return
+        if self._doa_at is None or now - self._doa_at >= DOA_S:
+            self._doa_at = now
+            try:
+                angle, speech = self._device.read("DOA_VALUE")
+            except Refused as e:
+                self._warn("doa", f"the ReSpeaker doesn't say where speech comes from ({_why(e)})")
+                return
+            if speech:
+                self._doa.append((now, angle))
+        while self._doa and now - self._doa[0][0] > DOA_KEEP_S:
+            self._doa.popleft()
+        if self._state != "hearing":
+            if self._heard is not None:
+                self._fronts.append(self._heard)
+                self._heard = None
+            return
+        if not self._doa:
+            return
+        self._heard = mean_angle([a for _, a in self._doa])
+        front = self._front if self._front is not None else mean_angle(self._fronts) if self._fronts else None
+        if front is None:
+            return
+        where = direction(self._heard, front)
+        if self._direction is None or abs(where - self._direction) >= DOA_MOVED:
+            self._direction = where
+            self._heard_from(where)
 
     def _warn(self, key, message):
         """Logs `message` once, until `key` is cleared."""

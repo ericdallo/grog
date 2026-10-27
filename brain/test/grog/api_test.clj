@@ -489,6 +489,10 @@
                                      "application/json")))
             (is (eventually #(= 2 (count (filter (fn [[type]] (= "voice" type)) @got)))))
             (is (not-any? #(str/includes? (pr-str %) "sunny") @got)))
+          (testing "and where who talks to grog is, rounded"
+            (is (= 200 (report-voice url {:state "hearing" :conversationId "voice" :direction -24.6}
+                                     "application/json")))
+            (is (eventually #(= -25 (get-in (second (last @got)) [:state :voice :direction])))))
           (testing "a voice turn, step by step"
             (is (= [true "Sunny tomorrow."] (ask url "voice" "will it be sunny tomorrow?")))
             (is (eventually #(some (fn [[type]] (= "done" type)) @got)))
@@ -513,6 +517,9 @@
             (doseq [heard [{:text 7 :final true} {:text "Grog"} {:text "Grog" :final "yes"} "Grog"
                            {:text (apply str (repeat 1001 "a")) :final true}]]
               (is (= 400 (report-voice url {:state "hearing" :heard heard} "application/json")) (pr-str heard)))
+            (doseq [direction [200 -181 "left"]]
+              (is (= 400 (report-voice url {:state "hearing" :direction direction} "application/json"))
+                  (pr-str direction)))
             (is (= 415 (report-voice url {:state "hearing"} "text/plain"))))
           (finally
             (close!)

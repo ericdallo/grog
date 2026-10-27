@@ -958,7 +958,19 @@ control.
   frames a second), picked over breathing; lit green while grog speaks
   (the skin's awake green at 60%: its coral looked red on the ring, and
   breathing, the user wanted it steady); red a moment on errors, dim red
-  while grog's mic is off, amber without a mic.
+  while grog's mic is off, amber without a mic; breathing amber while it
+  says a timer going off.
+- **Where speech comes from** (`DOA_VALUE`, resource 20, command 18: an
+  angle from 0 to 359 and whether it's speech) is read every 0.25 s, its
+  angles kept 2 s. Seen from above, its LEDs up, 0 points at its USB port
+  and angles go clockwise (Seeed's diagram, `doc/doa.jpg` in their
+  repository). While someone talks to grog, the mean of those angles, from
+  straight ahead (`ring.front`, or else the mean of where the last 20
+  utterances for grog came from), goes to the brain with grog-voice's
+  state (`direction`, degrees to the right as seen facing the screen),
+  again once it moved 10°, and grog's face looks there (14 px at most,
+  from 45° on). Since October 27, 2026; not yet checked with someone
+  talking from known places.
 - **Its mute**: raising its mute pin (X0D30) silenced its mics (-119 dBFS
   RMS at `grog-mic`) and lit its red LED: grog's mic off raises it. While
   grog-voice runs, its button's own mute is off, and a press asks grog to
