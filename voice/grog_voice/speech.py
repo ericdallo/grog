@@ -2,6 +2,7 @@
 Pocket TTS, Supertonic or Piper. Their libraries load lazily, so the rest
 runs (and is tested) without them."""
 
+import itertools
 import os
 import zlib
 
@@ -11,6 +12,9 @@ from .audio import Silence, peak_dbfs, stt_gain_db
 # Supertonic's speech is brought up to peak there (-1 dBFS), by at most that
 # much (+12 dB), like Piper's.
 SUPERTONIC_PEAK, SUPERTONIC_MAX_GAIN = 0.89, 4.0
+# Pocket's speech, made louder to its level (see pocket.Leveler), is kept
+# under -1 dBFS, softly: its peaks over it are rounded off, not clipped.
+SOFT_LIMIT = 10 ** (-1 / 20)
 
 
 class SileroVad:
@@ -112,7 +116,8 @@ class Pocket:
     sound in 0.15 s (the 6-layer one, with turbo: 0.17 s, and 0.03 s). A
     short piece (8 words or fewer) starts once its first 800 ms are made, as
     they're made again when they come out murmured (see pocket.steadiest);
-    one that ends a sentence is followed by a pause (see pocket.pause).
+    each is said as loud as the rest (see pocket.Leveler); one that ends a
+    sentence is followed by a pause (see pocket.pause).
     `model` has the graphs (flow_lm.onnx, mimi_decoder.onnx),
     tokenizer.model and pocket.json (how to run them); `voice`, a voice's
     file (see pocket.voice_file)."""
@@ -159,9 +164,46 @@ class Pocket:
         for part in pocket.pieces(text, self._tokens, self.rules["max_tokens"]):
             said, guess = pocket.prepare(part, self.rules)
             if said:
+                ahead = pocket.CHECK_FRAMES if pocket.checked(said) else 0
                 # Whether it ends a sentence is in its own text: the model's
                 # always ends with one.
-                yield from self._paused(part, self._synthesize(said, guess))
+                yield from self._paused(part, self._leveled(self._synthesize(said, guess), ahead))
+
+    def _leveled(self, frames, ahead):
+        """`frames` at the gain that says them as loud as the rest (see
+        pocket.Leveler), gliding from a frame's to the next's: the first
+        `ahead`, already made, at the gain they call for."""
+        leveler = pocket.Leveler()
+        head = list(itertools.islice(frames, ahead))
+        gain = leveler.start([level for pcm in head for level in self._halves(pcm)])
+        for pcm in head:
+            yield self._gained(pcm, gain, gain)
+        for pcm in frames:
+            before, gain = gain, leveler(self._halves(pcm))
+            yield self._gained(pcm, before, gain)
+
+    def _halves(self, pcm):
+        """The levels (dB) of the halves of a frame (16-bit), 40 ms each."""
+        import numpy as np
+
+        x = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768
+        half = len(x) // 2
+        return [float(10 * np.log10(np.mean(x[i : i + half] ** 2) + 1e-12)) for i in (0, half) if half]
+
+    def _gained(self, pcm, start_db, end_db):
+        """A frame (16-bit) made louder by a gain (dB) going from `start_db`
+        to `end_db` along it, its peaks softly kept under SOFT_LIMIT."""
+        if not start_db and not end_db:
+            return pcm
+        import numpy as np
+
+        x = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768
+        x *= np.linspace(10 ** (start_db / 20), 10 ** (end_db / 20), len(x), dtype=np.float32)
+        over = np.abs(x) > SOFT_LIMIT
+        if over.any():
+            excess = (np.abs(x[over]) - SOFT_LIMIT) / (1 - SOFT_LIMIT)
+            x[over] = np.sign(x[over]) * (SOFT_LIMIT + (1 - SOFT_LIMIT) * np.tanh(excess))
+        return (x * 32767).astype(np.int16).tobytes()
 
     def _paused(self, text, frames):
         """`frames`, saying `text`, then the pause a sentence's end calls for

@@ -75,9 +75,10 @@ said otherwise.
   peaks -5 to -8 dBFS, against Piper's -15 and 0): each piece is brought up
   to peak at -1 dBFS, by at most +12 dB, like Piper's normalized output, as
   the earcons (`sounds.py`) and the speaker's volume were set for Piper.
-  Pocket TTS streams, so a voice has one gain (`gain_db` in its file, +2.9
+  Pocket TTS streams, so a voice has a gain (`gain_db` in its file, +2.9
   dB for deep-calm), set when it's made: its speech to ~-18 dBFS RMS,
-  peaking at -1 dBFS at most.
+  peaking at -1 dBFS at most. Each piece is then brought to -19 dB as it's
+  said: see "Steadier levels" below.
 
 ## Constraints
 
@@ -1053,6 +1054,42 @@ as its first 3 s (`ears.HEAD_S`): at pauses until then, once when it gets
 longer, and at its end if not yet. When that start has the name (the
 partials missed it), the whole is transcribed then. Over music, and once
 awake, as before.
+
+## Steadier levels
+
+On October 27, 2026 the user asked for grog's loudness to be steadier from
+an answer to the next. Measured without playing anything: 24 answers like
+grog's, short and long, cut as the mouth cuts them, each piece made 3 times
+with other noise by the station's Pocket TTS (24 layers, deep-calm), their
+level being their active level (the mean power of their 32 ms windows
+within 15 dB of their loudest):
+
+- **Chance, as much as the text**: the same piece with other noise came out
+  3 dB louder or quieter (the median), short ones up to 22. With a single
+  gain per voice, answers were 13 dB apart (-29 to -16 dB, std 2.6), 6
+  apart without the quietest, a murmured "Pronto." (std 1.7), and an
+  answer's pieces up to 8 dB apart.
+- **The first 800 ms tell**: those of a short piece, made ahead (see
+  "Breathy short answers"), predict its level within 0.2 dB (the median;
+  -0.2 to +0.5 for half of them), but 16 dB off at worst: a quiet word
+  before louder ones ("Feito! A música está pausada.").
+
+So each piece's speech is brought to -19 dB, about the long pieces' median
+(-18.7), by `pocket.Leveler`: a short one from its start, at the gain its
+first 800 ms call for, +4 dB at most; then as what's said after them calls
+for, down by 3 dB a frame (80 ms) at most, up by 0.5 once 320 ms of it are
+speech; between -6 and +8 dB, its peaks rounded off above -1 dBFS. The
+same answers, said by the station's grog-voice that way:
+
+- Answers 6.9 dB apart (-25 to -18 dB, std 1.3), 3.4 without the murmur
+  (std 0.7), which comes out at -25; an answer's pieces 2.3 dB apart at
+  most.
+- Their loudest 40 ms 5.5 dB over -19 at most, against 7.3 before. A first
+  try made that 7.9: it followed the whole piece, quiet word included, so
+  the louder words after it stayed 4 dB up for 240 ms.
+- Nothing clipped, 0.3% more CPU, and the first sound as soon as before:
+  only what was already made ahead waits for its gain. Making long pieces
+  ahead too would have made them start later.
 
 ## Where to go from here
 

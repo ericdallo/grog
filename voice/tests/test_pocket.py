@@ -1,3 +1,4 @@
+import math
 import os
 import tempfile
 import unittest
@@ -126,6 +127,64 @@ class SteadiestTest(unittest.TestCase):
         self.assertTrue(pocket.checked("        Tô ouvindo, sim!"))
         self.assertTrue(pocket.checked("Pronto! A luz da cozinha está apagada."))
         self.assertFalse(pocket.checked("Amanhã deve fazer vinte e oito graus em São Paulo."))
+
+
+class LevelerTest(unittest.TestCase):
+    """Levels of 40 ms windows, two a frame; speech brought to -19 dB."""
+
+    def test_active_level(self):
+        self.assertEqual((None, 0), pocket.active_level([]))
+        level, count = pocket.active_level([-20.0, -20.0, -50.0])
+        self.assertAlmostEqual(-20.0, level)
+        self.assertEqual(2, count, "15 dB under its loudest or more isn't speech")
+        level, count = pocket.active_level([-20.0, -30.0])
+        self.assertAlmostEqual(10 * math.log10((10**-2 + 10**-3) / 2), level, msg="their mean power")
+        self.assertEqual(2, count)
+
+    def test_a_short_piece_starts_at_the_gain_its_frames_made_ahead_call_for(self):
+        self.assertAlmostEqual(-3.0, pocket.Leveler().start([-16.0] * 4))
+        self.assertAlmostEqual(-6.0, pocket.Leveler().start([-5.0] * 4), msg="CUT at most")
+        self.assertEqual(4.0, pocket.Leveler().start([-30.0] * 4), "BOOST_FIRST at most")
+        self.assertEqual(0.0, pocket.Leveler().start([]), "none made ahead")
+        self.assertEqual(0.0, pocket.Leveler().start([-70.0] * 4), "silence")
+
+    def test_up_gently_once_enough_is_speech(self):
+        leveler = pocket.Leveler()
+        gains = [leveler([-25.0, -25.0]) for _ in range(20)]
+        self.assertEqual([0.0, 0.0, 0.0], gains[:3], "fewer than MIN_WINDOWS windows of speech")
+        self.assertEqual([0.5, 1.0, 1.5], gains[3:6], "up by SLEW_UP a frame")
+        self.assertAlmostEqual(6.0, gains[-1])
+
+    def test_down_at_once(self):
+        leveler = pocket.Leveler()
+        gains = [leveler([-14.0, -14.0]) for _ in range(4)]
+        self.assertEqual(-3.0, gains[0], "down by SLEW_DOWN a frame")
+        self.assertAlmostEqual(-5.0, gains[-1])
+
+    def test_then_what_follows_the_frames_made_ahead(self):
+        leveler = pocket.Leveler()
+        self.assertEqual(4.0, leveler.start([-30.0] * 20), "a quiet word")
+        gains = [leveler([-20.0, -20.0]) for _ in range(3)]
+        self.assertAlmostEqual(1.0, gains[0], msg="louder ones, theirs alone")
+        self.assertAlmostEqual(1.0, gains[-1])
+
+    def test_within_its_limits(self):
+        loud, quiet = pocket.Leveler(), pocket.Leveler()
+        for _ in range(40):
+            loud_gain, quiet_gain = loud([-3.0, -3.0]), quiet([-40.0, -40.0])
+        self.assertAlmostEqual(-pocket.CUT, loud_gain)
+        self.assertAlmostEqual(pocket.BOOST, quiet_gain)
+
+    def test_quiet_windows_and_silence_left_alone(self):
+        leveler = pocket.Leveler()
+        self.assertAlmostEqual(1.0, leveler.start([-20.0] * 10))
+        self.assertAlmostEqual(1.0, leveler([-90.0, -90.0]), msg="a pause after its frames made ahead")
+        speaking = pocket.Leveler()
+        for _ in range(20):
+            speaking([-25.0, -25.0])
+        self.assertAlmostEqual(6.0, speaking([-45.0, -45.0]), msg="15 dB under its loudest: not speech")
+        silent = pocket.Leveler()
+        self.assertEqual([0.0] * 10, [silent([-70.0, -70.0]) for _ in range(10)])
 
 
 class PauseTest(unittest.TestCase):

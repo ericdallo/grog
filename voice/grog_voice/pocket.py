@@ -1,8 +1,8 @@
 """What Pocket TTS reads, when it's done speaking, which of its tries at a
-short text it says, and its pauses after sentences (see speech.Pocket):
-plain Python, like pocket_tts's own text handling (kyutai-labs/pocket-tts,
-MIT), plus Portuguese numbers spelled out, as the model reads digits
-badly."""
+short text it says, how loud each piece is said, and its pauses after
+sentences (see speech.Pocket): plain Python, like pocket_tts's own text
+handling (kyutai-labs/pocket-tts, MIT), plus Portuguese numbers spelled
+out, as the model reads digits badly."""
 
 import itertools
 import math
@@ -147,6 +147,69 @@ def steadiest(attempts, noisiness, check=CHECK_FRAMES, limit=NOISY):
         if best is None or score < best[0]:
             best = (score, head, attempt)
     return itertools.chain(best[1], best[2]) if best else iter(())
+
+
+# Pocket TTS says a piece louder or quieter by chance as much as by its text
+# (the same text with other noise: 3 dB apart, the median, short ones up to
+# 22), where a voice had a single gain: answers came up to 13 dB apart.
+# So each piece's speech is brought to LEVEL dB (its active level: the mean
+# power of its 40 ms windows within ACTIVE_WITHIN dB of its loudest), by
+# BOOST dB at most, or CUT dB down. A short one starts at the gain its
+# frames made ahead call for (see steadiest), BOOST_FIRST dB up at most:
+# they may be a quiet word before louder ones. Then the gain follows what's
+# said after them, gently: down by SLEW_DOWN dB a frame at most, and up by
+# SLEW_UP once MIN_WINDOWS of its windows are speech. Measured in
+# plans/voice.md ("Steadier levels").
+LEVEL = -19.0
+ACTIVE_WITHIN = 15.0
+BOOST, CUT, BOOST_FIRST = 8.0, 6.0, 4.0
+MIN_WINDOWS = 8
+SLEW_UP, SLEW_DOWN = 0.5, 3.0
+# Quieter than this, there's no speech to level.
+SILENT = -60.0
+
+
+def active_level(levels, within=ACTIVE_WITHIN):
+    """The active level of windows whose levels (dB) are `levels`: the mean
+    power of those within `within` dB of the loudest, in dB, and how many
+    they are; (None, 0) without any."""
+    if not levels:
+        return None, 0
+    loudest = max(levels)
+    kept = [level for level in levels if level >= loudest - within]
+    return 10 * math.log10(sum(10 ** (level / 10) for level in kept) / len(kept)), len(kept)
+
+
+def wanted_gain(levels):
+    """The gain (dB) that brings speech whose windows' levels are `levels` to
+    LEVEL, within BOOST and CUT, and how many of them are speech; (None, 0)
+    when there's none."""
+    level, count = active_level(levels)
+    if level is None or level < SILENT:
+        return None, 0
+    return min(BOOST, max(-CUT, LEVEL - level)), count
+
+
+class Leveler:
+    """The gain (dB) of a piece's frames that brings its speech to LEVEL (see
+    above), from its windows' levels as they come: `start` with those of the
+    frames made ahead, if any (their gain), then called with each next
+    frame's (its gain)."""
+
+    def __init__(self):
+        self.levels, self.gain = [], 0.0
+
+    def start(self, levels):
+        if (wanted := wanted_gain(levels)[0]) is not None:
+            self.gain = min(wanted, BOOST_FIRST)
+        return self.gain
+
+    def __call__(self, levels):
+        self.levels.extend(levels)
+        wanted, count = wanted_gain(self.levels)
+        if wanted is not None and (wanted < self.gain or count >= MIN_WINDOWS):
+            self.gain += min(SLEW_UP, max(-SLEW_DOWN, wanted - self.gain))
+        return self.gain
 
 
 # Sentences said in separate pieces (the first one alone, to start sooner,

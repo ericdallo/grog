@@ -27,7 +27,8 @@ up to it.
    cloned from a recording: deep-calm, a deep, calm Brazilian voice designed
    with Qwen3-TTS (no one's own). Its speech plays as it's made, 80 ms at a
    time, so it gets whole sentences, which it says better (a short first one
-   goes with the next). It runs on
+   goes with the next), each brought to the same loudness as it plays: left
+   alone, it says some louder or quieter by chance. It runs on
    [OpenVINO](https://github.com/openvinotoolkit/openvino), from ONNX graphs
    of its 24-layer Portuguese model made by
    [`tools/export_pocket.py`](tools/export_pocket.py).
