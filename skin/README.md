@@ -3,8 +3,9 @@
 grog's skin: a page showing what grog is up to, for a screen next to it.
 
 - Nearly a third of the screen takes a color, and grog's face, for what
-  it's doing: listening, hearing you, thinking, using a tool, speaking, its
-  mic off, restarting, or something wrong. Big enough to read from across
+  it's doing: listening, hearing you, thinking, using a tool, speaking,
+  waiting a moment after its answer for more from you (no need to call it
+  then), its mic off, restarting, or something wrong. Big enough to read from across
   the room. It looks pleased when a turn went well, dozes when nobody
   talked to it for a while, and gets sleepy at night, when the screen goes
   dark. With a ReSpeaker XVF3800 as its mic, it looks at whoever talks to

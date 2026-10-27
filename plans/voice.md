@@ -1136,10 +1136,11 @@ within 30° of where whoever grog answered talked from
 (`loop.FOLLOW_DEGREES`), as the ReSpeaker hears it (`Ring.angle`: the mean
 of the angles it read while they spoke, 4 a second, at least two).
 Without a direction, as before. What's said then is transcribed whole,
-and the voice decides once it's over, without telling grog it listens
-(as `awake` would: the music would duck, the screen wake). Not while music
-plays, which the VAD takes for speech, nor for what started before the
-answer was over. Its log says how far off each one was ("a follow-up, 12°
+and the voice decides once it's over. Meanwhile it tells grog it's
+`following`, not `awake`, which would duck the music after every answer:
+the skin says "Go on", its face on whoever asked, the ring points at them,
+dimmer. Not while music plays, which the VAD takes for speech, nor for
+what started before the answer was over. Its log says how far off each one was ("a follow-up, 12°
 off where grog was asked from"). To check on the station: follow-ups
 taken from someone else in the same direction, or a TV, and ones missed.
 

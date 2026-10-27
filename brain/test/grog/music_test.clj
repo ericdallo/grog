@@ -271,9 +271,12 @@
             (voice! "speaking")
             (Thread/sleep 100)
             (is (= ["duck"] (sent))))
-          (testing "back once it waits for its name again"
+          (testing "back once it answered, though it may hear more without its name a moment"
+            (voice! "following")
+            (is (h/eventually 2000 #(= ["duck" "unduck"] (sent))))
             (voice! "listening")
-            (is (h/eventually 2000 #(= ["duck" "unduck"] (sent)))))
+            (Thread/sleep 100)
+            (is (= ["duck" "unduck"] (sent))))
           (testing "after its name alone, too"
             (voice! "awake")
             (is (h/eventually 2000 #(= ["duck" "unduck" "duck"] (sent))))

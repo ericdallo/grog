@@ -522,7 +522,7 @@ class AskedByGrogTest(unittest.TestCase):
         self.assertEqual([False], v.ears.mic.switched)
         self.assertTrue(v.ears.forgetting, "what was being said is forgotten")
         self.assertEqual(["listening", "muted"], v.reported, "grog is told at once")
-        for state in ("listening", "awake", "asked"):
+        for state in ("listening", "awake", "asked", "following"):
             v.tell(state)
         self.assertEqual(["listening", "muted"], v.reported, "muted, whatever it waits for")
         v.set_mic(False)
@@ -739,7 +739,7 @@ class TellTest(unittest.TestCase):
 
     def test_no_mic_whatever_it_waits_for(self):
         v = voice(mic=WatchedMic(missing=True))
-        for state in ("listening", "awake", "asked"):
+        for state in ("listening", "awake", "asked", "following"):
             v.tell(state)
         self.assertEqual(["no-mic"], v.reported)
 
@@ -823,10 +823,29 @@ class FollowUpTest(unittest.TestCase):
         for words in ("Lisboa", "comigo"):
             self.assertNotIn(words, "\n".join(logs))
         self.assertEqual(
-            ["listening", "hearing", "answering", "speaking"] * 2 + ["listening"],
+            ["listening"] + ["hearing", "answering", "speaking", "following"] * 2,
             reported,
-            "it doesn't say it listens without its name: music isn't ducked meanwhile",
+            "following rather than awake: music isn't ducked meanwhile",
         )
+
+    def test_says_it_follows_until_its_time_is_up(self):
+        # Its name and a question, then silence, 5 ms a frame: past 0.2 s.
+        mic = FakeMic(frames(("S", 1.0), (".", 1.0), (".", 2.0)), frame_wait_s=0.005)
+        ring = FakeRing([100])
+        v = voice(
+            mic=mic,
+            wake=GROG,
+            stt=FakeStt("Grog, que horas são?"),
+            ask=answering("Dez e quinze."),
+            ring=ring,
+            settings={**SETTINGS, "followUpSeconds": 0.2},
+        )
+        with self.assertLogs("grog_voice", "INFO"), self.assertRaises(MicError):
+            v.run()
+        self.assertEqual(
+            ["listening", "hearing", "answering", "speaking", "following", "listening"], v.reported
+        )
+        self.assertEqual(v.reported, ring.shown, "its ring too")
 
     def test_without_where_it_came_from_it_needs_its_name(self):
         said = ("Grog, que horas são?", "e em Lisboa?", "")

@@ -100,9 +100,11 @@
 
 (def voice-states
   "What grog-voice says it's doing (voice/grog_voice/reporter.py):
-  announcing is saying what grog asked it to, not a turn (grog.timers)."
-  #{"loading" "listening" "hearing" "awake" "asked" "answering" "speaking" "announcing" "error" "no-mic"
-    "muted"})
+  announcing is saying what grog asked it to, not a turn (grog.timers);
+  following, after an answer, taking what's said from where whoever asked
+  is without grog's name, for a while."
+  #{"loading" "listening" "hearing" "awake" "asked" "following" "answering" "speaking" "announcing" "error"
+    "no-mic" "muted"})
 
 (defn now-ms
   "The clock (tests redefine it)."
@@ -321,9 +323,9 @@
          (contains? #{"answering" "speaking"} voice-state)
          (< (- (now-ms) seen) voice-gone-ms))))
 
-;; grog-voice's states while someone talks to grog: once it heard its name;
-;; and while it says a timer going off.
-(def ^:private talking-states #{"awake" "asked" "answering" "speaking" "announcing"})
+;; grog-voice's states while someone talks to grog: once it heard its name,
+;; until a moment after the answer; and while it says a timer going off.
+(def ^:private talking-states #{"awake" "asked" "following" "answering" "speaking" "announcing"})
 
 ;; A turn this old is over, whatever it said.
 (def ^:private turn-max-ms (* 5 60 1000))

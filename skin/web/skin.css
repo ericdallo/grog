@@ -58,7 +58,8 @@ body {
 
 body[data-mode="hearing"] { --mode: #7bed9f; }
 body[data-mode="awake"],
-body[data-mode="asked"] { --mode: #2ed573; }
+body[data-mode="asked"],
+body[data-mode="following"] { --mode: #2ed573; }
 body[data-mode="thinking"],
 body[data-mode="still"],
 body[data-mode="tool"] { --mode: #5352ed; --tint: #98a6fe; --on: #ffffff; }
@@ -1692,6 +1693,15 @@ ol {
 
 .face[data-state="awake"] {
   --pupil: 1.3;
+}
+
+/* After an answer, it may hear more from whoever asked: still on them,
+   friendly. */
+.face[data-state="following"] {
+  --lid: 4px;
+  --smile: -18px;
+  --pupil: 1.15;
+  --head: -3deg;
 }
 
 /* It asked something: its head tilted, a side of its lid lower, a "hm?". */

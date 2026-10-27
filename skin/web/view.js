@@ -92,7 +92,7 @@ const UPDATING = {
 const SWITCHING = ["switching", "verifying"];
 
 // What grog-voice says while it waits for someone to talk.
-const WAITING = ["listening", "awake", "asked", "error"];
+const WAITING = ["listening", "awake", "asked", "following", "error"];
 
 const MUTED = { mode: "muted", label: "Mic off", detail: "tap to turn it on" };
 
@@ -281,6 +281,9 @@ export function mode(state, now, offline = false) {
       return { mode: "awake", label: "Go ahead", detail: "listening, no need to call" };
     case "asked":
       return { mode: "asked", label: "Your turn", detail: "it asked something: just answer" };
+    case "following":
+      // After an answer, what's said from where whoever asked is needs no name.
+      return { mode: "following", label: "Go on", detail: "for a moment, no need to call" };
     case "loading":
       return waking;
     case "no-mic":
@@ -322,7 +325,7 @@ function ringingMode(going) {
 const LOOK_PX = 14;
 const LOOK_DEGREES = 45;
 // Its faces looking at who talks to it.
-const LOOKING = ["hearing", "awake", "asked", "speaking", "pleased"];
+const LOOKING = ["hearing", "awake", "asked", "following", "speaking", "pleased"];
 
 /**
  * grog's face for what it's doing (a mode()): {state, icon, look}, its state
@@ -330,8 +333,9 @@ const LOOKING = ["hearing", "awake", "asked", "speaking", "pleased"];
  * one, `look` how far it looks to the right (negative: left), in px: at who
  * talks to it, where grog-voice's mic says they are (voice.direction, in
  * degrees), while it listens to them, waits for them or answers them.
- * Listening, it's pleased just after a turn that went well, dozes once nobody
- * talked to it for a long while, and is sleepy at `night`.
+ * Listening, or waiting for more after an answer, it's pleased just after a
+ * turn that went well; listening, it dozes once nobody talked to it for a
+ * long while, and is sleepy at `night`.
  */
 export function face(m, state, now, night = false) {
   const f = pose(m, state, now, night);
@@ -345,6 +349,8 @@ function pose(m, state, now, night) {
   switch (m?.mode) {
     case "idle":
       return { state: resting(state, now, night), icon: null };
+    case "following":
+      return { state: pleased(state, now) ? "pleased" : "following", icon: null };
     case "answering":
       return { state: "writing", icon: null };
     case "tool":
@@ -389,9 +395,10 @@ function idleSince(state) {
   return times.length ? Math.max(...times) : null;
 }
 
-// What grog-voice says while someone talks to grog, its name heard, or
-// while it says a timer going off (voice/grog_voice/reporter.py).
-const TALKING = ["hearing", "awake", "asked", "answering", "speaking", "announcing"];
+// What grog-voice says while someone talks to grog, its name heard, until
+// a moment after the answer, or while it says a timer going off
+// (voice/grog_voice/reporter.py).
+const TALKING = ["hearing", "awake", "asked", "following", "answering", "speaking", "announcing"];
 
 /**
  * Whether the screen showing the skin is awake: while someone talks to grog,

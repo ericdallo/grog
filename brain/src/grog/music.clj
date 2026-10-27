@@ -464,7 +464,7 @@
 
 ;; grog-voice's states while someone talks to grog: hearing them, after its
 ;; name, waiting for them, and answering; and while it says a timer going
-;; off.
+;; off. Not while it follows an answer: it would duck after every one.
 (def ^:private ducking-states #{"hearing" "awake" "asked" "answering" "speaking" "announcing"})
 
 (defn ducks?

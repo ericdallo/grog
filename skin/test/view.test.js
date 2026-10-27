@@ -110,6 +110,12 @@ describe("what grog is doing", () => {
     assert.equal(mode(voice("no-mic"), NOW).mode, "no-mic");
   });
 
+  it("after an answer, says it may hear more without its name a moment", () => {
+    const following = state({ voice: { state: "following", since: NOW, seen: NOW, conversation: "voice" } });
+    assert.deepEqual(mode(following, NOW), { mode: "following", label: "Go on", detail: "for a moment, no need to call" });
+    assert.equal(mode({ ...following, mic: "off" }, NOW).mode, "muted", "its mic switched off meanwhile");
+  });
+
   it("is ready without a voice, once grog has been up a while", () => {
     assert.deepEqual(mode(state({ voice: null }), NOW), { mode: "idle", label: "Ready", detail: "" });
     assert.equal(mode(state({ voice: null, startedAt: NOW - VOICE_GRACE_MS }), NOW).label, "Ready");
@@ -253,6 +259,7 @@ describe("its face", () => {
     assert.equal(look("asked", -45), -14, "to the left");
     assert.equal(look("speaking", 120), 14, "as far as it goes");
     assert.equal(look("awake", 0), 0);
+    assert.equal(look("following", -20), -6, "while it may hear more after its answer");
     assert.equal(look("hearing", undefined), 0, "not without a mic that says");
     assert.equal(look("listening", 30), 0, "not at rest");
     assert.equal(face({ mode: "thinking" }, from("answering", 30), NOW).look, 0, "nor while it thinks");
@@ -278,6 +285,15 @@ describe("its face", () => {
     });
     assert.equal(face(idle, state({ turn: { ...said, doneAt: NOW - 500 } }), NOW).state, "idle", "not said yet");
     assert.equal(face(idle, state({ turn: { ...said, spokenAt: NOW - 500 } }), NOW).state, "pleased");
+  });
+
+  it("pleased once its answer is said, then on whoever asked while it may hear more", () => {
+    const said = turn([["speaking", NOW - 2000]], { doneAt: NOW - 1500, spokenAt: NOW - 500, ok: true });
+    const following = state({ turn: said, voice: voiceIn("following") });
+    const m = mode(following, NOW);
+    assert.equal(face(m, following, NOW).state, "pleased");
+    assert.equal(face(m, following, NOW - 500 + PLEASED_MS).state, "following");
+    assert.equal(face(m, { ...following, turn: { ...said, ok: false } }, NOW).state, "following", "not when it failed");
   });
 
   it("dozing once nobody talked to it for a long while", () => {
@@ -430,7 +446,7 @@ describe("its screen", () => {
   });
 
   it("stays on while someone talks to grog, however long, then a while", () => {
-    for (const s of ["hearing", "awake", "asked", "answering", "speaking"]) {
+    for (const s of ["hearing", "awake", "asked", "following", "answering", "speaking"]) {
       assert.equal(screenOn(quiet({ voice: { ...listening, state: s } }), NOW), true, s);
     }
     assert.equal(screenOn(quiet({ voice: { ...listening, since: NOW - 2 * MIN } }), NOW), true, "back to listening");
@@ -518,6 +534,9 @@ describe("what its face does on the way to the next", () => {
       ["asked", "sleepy", null, null, "never-mind"],
       ["awake", "hearing", null, null, null],
       ["pleased", "idle", null, null, null],
+      ["pleased", "following", null, null, null],
+      ["following", "idle", null, null, null],
+      ["following", "hearing", null, null, null],
     ];
     for (const [from, to, fromIcon, toIcon, want] of cases) {
       assert.equal(reaction(from, to, fromIcon, toIcon), want, `${from} to ${to}`);

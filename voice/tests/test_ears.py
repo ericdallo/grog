@@ -387,9 +387,9 @@ class HeadTest(unittest.TestCase):
         self.assertEqual(heard.speech_end, end, "from when its speech started to when it ended")
         self.assertAlmostEqual(heard.speech_end - start, 6.8, delta=0.5)
         self.assertIsNone(e.address(heard), "for the voice to decide")
-        self.assertEqual(["listening"], e.told)
+        self.assertEqual(["following"], e.told, "what it does meanwhile, for grog's skin")
         self.assertEqual("e amanhã, vai chover lá em Pinheiros?", e.address(heard, follows=True))
-        self.assertEqual(["listening", "hearing"], e.told)
+        self.assertEqual(["following", "hearing"], e.told)
 
     def test_with_a_name_needed_only(self):
         for awake in (None, "awake"):

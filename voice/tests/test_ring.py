@@ -97,6 +97,11 @@ class LookTest(unittest.TestCase):
         )
         for state in ("awake", "asked"):
             self.assertEqual(scaled(ring.CALLED, 0.6), dict(look(state))["LED_DOA_COLOR"][1])
+        self.assertEqual(
+            (scaled(ring.CALLED, 0.03), scaled(ring.CALLED, 0.3)),
+            dict(look("following"))["LED_DOA_COLOR"],
+            "dimmer, while it may hear more after an answer",
+        )
 
     def test_spinning_while_grog_thinks(self):
         shown = dict(look("answering", frame=0))

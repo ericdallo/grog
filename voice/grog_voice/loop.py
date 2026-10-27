@@ -260,9 +260,9 @@ class Voice:
     def follow(self, angle):
         """For followUpSeconds from now, what's said from about `angle`
         (where whoever grog just answered talked from, FOLLOW_DEGREES at
-        most off it) needs no wake word: a follow-up ("e amanhã?"). It
-        doesn't say so: music isn't ducked meanwhile, nor is grog's screen
-        woken."""
+        most off it) needs no wake word: a follow-up ("e amanhã?"). grog is
+        told it's following meanwhile (see idle), for its skin and ring to
+        show, rather than awake: its music isn't ducked."""
         self.follow_until = time.monotonic() + self.follow_s
         self.followed = angle
 
@@ -311,6 +311,11 @@ class Voice:
         """Why what's said now needs no wake word, awake or asked (see
         wake_up), or None when it needs one."""
         return self.awake_why if time.monotonic() < self.awake_until else None
+
+    def idle(self):
+        """What it does while nobody talks to grog: awake or asked (see
+        awake), following (see follows), or listening."""
+        return self.awake() or ("following" if self.follows() else "listening")
 
     def close(self):
         """Closes the mic, what transcribes partials, and the ring."""
@@ -382,7 +387,7 @@ class Voice:
         with self._telling:
             announcing = self.told == "announcing"
         if announcing:
-            self.tell(self.mouth.state or self.awake() or "listening")
+            self.tell(self.mouth.state or self.idle())
 
     def back(self):
         """grog answers, at first or again after it was away (it restarted,
@@ -418,7 +423,7 @@ class Voice:
         with self._telling:
             answering = self.told in ANSWERING
         if not answering:
-            self.tell(self.awake() or "listening")
+            self.tell(self.idle())
 
     def set_music(self, playing):
         """grog plays music, or no longer does: while it does, its name is
@@ -443,7 +448,7 @@ class Voice:
         mic is switched off, or no mic, while there's none, when it would be
         listening."""
         with self._telling:
-            if state in ("listening", "awake", "asked"):
+            if state in ("listening", "awake", "asked", "following"):
                 if self.muted:
                     state = "muted"
                 elif self.no_mic:

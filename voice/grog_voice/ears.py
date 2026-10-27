@@ -332,9 +332,11 @@ class Ears:
 
     def _idle(self):
         """What it does between utterances: answering or speaking while grog
-        answers (see `busy`), listening, or awake or asked when what's said
-        next needs no wake word (see `awake`)."""
-        return self.busy() or self.awake() or "listening"
+        answers (see `busy`), awake or asked when what's said next needs no
+        wake word (see `awake`), following while what's said from where
+        whoever grog answered talked from needs none (see `follows`), or
+        listening."""
+        return self.busy() or self.awake() or ("following" if self.follows() else "listening")
 
     def _report(self, text, final):
         """Tells grog what it heard for it, only while grog shows it."""

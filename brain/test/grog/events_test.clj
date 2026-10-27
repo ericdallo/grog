@@ -318,7 +318,7 @@
   (let [voice (fn [state seen] {:voice {:state state :seen seen}})]
     (is (false? (events/busy? events/initial-state 1000)))
     (testing "grog-voice heard its name lately, and listens, waits for the answer, or says it (or a timer)"
-      (doseq [s ["awake" "asked" "answering" "speaking" "announcing"]]
+      (doseq [s ["awake" "asked" "following" "answering" "speaking" "announcing"]]
         (is (true? (events/busy? (voice s 1000) 2000)) s))
       (is (false? (events/busy? (voice "speaking" 1000) 60000)) "not once it's gone"))
     (testing "not when it only hears someone, or listens"

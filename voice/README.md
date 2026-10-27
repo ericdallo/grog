@@ -21,6 +21,7 @@ up to it.
    doesn't need it. With a ReSpeaker (see below), which tells where speech
    comes from, neither does what you say within 8 s of any other answer
    (`followUpSeconds`), from about where you asked from: "And tomorrow?".
+   grog's screen says "Go on" meanwhile, without turning the music down.
    Someone elsewhere in the room still has to say it, and nobody while
    music plays. What isn't known to be for grog is only transcribed as
    far as its name could be, its first 3 s: a TV, or people talking, can go
@@ -150,7 +151,8 @@ spelling to `wakeWord`.
 grog works with any mic. With a ReSpeaker XVF3800 plugged in (Seeed's USB
 4-mic array), its ring also shows what grog-voice does
 ([`ring.py`](grog_voice/ring.py)): off at rest, pointing at whoever talks
-to grog, or whoever it waits for, spinning while grog thinks, lit green
+to grog, or whoever it waits for (dimmer while it may hear more after an
+answer), spinning while grog thinks, lit green
 while it speaks, breathing amber while it says a timer going off, in the
 skin's colors; red a moment when something went wrong, dim red while
 grog's mic is off. It also tells the brain where whoever talks to grog
