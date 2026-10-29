@@ -428,21 +428,35 @@ export function speaksOnScreen(state) {
 }
 
 /**
- * Whether the screen has a signal: while it's awake (see awake()), and
- * otherwise dark (see screenDark()) when its speakers are in use, as the
- * `skin.screenOff` setting (`state.screenOff`) says: "auto", while grog
- * speaks through them; "dark", always; "off", never. Off otherwise, to save
- * energy: the kiosk turns it off.
+ * What the screen does while it's not awake (see awake()), as the
+ * `skin.screenOff` setting (`state.screenOff`) says: "auto", "dark" while
+ * grog speaks through its own speakers, which go quiet without a signal,
+ * else "off"; "dark", always; "dim", always: grog as ever, dimmed; "off",
+ * always.
  */
-export function screenOn(state, now, touchedAt = 0) {
-  if (awake(state, now, touchedAt)) return true;
-  const off = state.screenOff ?? "auto";
-  return off === "dark" || (off === "auto" && speaksOnScreen(state));
+function screenAtRest(state) {
+  const how = state.screenOff ?? "auto";
+  if (how === "dark" || how === "dim") return how;
+  return how === "auto" && speaksOnScreen(state) ? "dark" : "off";
 }
 
-/** Whether the screen shows nothing but a dim clock: kept on, but not awake (see screenOn()). */
+/**
+ * Whether the screen has a signal: while it's awake (see awake()), and
+ * otherwise unless it rests off (see screenAtRest()), as the kiosk then
+ * turns it off, to save energy.
+ */
+export function screenOn(state, now, touchedAt = 0) {
+  return awake(state, now, touchedAt) || screenAtRest(state) !== "off";
+}
+
+/** Whether the screen shows nothing but a dim clock: kept on, but not awake (see screenAtRest()). */
 export function screenDark(state, now, touchedAt = 0) {
-  return !awake(state, now, touchedAt) && screenOn(state, now, touchedAt);
+  return !awake(state, now, touchedAt) && screenAtRest(state) === "dark";
+}
+
+/** Whether the screen shows grog dimmed: kept on, but not awake (see screenAtRest()). */
+export function screenDim(state, now, touchedAt = 0) {
+  return !awake(state, now, touchedAt) && screenAtRest(state) === "dim";
 }
 
 /** Whether a card waits for someone: a session open, but the one grog keeps up itself to sign in. */

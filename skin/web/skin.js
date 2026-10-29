@@ -32,6 +32,7 @@ import {
   pipeline,
   request,
   screenDark,
+  screenDim,
   screenOn,
   speakersSheet,
   stale,
@@ -750,13 +751,14 @@ function drawWifi() {
 /**
  * Tells the kiosk (the fullscreen window, kiosk.js) whether the screen is to
  * be on (view.js screenOn), when that changes, once grog said how long it
- * stays on, and goes dark while it's kept on for its speakers (view.js
- * screenDark). Elsewhere, in a browser, nothing.
+ * stays on, and goes dark or dims while it's kept on at rest (view.js
+ * screenDark, screenDim). Elsewhere, in a browser, nothing.
  */
 function drawScreen(t) {
   const kiosk = window.webkit?.messageHandlers?.screen;
   if (!kiosk || !state) return;
   document.body.classList.toggle("dark", screenDark(state, t, touchedScreenAt));
+  document.body.classList.toggle("dimmed", screenDim(state, t, touchedScreenAt));
   const on = screenOn(state, t, touchedScreenAt);
   if (on === screenTold) return;
   screenTold = on;

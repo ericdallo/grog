@@ -38,6 +38,7 @@ import {
   request,
   RETRY_MS,
   screenDark,
+  screenDim,
   screenOn,
   speaksOnScreen,
   weatherCard,
@@ -510,6 +511,27 @@ describe("its screen", () => {
     const off = quiet({ screenOff: "off", speaker: hdmi });
     assert.deepEqual([screenOn(off, NOW), screenDark(off, NOW)], [false, false]);
     assert.equal(screenDark(quiet({ screenOff: "auto", speaker: hdmi }), NOW), true);
+    assert.equal(screenOn(quiet({ screenOff: "sideways", speaker: hdmi }), NOW), false, "anything else: off");
+  });
+
+  it("or dims, kept on whatever grog speaks through: grog as ever, darker", () => {
+    const usb = { name: "alsa_output.usb-Seeed_reSpeaker", label: "reSpeaker XVF3800", kind: "usb" };
+    for (const speaker of [{ name: "HDMI1", label: "HDMI" }, usb, null]) {
+      const dim = quiet({ screenOff: "dim", speaker });
+      const how = [screenOn(dim, NOW), screenDark(dim, NOW), screenDim(dim, NOW)];
+      assert.deepEqual(how, [true, false, true], speaker?.label ?? "no speaker");
+    }
+  });
+
+  it("is never dim while awake, nor as the setting says otherwise", () => {
+    assert.equal(screenDim(quiet({ screenOff: "dim", startedAt: NOW - MIN }), NOW), false);
+    assert.equal(screenDim(quiet({ screenOff: "dim" }), NOW, NOW - MIN), false, "touched");
+    assert.equal(screenDim(quiet({ screenOff: "dim", voice: { ...listening, state: "hearing" } }), NOW), false);
+    assert.equal(screenDim(quiet({ screenOff: "dim", screenOffMinutes: null }), NOW), false);
+    assert.equal(screenDim(null, NOW), false);
+    for (const screenOff of [undefined, "auto", "dark", "off"]) {
+      assert.equal(screenDim(quiet({ screenOff, speaker: { name: "HDMI1", label: "HDMI" } }), NOW), false, screenOff);
+    }
   });
 });
 

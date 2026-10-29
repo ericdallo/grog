@@ -130,6 +130,21 @@ body[data-mode="offline"] { --mode: #57606f; --on: #a4b0be; }
   content: "";
 }
 
+/* Kept on and dimmed while nothing happens (.dimmed, view.js screenDim,
+   with skin.screenOff "dim"): grog as ever under a veil, which fades in
+   slowly and lifts at once, touches going through it. Only the screen's
+   own brightness would save energy: this is for the light. */
+.dimmed::after {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #000000;
+  opacity: 0.3;
+  pointer-events: none;
+  content: "";
+  animation: veil-in 2s ease-in-out both;
+}
+
 html,
 body {
   height: 100%;
@@ -1855,6 +1870,12 @@ ol {
 @keyframes breathe {
   50% {
     opacity: 0.35;
+  }
+}
+
+@keyframes veil-in {
+  from {
+    opacity: 0;
   }
 }
 

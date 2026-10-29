@@ -138,9 +138,12 @@ DisplayPort) would go quiet with it, so while grog speaks through them
 (the speaker picked for its voice), the screen goes dark instead: black
 but for a dim clock, the signal kept, the music and grog's voice heard
 (`screenDark`). A touch then only wakes it. `skin.screenOff` says how it
-goes: `"auto"` (that way), `"dark"` (always), or `"off"` (always off, its
-speakers quiet until it's back, the sound saying grog heard its name
-mostly lost). Elsewhere, and in a browser, it stays on. GNOME may ignore a laptop's own touch screen while
+goes: `"auto"` (that way), `"dark"` (always), `"dim"` (grog as ever,
+dimmed, its signal kept: `screenDim`; touches work as usual), or `"off"`
+(always off, its speakers quiet until it's back, the sound saying grog
+heard its name mostly lost). Dark or dim, an LCD's backlight shines as
+bright, so they save next to nothing: only less light in the room.
+Elsewhere, and in a browser, it stays on. GNOME may ignore a laptop's own touch screen while
 it's off, and with cage, a mouse moved while it's off can stray from the
 window: a key, or grog, still wakes it.
 

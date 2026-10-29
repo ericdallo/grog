@@ -82,10 +82,10 @@
 
 (deftest screen-off
   (is (= "auto" (get-in config/defaults [:skin :screen-off])) "dark while grog speaks through its speakers")
-  (doseq [how ["auto" "dark" "off"]]
+  (doseq [how ["auto" "dark" "dim" "off"]]
     (is (= [] (config/problems (assoc-in config/defaults [:skin :screen-off] how))) how))
-  (is (= ["skin.screenOff: expected \"auto\", \"dark\" or \"off\", got \"dim\""]
-         (config/problems (assoc-in config/defaults [:skin :screen-off] "dim")))))
+  (is (= ["skin.screenOff: expected \"auto\", \"dark\", \"dim\" or \"off\", got \"black\""]
+         (config/problems (assoc-in config/defaults [:skin :screen-off] "black")))))
 
 (deftest screen-off-minutes
   (is (= 10 (get-in config/defaults [:skin :screen-off-minutes])) "on by default, after 10 minutes")

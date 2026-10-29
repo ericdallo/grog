@@ -49,7 +49,7 @@
    ;; Screen off: how it goes off then, as its own speakers (HDMI,
    ;; DisplayPort) go quiet without a signal: "auto", dark (a dim clock,
    ;; the signal kept) while grog speaks through them, else off; "dark";
-   ;; "off".
+   ;; "dim" (grog as ever, dimmed, the signal kept); "off".
    :skin {:dir nil :captions false :screen-off-minutes 10 :screen-off "auto"}
    ;; How the update service (`grog updater`, as root) says an update goes,
    ;; a file: with it and hands, grog can update itself when asked (the
@@ -255,7 +255,7 @@
         (check config [:skin :captions] boolean? "true or false")
         (check config [:skin :screen-off-minutes] (some-fn nil? #(and (number? %) (pos? %)))
                "a number of minutes, or null to keep the screen on")
-        (check config [:skin :screen-off] #{"auto" "dark" "off"} "\"auto\", \"dark\" or \"off\"")
+        (check config [:skin :screen-off] #{"auto" "dark" "dim" "off"} "\"auto\", \"dark\", \"dim\" or \"off\"")
         (check config [:update :status] (some-fn nil? non-blank-string?) "a file path, or null")
         (check config [:music :socket] (some-fn nil? non-blank-string?) "a unix socket path, or null")
         (check config [:music :provider] (some-fn nil? non-blank-string?)
