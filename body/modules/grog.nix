@@ -1,4 +1,4 @@
-{ config, lib, pkgs, utils, ... }:
+{ config, lib, options, pkgs, utils, ... }:
 
 let
   cfg = config.services.grog;
@@ -700,11 +700,8 @@ in
       # the one the kernel would kill first once memory runs out: it goes
       # last instead. A user's services can't lower their own score, so the
       # users' service managers start lower, and give their other services
-      # the usual one (their own plus 100, by default).
+      # the usual one (their own plus 100, by default: see below).
       systemd.services."user@".serviceConfig.OOMScoreAdjust = -500;
-      systemd.user.extraConfig = ''
-        DefaultOOMScoreAdjust=200
-      '';
 
       # In the session of the user with the microphone and the speaker.
       systemd.user.services.grog-voice = {
@@ -732,6 +729,19 @@ in
         };
       };
     })
+
+    # The users' other services get the usual score back (see above):
+    # through systemd.user.settings where nixpkgs has it, as it dropped
+    # extraConfig then.
+    (lib.mkIf cfg.voice.enable (
+      if options.systemd.user ? settings then {
+        systemd.user.settings.Manager.DefaultOOMScoreAdjust = 200;
+      } else {
+        systemd.user.extraConfig = ''
+          DefaultOOMScoreAdjust=200
+        '';
+      }
+    ))
 
     (lib.mkIf cfg.hands.enable {
       users.groups.grog-hands = { };
